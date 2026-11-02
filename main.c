@@ -324,6 +324,12 @@ size_t tokenizer_is_number(const char *pos){
 	while(isdigit(pos[i])){
 		i += 1;
 	}
+  if((pos[i] == 'e' || pos[i] == 'E') &&
+     (isdigit(pos[i + 1]) ||
+      ((pos[i + 1] == '+' || pos[i + 1] == '-') && isdigit(pos[i + 2])))){
+          i += (pos[i + 1] == '+' || pos[i + 1] == '-') ? 2 : 1;
+          while(isdigit(pos[i])) i += 1;
+  }       
 	return i;
 }
 
@@ -2323,6 +2329,9 @@ Value unop_with_nan(Arena *a, Value *arg){
 Value unop_num_plus(Arena *a, Value *arg){
 	return make_num(arg->value.number);
 }
+Value unop_complex_plus(Arena *a, Value *arg){
+	return make_complex(arg->value.complex_number);
+}
 Value unop_arr_plus(Arena *a, Value *arg){
 	return make_array(arg->value.array);
 }
@@ -2335,6 +2344,9 @@ Value unop_tf_plus(Arena *a, Value *arg){
 
 Value unop_num_minus(Arena *a, Value *arg){
 	return make_num(-1.0 * arg->value.number);
+}
+Value unop_complex_minus(Arena *a, Value *arg){
+	return make_complex(-1.0 * arg->value.complex_number);
 }
 Value unop_arr_minus(Arena *a, Value *arg){
   Array arr = scale_array(a, &arg->value.array, -1.0);
@@ -2352,6 +2364,7 @@ Value unop_tf_minus(Arena *a, Value *arg){
 static const UnaryFn unop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT] = {
 	[OP_PLUS] = {
 		[VALUE_NUMBER]            = unop_num_plus,
+		[VALUE_COMPLEX]           = unop_complex_plus,
 		[VALUE_ARRAY]             = unop_arr_plus,
 		[VALUE_POLYNOMIAL]        = unop_poly_plus,
     [VALUE_TRANSFER_FUNCTION] = unop_tf_plus,
@@ -2361,6 +2374,7 @@ static const UnaryFn unop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT] = {
 
 	[OP_MINUS] = {
 		[VALUE_NUMBER]            = unop_num_minus,
+		[VALUE_COMPLEX]           = unop_complex_minus,
 		[VALUE_ARRAY]             = unop_arr_minus,
 		[VALUE_POLYNOMIAL]        = unop_poly_minus,
     [VALUE_TRANSFER_FUNCTION] = unop_tf_minus,
@@ -2418,8 +2432,8 @@ Value pow_scalar_scalar(Arena *a, Value *left, Value *right){
 
 // Real-specific
 
-Value eq_num_num(Arena *a, Value *left, Value *right){
-	return make_num(left->value.number == right->value.number);
+Value eq_scalar_scalar(Arena *a, Value *left, Value *right){
+	return make_num(as_complex(left) == as_complex(right));
 }
 Value lt_num_num(Arena *a, Value *left, Value *right){
 	return make_num(left->value.number < right->value.number);
@@ -2940,29 +2954,40 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_TRANSFER_FUNCTION] = add_tf_tf,
 			[VALUE_NAN]               = op_with_nan,
     },
-		[VALUE_NAN] = {
-			[VALUE_NUMBER]            = op_with_nan,
-			[VALUE_ARRAY]             = op_with_nan,
-			[VALUE_POLYNOMIAL]        = op_with_nan,
-			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
-			[VALUE_NAN]               = op_with_nan,
-		},
-    [VALUE_STRING] = {
+		[VALUE_STRING] = {
 			[VALUE_NUMBER]            = cat_str_num,
 			[VALUE_ARRAY]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
-      [VALUE_STRING]            = cat_str_str,
+			[VALUE_STRING]            = cat_str_str,    
 			[VALUE_NAN]               = op_with_nan,
-    },
+		},
+		[VALUE_NAN] = {
+			[VALUE_NUMBER]            = op_with_nan,
+			[VALUE_COMPLEX]           = op_with_nan,
+			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_POLYNOMIAL]        = op_with_nan,
+			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
+			[VALUE_NAN]               = op_with_nan,
+		} 
 	},
 
 	[OP_MINUS] = {
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]            = sub_scalar_scalar,
+			[VALUE_COMPLEX]           = sub_scalar_scalar,
 			[VALUE_ARRAY]             = sub_num_array,
 			[VALUE_POLYNOMIAL]        = sub_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = sub_num_tf,
+			[VALUE_NAN]               = op_with_nan,
+		},
+		[VALUE_COMPLEX]              = {
+			[VALUE_NUMBER]            = sub_scalar_scalar,
+			[VALUE_COMPLEX]           = sub_scalar_scalar,
+			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_POLYNOMIAL]        = op_with_nan,
+			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
+			[VALUE_STRING]            = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_ARRAY] = {
@@ -2988,19 +3013,29 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		},
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
+			[VALUE_COMPLEX]           = op_with_nan,
 			[VALUE_ARRAY]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
-		}
+		} 
 	},
 
 	[OP_MUL] = {
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]            = mul_scalar_scalar,
+			[VALUE_COMPLEX]           = mul_scalar_scalar,
 			[VALUE_ARRAY]             = mul_num_array,
 			[VALUE_POLYNOMIAL]        = mul_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = mul_num_tf,
+			[VALUE_NAN]               = op_with_nan,
+		},
+		[VALUE_COMPLEX] = {
+			[VALUE_NUMBER]            = mul_scalar_scalar,
+			[VALUE_COMPLEX]           = mul_scalar_scalar,
+			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_POLYNOMIAL]        = op_with_nan,
+			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_ARRAY] = {
@@ -3026,19 +3061,29 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		},
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
+			[VALUE_COMPLEX]           = op_with_nan,
 			[VALUE_ARRAY]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
-		},
+		} 
 	},
 
 	[OP_DIV] = {
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]            = div_scalar_scalar,
+			[VALUE_COMPLEX]           = div_scalar_scalar,
 			[VALUE_ARRAY]             = op_with_nan,
       [VALUE_POLYNOMIAL]        = ordered_div_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = div_num_tf,
+			[VALUE_NAN]               = op_with_nan,
+		},
+		[VALUE_COMPLEX] = {
+			[VALUE_NUMBER]            = div_scalar_scalar,
+			[VALUE_COMPLEX]           = div_scalar_scalar,
+			[VALUE_ARRAY]             = op_with_nan,
+      [VALUE_POLYNOMIAL]        = op_with_nan,
+			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_ARRAY] = {
@@ -3064,6 +3109,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
     },
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
+			[VALUE_COMPLEX]           = op_with_nan,
 			[VALUE_ARRAY]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
@@ -3073,9 +3119,16 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 
 	[OP_POW] = {
 		[VALUE_NUMBER] = {
-			[VALUE_NUMBER]            = pow_scalar_scalar,
-			[VALUE_ARRAY]             = op_with_nan,
-			[VALUE_NAN]               = op_with_nan,
+			[VALUE_NUMBER]  = pow_scalar_scalar,
+			[VALUE_COMPLEX] = pow_scalar_scalar,
+			[VALUE_ARRAY]   = op_with_nan,
+			[VALUE_NAN]     = op_with_nan,
+		},
+		[VALUE_COMPLEX] = {
+			[VALUE_NUMBER]  = pow_scalar_scalar,
+			[VALUE_COMPLEX] = pow_scalar_scalar,
+			[VALUE_ARRAY]   = op_with_nan,
+			[VALUE_NAN]     = op_with_nan,
 		},
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
@@ -3090,7 +3143,12 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 
 	[OP_DBL_EQ] = {
 		[VALUE_NUMBER] = {
-			[VALUE_NUMBER] = eq_num_num,
+			[VALUE_NUMBER]  = eq_scalar_scalar,
+			[VALUE_COMPLEX] = eq_scalar_scalar,
+		},
+		[VALUE_COMPLEX] = {
+			[VALUE_NUMBER]  = eq_scalar_scalar,
+			[VALUE_COMPLEX] = eq_scalar_scalar,
 		},
 		[VALUE_STRING] = {
 			[VALUE_STRING] = eq_str_str,
@@ -3274,6 +3332,17 @@ Value native_poles(Arena *a, Environment *e, char* script, size_t argc, Value *a
   return make_nan();
 }
 
+Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+	Value re = argv[0];
+	Value im = argv[1];
+	if(re.valueType != VALUE_NUMBER || im.valueType != VALUE_NUMBER){
+		printf("Expected 2 real numbers. Example: complex(1,2) = 1 + 2*j\n");
+		return make_nan();
+	}
+	return make_complex(re.value.number + I * im.value.number);
+}
+
+
 
 static const NativeValueDispatch native_fns[] = {
   native_assert,
@@ -3282,6 +3351,7 @@ static const NativeValueDispatch native_fns[] = {
   native_import,
   // Math
   native_abs,
+	native_complex,
   native_real,
   native_imag,
   native_arg,
@@ -3307,6 +3377,7 @@ static const char *native_fn_names[] = {
   "import",
   // Math
   "abs",
+  "complex",
   "real",
   "imag",
   "arg",
@@ -3332,6 +3403,7 @@ static const size_t native_fn_argc[] = {
   1,
   // Math
   1,
+	2,
   1,
   1,
   1,

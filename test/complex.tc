@@ -1,0 +1,18 @@
+  import("test.tc")
+  let j = complex(0, 1)
+  let z = 3 + 4 * j
+
+  assert(z == complex(3, 4), "construction")
+  assert(abs(z) == 5, "abs")
+  assert(real(z) == 3, "real")
+  assert(imag(z) == 4, "imag")
+  assert(j * j == -1, "j^2")
+  assert(-z == complex(-3, -4), "unary minus")
+  assert(z - z == 0, "sub")
+  assert_close(abs(z / z - 1), 0, 1e-12)
+  assert_close(abs(j ^ 2 + 1), 0, 1e-12)
+
+  let p = poles(1 / poly([1, 0, 1]))
+  let p0 = p[0]
+  assert_close(abs(p0 * p0 + 1), 0, 1e-9)
+
