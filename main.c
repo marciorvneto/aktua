@@ -22,7 +22,6 @@
 #define ABERTH_TOL 1e-12
 #define ABERTH_MAX_ITER 1000
 
-
 //============================== 
 //
 //    Arena
@@ -219,6 +218,7 @@ char *alloc_string(Arena *a, size_t len){
 	V(TOK_KEYWORD) \
 	V(TOK_ID) \
 	V(TOK_NL) \
+	V(TOK_EOF) \
 	V(TOK_STRING) \
 	V(TOK_NUMBER) \
 	X(TOK_LPAREN) \
@@ -352,28 +352,29 @@ Token tokenizer_make_symbol(Arena *a, TokenType type, Tokenizer *tokenizer, size
 	return tok;
 }
 
-Token tokenizer_eat_string(Arena *a, Tokenizer *tokenizer){
-	Token tok = {
-		tok.type  = TOK_STRING,
-		tok.value = NULL,
-	};
-  tokenizer_eat_char(tokenizer, '"');
-  size_t first_char_offset = tokenizer->offset;
+int tokenizer_eat_string(Arena *a, Tokenizer *tokenizer, Token *out){
+	tokenizer_eat_char(tokenizer, '"');
+	size_t first = tokenizer->offset;
 
-  char current;
-  while((current = (tokenizer->source + tokenizer->offset)[0]) != '"'){
-    tokenizer->offset++;
-  }
+	while(tokenizer->offset < tokenizer->size &&
+			tokenizer->source[tokenizer->offset] != '"'  &&
+			tokenizer->source[tokenizer->offset] != '\n'){
+		tokenizer->offset++;
+	}
 
-  size_t last_char_offset = tokenizer->offset;
-  tokenizer_eat_char(tokenizer, '"');
+	if(tokenizer->offset >= tokenizer->size || tokenizer->source[tokenizer->offset] != '"'){
+		fprintf(stderr, "Unterminated string at offset %zu\n", first - 1);
+		return 1;
+	}
 
-  size_t num_chars = last_char_offset - first_char_offset;
+	size_t num_chars = tokenizer->offset - first;
+	tokenizer_eat_char(tokenizer, '"');
 
-  tok.value = arena_alloc(a, num_chars + 1);
-  strncpy(tok.value, tokenizer->source + first_char_offset, num_chars);
-
-	return tok;
+	out->type  = TOK_STRING;
+	out->value = arena_alloc(a, num_chars + 1);
+	memcpy(out->value, tokenizer->source + first, num_chars);
+	out->value[num_chars] = '\0';
+	return 0;
 }
 
 #define KEYWORDS_LIST  \
@@ -452,7 +453,7 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
     }
 
 		if(pos[0] == '/' && pos[1] == '/'){
-      while(tokenizer.source[tokenizer.offset] != '\n') {
+      while(tokenizer.offset < tokenizer.size && tokenizer.source[tokenizer.offset] != '\n') {
         tokenizer.offset++;
       }
       continue;
@@ -466,7 +467,8 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
     // Check for strings
     
     if(pos[0] == '"'){
-      Token tok = tokenizer_eat_string(a, &tokenizer);
+      Token tok;
+			if(tokenizer_eat_string(a, &tokenizer, &tok) != 0) return 1;
       tokens[(*num_tokens)++] = tok;
       continue;
     }
@@ -619,6 +621,9 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 
 	}
 
+	Token eof = { .type = TOK_EOF };
+	tokens[(*num_tokens)++] = eof;
+
 	return 0;
 
 }
@@ -761,13 +766,19 @@ struct AST {
 	union {
 		struct {
 			size_t num_statements;
-			AST    *statements_list;
+			AST    *statement_list;
 		} program;
 
 		struct {
 			char          *dst;
 			AST           *expr;
 		} statement;
+
+		struct {
+			size_t count;
+			AST    *first;
+		} statement_list;
+
 
 		struct {
 			AST *condition;
@@ -843,14 +854,15 @@ typedef struct {
 	size_t next;
 } Parser;
 
-int parser_done(Parser *parser){
-	return !(parser->next < parser->num_tokens);
-}
-
 Token *parser_peek(Parser *parser){
 	if(parser->next < parser->num_tokens) return &parser->tokens[parser->next];
-	return NULL;
+	return &parser->tokens[parser->num_tokens - 1];
 }
+
+int parser_done(Parser *parser){
+	return parser_peek(parser)->type == TOK_EOF;
+}
+
 
 AST *ast_alloc(Arena *pa, ASTNodeType type){
 	AST *node = arena_alloc(pa, sizeof(AST));
@@ -987,6 +999,13 @@ AST *ast_make_statement(Arena *pa, StatementType type){
 	return stmt;
 }
 
+AST *ast_make_statement_list(Arena *pa){
+	AST *stmt_list                     = ast_alloc(pa, AST_STATEMENT_LIST);
+	stmt_list->as.statement_list.count = 0;
+	return stmt_list;
+}
+
+
 
 AST *parse_expression(Arena *pa, AST *parent, Parser *parser); // Forward declaration
 AST *parse_term(Arena *pa, AST *parent, Parser *parser);
@@ -994,41 +1013,38 @@ AST *parse_unary(Arena *pa, AST *parent, Parser *parser);
 AST *parse_expo(Arena *pa, AST *parent, Parser *parser);
 AST *parse_primary(Arena *pa, AST *parent, Parser *parser);
 AST *parse_array(Arena *pa, AST *parent, Parser *parser);
-AST *parse_statements_list(Arena *pa, AST *program_node, Parser *parser);
+AST *parse_statement_list(Arena *pa, AST *program_node, Parser *parser);
 
 
 AST *parse_array(Arena *pa, AST *parent, Parser *parser){
-		if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
-		AST *array = ast_make_array(pa);
-		if(!parser_done(parser) && parser_peek(parser)->type == TOK_RBRACKET){
-			if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
-			return array;
-		}
-
-		AST *head = parse_expression(pa, parent, parser);
-		if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
-
-		AST *tail = NULL;
-		if(head == NULL){
-			if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
-			return array;
-		}
-		array->as.array.first = head;
-		tail = head;
-
-		size_t size = 1;
-
-		while(!parser_done(parser) && parser_peek(parser)->type != TOK_RBRACKET){
-			AST *expr = parse_expression(pa, parent, parser);
-			if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
-			tail->next = expr;
-			tail       = expr;
-			size       += 1;
-		}
-
+	if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
+	AST *array = ast_make_array(pa);
+	if(!parser_done(parser) && parser_peek(parser)->type == TOK_RBRACKET){
 		if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
-		array->as.array.size = size;
 		return array;
+	}
+
+	AST *head = parse_expression(pa, parent, parser);
+	if(!head) return NULL;
+	if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
+
+	array->as.array.first = head;
+	AST *tail             = head;
+
+	size_t size = 1;
+
+	while(!parser_done(parser) && parser_peek(parser)->type != TOK_RBRACKET){
+		AST *expr   = parse_expression(pa, parent, parser);
+		if(!expr) return NULL;
+		if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
+		tail->next  = expr;
+		tail        = expr;
+		size       += 1;
+	}
+
+	if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
+	array->as.array.size = size;
+	return array;
 }
 
 AST *parse_fn_call(Arena *pa, AST *parent, Parser *parser){
@@ -1044,6 +1060,7 @@ AST *parse_fn_call(Arena *pa, AST *parent, Parser *parser){
 		}
 
 		AST *head = parse_expression(pa, parent, parser);
+		if(!head) return NULL;
 		if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
 		AST *tail = NULL;
 		if(head == NULL){
@@ -1052,11 +1069,12 @@ AST *parse_fn_call(Arena *pa, AST *parent, Parser *parser){
 			return fn_call;
 		}
 		fn_call->as.fn_call.first_arg = head;
-		tail            = head;
-		size_t num_args = 1;
+		tail                          = head;
+		size_t num_args               = 1;
 
 		while(!parser_done(parser) && parser_peek(parser)->type != TOK_RPAREN){
-			AST *expr = parse_expression(pa, parent, parser);
+			AST *expr  = parse_expression(pa, parent, parser);
+			if(!expr) return NULL;
 			if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
 			tail->next = expr;
 			tail       = expr;
@@ -1095,6 +1113,7 @@ AST *parse_indexing(Arena *pa, AST *parent, Parser *parser){
 		AST *indexing = ast_make_indexing(pa, strlen(var_name));
     strcpy(indexing->as.indexing.var_name, name->value);
 		AST *expr  = parse_expression(pa, parent, parser);
+		if(!expr) return NULL;
 		indexing->as.indexing.index_expr = expr;
 
 		if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
@@ -1179,6 +1198,7 @@ AST *parse_primary(Arena *pa, AST *parent, Parser *parser) {
 
 AST *parse_term(Arena *pa, AST *parent, Parser *parser){
 	AST *left = parse_unary(pa, parent, parser);
+	if(!left) return NULL;
 	while(!parser_done(parser) &&
 			(parser_peek(parser)->type == TOK_MUL ||
 			 parser_peek(parser)->type == TOK_AT  ||
@@ -1187,8 +1207,10 @@ AST *parse_term(Arena *pa, AST *parent, Parser *parser){
 		)
 	{
 		Token *op_tok         = parser_eat(parser_peek(parser)->type, parser);
+		if(!op_tok) return NULL;
 		AST   *binop          = ast_make_binop(pa, op_from_tok(op_tok->type));
 		AST   *right          = parse_unary(pa, parent, parser);
+		if(!right)  return NULL;
 		binop->as.binop.left  = left;
 		binop->as.binop.right = right;
 		left = binop;
@@ -1208,6 +1230,7 @@ AST *parse_unary(Arena *pa, AST *parent, Parser *parser){
 
     AST *unop         = ast_make_unop(pa, op)  ;
     unop->as.unop.arg = parse_unary(pa, unop, parser);
+		if(!unop->as.unop.arg) return NULL;
 
     return unop;
   }
@@ -1217,10 +1240,13 @@ AST *parse_unary(Arena *pa, AST *parent, Parser *parser){
 
 AST *parse_expo(Arena *pa, AST *parent, Parser *parser){
 	AST *primary = parse_primary(pa, parent, parser);
+	if(!primary) return NULL;
 	if(!parser_done(parser) && parser_peek(parser)->type == TOK_CARET){
 		Token *op_tok         = parser_eat(parser_peek(parser)->type, parser);
+		if(!op_tok) return NULL;
 		AST   *binop          = ast_make_binop(pa, op_from_tok(op_tok->type));
 		AST   *right          = parse_unary(pa, parent, parser);
+		if(!right)  return NULL;
 		binop->as.binop.left  = primary;
 		binop->as.binop.right = right;
 		return binop;
@@ -1230,14 +1256,17 @@ AST *parse_expo(Arena *pa, AST *parent, Parser *parser){
 
 AST *parse_additive(Arena *pa, AST *parent, Parser *parser){
 	AST *left = parse_term(pa, parent, parser);
+	if(!left) return NULL;
 	while(!parser_done(parser) && (
 			parser_peek(parser)->type == TOK_PLUS ||
 			parser_peek(parser)->type == TOK_MINUS)
 		)
 	{
 		Token *op_tok         = parser_eat(parser_peek(parser)->type, parser);
+		if(!op_tok) return NULL;
 		AST   *binop          = ast_make_binop(pa, op_from_tok(op_tok->type));
 		AST   *right          = parse_term(pa, parent, parser);
+		if(!right)  return NULL;
 		binop->as.binop.left  = left;
 		binop->as.binop.right = right;
 		left = binop;
@@ -1247,6 +1276,7 @@ AST *parse_additive(Arena *pa, AST *parent, Parser *parser){
 
 AST *parse_expression(Arena *pa, AST *parent, Parser *parser){
 	AST *left = parse_additive(pa, parent, parser);
+	if(!left) return NULL;
 	while(!parser_done(parser) && (
 			parser_peek(parser)->type == TOK_DBL_EQ ||
 			parser_peek(parser)->type == TOK_LT     ||
@@ -1256,8 +1286,10 @@ AST *parse_expression(Arena *pa, AST *parent, Parser *parser){
 		)
 	{
 		Token *op_tok         = parser_eat(parser_peek(parser)->type, parser);
+		if(!op_tok) return NULL;
 		AST   *binop          = ast_make_binop(pa, op_from_tok(op_tok->type));
 		AST   *right          = parse_additive(pa, parent, parser);
+		if(!right)  return NULL;
 		binop->as.binop.left  = left;
 		binop->as.binop.right = right;
 		left = binop;
@@ -1298,7 +1330,8 @@ void parse_params(Arena *pa, AST *fn_def, Parser *parser){
 
 AST *parse_block(Arena *pa, AST *parent, Parser *parser){
   if(parser_eat(TOK_LCURLY, parser) == NULL) return NULL;
-  AST *list = parse_statements_list(pa, parent, parser);
+  AST *list = parse_statement_list(pa, parent, parser);
+	if(!list) return NULL;
   if(parser_eat(TOK_RCURLY, parser) == NULL) return NULL;
   return list;
 }
@@ -1325,6 +1358,7 @@ AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
   if((id = parser_eat(TOK_EQ, parser)) == NULL) return NULL;
 
   AST *expr               = parse_expression(pa, stmt, parser);
+	if(!expr) return NULL;
   stmt->as.statement.expr = expr;
 
   if(!parser_eat_stmt_end(parser)) return NULL;
@@ -1333,9 +1367,13 @@ AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
 
 AST *parse_if_stmt(Arena *pa, AST *parent, Parser *parser){
     if(parser_keyword_eat("if", parser)) {
-      AST *stmt = ast_make_statement(pa, STATEMENT_IF);
+      AST *stmt                     = ast_make_statement(pa, STATEMENT_IF);
       AST *condition                = parse_expression(pa, stmt, parser);
       AST *if_block                 = parse_block(pa, stmt, parser);
+
+			if(!condition) return NULL;
+			if(!if_block)  return NULL;
+
       stmt->as.if_stmt.condition    = condition;
       stmt->as.if_stmt.if_block     = if_block;
       stmt->as.if_stmt.else_is_elif = 0;
@@ -1350,8 +1388,16 @@ AST *parse_if_stmt(Arena *pa, AST *parent, Parser *parser){
 
         AST *elif_stmt                   = ast_make_statement(pa, STATEMENT_IF);
         elif_stmt->parent                = current;
-        elif_stmt->as.if_stmt.condition  = parse_expression(pa, elif_stmt, parser);
-        elif_stmt->as.if_stmt.if_block   = parse_block(pa, elif_stmt, parser);
+
+				AST *elif_condition              = parse_expression(pa, elif_stmt, parser);
+				AST *elif_block                  = parse_block(pa, elif_stmt, parser);
+
+				if(!elif_condition) return NULL;
+				if(!elif_block)     return NULL;
+
+        elif_stmt->as.if_stmt.condition  = elif_condition;
+        elif_stmt->as.if_stmt.if_block   = elif_block;
+
         current->as.if_stmt.else_block   = elif_stmt;
         current->as.if_stmt.else_is_elif = 1;
         current                          = elif_stmt;
@@ -1362,7 +1408,11 @@ AST *parse_if_stmt(Arena *pa, AST *parent, Parser *parser){
 					parser_keyword_match("else", tok))
 			{
         parser_eat(TOK_KEYWORD, parser);
-        current->as.if_stmt.else_block   = parse_block(pa, stmt, parser);
+				AST *else_block                  = parse_block(pa, stmt, parser);
+
+				if(!else_block) return NULL;
+
+        current->as.if_stmt.else_block   = else_block;
         current->as.if_stmt.else_is_elif = 0;
       }
 
@@ -1392,7 +1442,7 @@ AST *parse_fn_def(Arena *pa, AST *parent, Parser *parser){
   AST *stmt = ast_make_statement(pa, STATEMENT_FUNCTION_DEF);
   if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
 
-  parser_eat(TOK_LPAREN, parser);
+  if(!parser_eat(TOK_LPAREN, parser)) return NULL;
 
   size_t len              = strlen(id->value);
   stmt->as.fn_def.id      = arena_alloc(pa, len + 1);
@@ -1401,9 +1451,11 @@ AST *parse_fn_def(Arena *pa, AST *parent, Parser *parser){
   stmt->as.fn_def.id[len] = '\0';
   parse_params(pa, stmt, parser);
 
-  parser_eat(TOK_RPAREN, parser);
+  if(!parser_eat(TOK_RPAREN, parser)) return NULL;
 
-  stmt->as.fn_def.block = parse_block(pa, stmt, parser);
+	AST *block = parse_block(pa, stmt, parser);
+	if(!block) return NULL;
+  stmt->as.fn_def.block = block;
 
 	if(!parser_eat_stmt_end(parser)) return NULL;
   return stmt;
@@ -1432,9 +1484,8 @@ AST *parse_statement(Arena *pa, AST *parent, Parser *parser){
   return NULL;
 }
 
-AST *parse_statements_list(Arena *pa, AST *parent, Parser *parser){
-	size_t num_statements = 0;
-	AST *head = NULL;
+AST *parse_statement_list(Arena *pa, AST *parent, Parser *parser){
+	AST *stmt_list = ast_make_statement_list(pa);
 	AST *tail = NULL;
 
   while(!parser_done(parser))
@@ -1458,15 +1509,14 @@ AST *parse_statements_list(Arena *pa, AST *parent, Parser *parser){
 
     stmt->parent = parent;
 
-    if (tail)
-      tail->next = stmt;
-    else
-      head = stmt;
+    if (tail) tail->next = stmt;
+    else stmt_list->as.statement_list.first = stmt;
+		stmt_list->as.statement_list.count++;
 
     tail = stmt;
   }
 
-	return head;
+	return stmt_list;
 }
 
 
@@ -1480,10 +1530,10 @@ int parse_tokens(Arena *pa, AST *ast, Token *tokens, size_t num_tokens){
 	parser.tokens     = tokens;
 	parser.next       = 0;
 
-	if(num_tokens == 0) return 0;
+	AST *list = parse_statement_list(pa, ast, &parser);
+	ast->as.program.statement_list = list;
 
-	AST *list = parse_statements_list(pa, ast, &parser);
-	ast->as.program.statements_list = list;
+	if(!parser_done(&parser)) return 1;
 
 	return list == NULL ? 1 : 0;
 }
@@ -1504,11 +1554,24 @@ void ast_print(AST *ast, int level){
 		case AST_PROGRAM:
 			{
 				printf("%sPROGRAM:\n", buf);
-				AST *stmt = ast->as.program.statements_list;
+				AST *stmt = ast->as.program.statement_list;
 				while(stmt != NULL){
 					ast_print(stmt, level + 1);
 					stmt = stmt->next;
 				}
+				break;
+			}
+		case AST_STATEMENT_LIST:
+			{
+				printf("%sSTMT_LIST:\n", buf);
+        for(
+            AST* node = ast->as.statement_list.first;
+            node != NULL;
+            node = node->next
+          )
+        {
+					ast_print(node, level + 1);
+        }
 				break;
 			}
 		case AST_STATEMENT:
@@ -1599,6 +1662,8 @@ struct Environment {
 	Variable    *vars;
 	size_t      num_vars;
 	Environment *parent;
+	size_t      *failed_asserts;
+	char        *exe_path;
 };
 
 void initialize_native_fns(Environment *e);
@@ -1610,10 +1675,12 @@ void env_init(Environment *e, Arena *pa){
 }
 
 
-Environment env_create(Arena *pa, Arena *fa){
+Environment env_create(Arena *pa, Arena *fa, size_t *failed_asserts, char* exe_path){
 	Environment e;
 	env_init(&e, pa);
-  e.frame = fa;
+  e.frame          = fa;
+	e.failed_asserts = failed_asserts;
+	e.exe_path       = exe_path;
   initialize_native_fns(&e);
 	return e;
 }
@@ -3065,6 +3132,22 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 
 //------------ System ------------
 
+Value native_assert(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+  *silent    = 1;
+	Value cond = argv[0];
+	Value msg  = argv[1];
+	if(msg.valueType != VALUE_STRING){
+		fprintf(stderr, "Second argument must me a string\n");
+		(*e->failed_asserts)++;
+		return make_nan();
+	}
+	if(!cond.value.number){
+		fprintf(stderr, "FAIL: %s: %s\n", script, msg.value.str);
+		(*e->failed_asserts)++;
+	}
+  return make_num(cond.value.number);
+}
+
 Value native_ls(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   env_list_variables(e);
   *silent = 1;
@@ -3193,6 +3276,7 @@ Value native_poles(Arena *a, Environment *e, char* script, size_t argc, Value *a
 
 
 static const NativeValueDispatch native_fns[] = {
+  native_assert,
   native_ls,
   native_print,
   native_import,
@@ -3217,6 +3301,7 @@ static const NativeValueDispatch native_fns[] = {
 };
 
 static const char *native_fn_names[] = {
+  "assert",
   "ls",
   "print",
   "import",
@@ -3241,6 +3326,7 @@ static const char *native_fn_names[] = {
 };
 
 static const size_t native_fn_argc[] = {
+  2,
   0,
   1,
   1,
@@ -3363,11 +3449,13 @@ Environment *push_env(Environment *e){
 
 	Environment *new_env = arena_alloc(fa, sizeof(Environment));
 
-  new_env->persistent = e->persistent;
-	new_env->parent     = e;
-  new_env->frame      = e->frame;
-  new_env->num_vars   = 0;
-  new_env->vars       = arena_alloc(fa, 32 * sizeof(Variable));
+  new_env->persistent     = e->persistent;
+	new_env->parent         = e;
+  new_env->frame          = e->frame;
+  new_env->num_vars       = 0;
+  new_env->vars           = arena_alloc(fa, 32 * sizeof(Variable));
+	new_env->failed_asserts = e->failed_asserts;
+	new_env->exe_path       = e->exe_path;
 
 	return new_env;
 }
@@ -3584,17 +3672,31 @@ void print_value(Arena *ta, Environment *e, Value *value){
 
 int run_program(Arena *ta, Environment *e, FILE *f, char *script_path);
 
-char *resolve_path(Arena *a, char* importer, char *path){
+char *path_join_dir(Arena *a, const char* file, const char *rel){
+	// Example:
+	// a/b/script.tc + x.tc -> a/b/x.tc
+	// script.tx -> current directory
+
+	const char *last_slash = file ? strrchr(file, '/') : NULL;
+	size_t dir_len         = last_slash ? (size_t)(last_slash - file) : 1;
+	const char *dir        = last_slash ? file : ".";
+
+	size_t len = dir_len + 1 + strlen(rel);
+	char *out  = arena_alloc(a, len + 1);
+	snprintf(out, len + 1, "%.*s/%s", (int)dir_len, dir, rel);
+	return out;
+
+}
+
+char *resolve_path(Arena *a, char* script_path, char *exe_path, char *path){
   char *candidate = NULL;
 
   // base.tc            -> executable_path/libs/base.tc
   // ./folder/script.tc -> caller_path/folder/script.tc
   // Absolute paths are kept
 
-  if(path[0] == '/'){
-    // Absolute
-    return clone_string(a, path);
-  }
+	// Absolute
+  if(path[0] == '/'){ return clone_string(a, path); }
 
   if(path[0] == '~' && path[1] == '/'){
     const char *home = getenv("HOME");
@@ -3610,45 +3712,26 @@ char *resolve_path(Arena *a, char* importer, char *path){
     sprintf(candidate, "%s%s", home, path + 1);
     candidate[len]   = '\0';
     return candidate;
-
   }
 
-  // Resolve wrt the executable path
-  // Example:
-  // path        = drone/quadrotor.tc                                             (18 chars)
-  // importer    = /home/user/folder/tiny-ctrl/build/tctl                         (38 chars)
-  // base_folder = /home/user/folder/tiny-ctrl/build                              (33 chars)
-  // lib_folder  = libs                                                           (4 chars)
-  // abs path    = /home/user/folder/tiny-ctrl/build/libs/drone/quadrotor.tc      (57 chars)
+	if(
+			strncmp(path, "./", 2)  == 0 ||
+			strncmp(path, "../", 3) == 0
+		){ return path_join_dir(a, script_path, path); }
 
-  char *last_slash = strrchr(importer, '/');
-  if(!last_slash) return NULL;
-
-  size_t base_folder_len = last_slash - importer;
-
-  const char *lib_folder = "libs";
-
-  size_t path_len = strlen(path)        + 
-                    base_folder_len     + 
-                    strlen(lib_folder)  +
-                    2;                      // Missing 2 slashes
-
-  candidate = arena_alloc(a, path_len + 1);
-  strncpy(candidate, importer, base_folder_len);
-  sprintf(candidate + base_folder_len, "/%s/%s", lib_folder, path);
-  candidate[path_len] = '\0';
-
-  return candidate;
+	char *lib = path_join_dir(a, exe_path, "libs/x"); // Placeholder so that we can reuse this fn
+	lib[strlen(lib) - 1] = '\0';
+	return path_join_dir(a, lib, path);
 }
 
 int import_script(Arena *ta, Environment *e, char* importer, char *path){ 
-  char *resolved_path = resolve_path(ta, importer, path);
+  char *resolved_path = resolve_path(ta, importer, e->exe_path, path);
   FILE *f             = fopen(resolved_path, "r");
   if(f == NULL){
     perror(path);
     return 1;
   }
-  int code = run_program(ta, e, f, importer);
+  int code = run_program(ta, e, f, resolved_path);
   fclose(f);
   return code;
 }
@@ -3752,6 +3835,7 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 	Variable *var = env_find_variable(e, name);
 	if(!var){
 		printf("Undefined variable %s\n", name);
+		return make_nan();
 	}
 
 	if(
@@ -3873,12 +3957,12 @@ ExecStatus eval_block(
     AST *ast,
     Environment *e,
     char *script_path,
-    AST *first,
+    AST *block,
     Value *result_out
 ) {
     Value result = make_num(0);
 
-    for (AST *stmt = first; stmt != NULL; stmt = stmt->next) {
+    for (AST *stmt = block->as.statement_list.first; stmt != NULL; stmt = stmt->next) {
 
         if (stmt->statement_type == STATEMENT_EXPR) {
             int silent = 1;
@@ -4007,7 +4091,7 @@ ExecStatus eval_stmt(
 
 int run_ast(Arena* ta, AST *ast, Environment *e, char *script_path){
 
-	AST *stmt = ast->as.program.statements_list;
+	AST *stmt = ast->as.program.statement_list->as.statement_list.first;
 
 	while(stmt != NULL){
 		ExecStatus status = eval_stmt(ta, ast, e, script_path, stmt, NULL);
@@ -4126,8 +4210,8 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
       if(parse_code == 0) run_ast(ta, ast, e, script_path);
     }
     if(parse_code != 0){
-      printf("Exiting with code %i...\n", parse_code);
-      break;
+      printf("Syntax error\n");
+      continue;
     }
 
   }
@@ -4192,6 +4276,10 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
   }
 
   free(buffer);
+	if(*e->failed_asserts > 0){
+    printf("Assertions failed: %zu...\n", *e->failed_asserts);
+		return 1;
+	}
   if(parse_code != 0){
     printf("Exiting with code %i...\n", parse_code);
   }
@@ -4200,15 +4288,16 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
 
 
 int main(int argc, char **argv){
-	size_t size       = 0;
-	ssize_t nread     = 0;
-	ssize_t last_good = 0;
-	int parse_code    = 0;
+	size_t size           = 0;
+	ssize_t nread         = 0;
+	ssize_t last_good     = 0;
+	int parse_code        = 0;
+	size_t failed_asserts = 0;
 
 	Arena ta      = arena_create(1024 * 1024);      // 1 MB for now
 	Arena pa      = arena_create(32 * 1024 * 1024); // 32 MB for now
 	Arena fa      = arena_create(1 * 1024 * 1024); // Frame arena
-	Environment e = env_create(&pa, &fa);
+	Environment e = env_create(&pa, &fa, &failed_asserts, argv[0]);
 
 	if(argc < 2){
 		// REPL

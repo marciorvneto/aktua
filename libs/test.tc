@@ -1,7 +1,7 @@
-fn assert_eq(actual, expected){
-  if(actual == expected) {
-	  print("PASS")
-	}else{
-	  print("FAIL")
-	}
+fn assert_eq(actual, expected) {
+  assert(actual == expected, "expected " + expected + ", got " + actual)
+}
+
+fn assert_close(actual, expected, tol) {
+  assert(abs(actual - expected) < tol, "not within tolerance")
 }
