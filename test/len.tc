@@ -1,0 +1,65 @@
+import("test.tc")
+
+// ---------- Arrays ----------
+
+assert_eq(len([1, 2, 3]), 3)
+assert_eq(len([7]), 1)
+assert_eq(len([]), 0)
+assert_eq(len([1, 2, 3,]), 3)
+
+let a = [4, 5, 6, 7]
+assert_eq(len(a), 4)
+
+// ---------- Tuples ----------
+
+assert_eq(len((1, 2)), 2)
+assert_eq(len((1,)), 1)
+assert_eq(len((1, "two", [3, 4], poly([1, 2]))), 4)
+
+// A nested array counts as a single element
+let t = ([1, 2, 3], [4, 5])
+assert_eq(len(t), 2)
+assert_eq(len(t[0]), 3)
+assert_eq(len(t[-1]), 2)
+
+// ---------- Ranges ----------
+
+assert_eq(len(range(0, 20)), 20)
+assert_eq(len(range(3, 3)), 0)
+assert_eq(len(range(5, 2)), 3)
+assert_eq(len(range(-2, 2)), 4)
+
+// ---------- In expressions ----------
+
+assert_eq(a[len(a) - 1], 7)
+assert_eq(len(a) + len((1, 2)), 6)
+assert_eq(len(range(0, len(a))), len(a))
+
+// The number of loop iterations matches len
+let count = 0
+for x in a {
+  count = count + 1
+}
+assert_eq(count, len(a))
+
+// ---------- Inside functions ----------
+
+fn last(xs) {
+  xs[len(xs) - 1]
+}
+assert_eq(last([9, 8, 7]), 7)
+assert_eq(last((1, 2, 3)), 3)
+
+fn sum(xs) {
+  let s = 0
+  for i in range(0, len(xs)) {
+    s = s + xs[i]
+  }
+  s
+}
+assert_eq(sum([1, 2, 3, 4]), 10)
+assert_eq(sum([]), 0)
+
+// len of a function's return value
+fn make(n) { range(0, n) }
+assert_eq(len(make(6)), 6)

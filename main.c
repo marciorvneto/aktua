@@ -3321,9 +3321,10 @@ Value native_ls(Arena *a, Environment *e, char* script, size_t argc, Value *argv
 }
 
 void print_value(Arena *ta, Environment *e, Value *value);
+static void print_value_bare(Arena *ta, Environment *e, Value *value);
 Value native_print(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
-    print_value(a, e, &val);
+    print_value_bare(a, e, &val);
     *silent = 1;
     return make_num(0);
 }
@@ -3789,8 +3790,10 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 }
 
 
-void print_value(Arena *ta, Environment *e, Value *value){
-  printf("\n");
+// Prints a single value followed by one newline. Used directly for
+// values nested inside other values (tuple items), so they don't pick up
+// the blank lines that print_value puts around top-level results.
+static void print_value_bare(Arena *ta, Environment *e, Value *value){
 	switch(value->valueType){
 		case VALUE_ID:
 			{
@@ -3798,7 +3801,7 @@ void print_value(Arena *ta, Environment *e, Value *value){
 				if(resolved.valueType == VALUE_NAN){
 					printf("%s\n", value->value.id);
 				}else{
-					print_value(ta, e, &resolved);
+					print_value_bare(ta, e, &resolved);
 				}
 				break;
 			}
@@ -3836,12 +3839,9 @@ void print_value(Arena *ta, Environment *e, Value *value){
 			{
         char buf[32];
 				printf("[");
-				for(size_t i = 0; i < value->value.poly.num_coeffs; i++){
-          format_number(buf, sizeof(buf), value->value.poly.coeffs[i], DISPLAY_SIG);
-          printf("%s%s", buf, i < value->value.array.size - 1 ? ", " : "");
-					if(i < value->value.poly.num_coeffs - 1){
-						printf(", ");
-					}
+				for(size_t i = 0; i < value->value.array.size; i++){
+          format_number(buf, sizeof(buf), value->value.array.nums[i], DISPLAY_SIG);
+          printf("%s%s", buf, i + 1 < value->value.array.size ? ", " : "");
 				}
 				printf("]\n");
 				break;
@@ -3850,7 +3850,7 @@ void print_value(Arena *ta, Environment *e, Value *value){
 			{
 				printf("(\n");
 				for(size_t i = 0; i < value->value.tuple.size; i++){
-          print_value(ta, e, &value->value.tuple.items[i]);
+          print_value_bare(ta, e, &value->value.tuple.items[i]);
 				}
 				printf(")\n");
 				break;
@@ -3895,6 +3895,13 @@ void print_value(Arena *ta, Environment *e, Value *value){
 				break;
 			}
 	}
+}
+
+// Top-level printing (print() and REPL results): the value surrounded by
+// blank lines
+void print_value(Arena *ta, Environment *e, Value *value){
+  printf("\n");
+  print_value_bare(ta, e, value);
   printf("\n");
 }
 
