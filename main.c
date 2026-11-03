@@ -3269,6 +3269,31 @@ Value native_sqr(Arena *a, Environment *e, char* script, size_t argc, Value *arg
 Value native_sqrt(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   return make_num(sqrt(argv[0].value.number));
 }
+Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){    
+	Value from_val = argv[0];
+	Value to_val   = argv[1];
+	if(from_val.valueType != VALUE_NUMBER || to_val.valueType != VALUE_NUMBER){
+		printf("Expected 2 real numbers. Example: range(1,5) = [1,2,3,4]\n");
+		return make_nan();
+	}
+	int from = floor(from_val.value.number);
+	int to   = ceil(to_val.value.number);
+	int n    = to - from;
+	int nele = abs(n);
+
+	Array arr = {
+		.size = nele,
+		.nums = arena_alloc(a, nele * sizeof(double))
+	};
+
+	int step = (from < to) - (from > to);
+
+	for(int i = 0; i < nele; i++) {
+		arr.nums[i] = from + (i * step);
+	}
+
+	return make_array(arr);
+}
 Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
   if(val.valueType == VALUE_ARRAY){
@@ -3361,6 +3386,7 @@ static const NativeValueDispatch native_fns[] = {
   native_cos,
   native_sqr,
   native_sqrt,
+  native_range,
   // Poly
   native_poly,
   native_polymod,
@@ -3387,6 +3413,7 @@ static const char *native_fn_names[] = {
   "cos",
   "sqr",
   "sqrt",
+	"range",
   // Poly
   "poly",
   "polymod",
@@ -3413,6 +3440,7 @@ static const size_t native_fn_argc[] = {
   1,
   1,
   1,
+	2,
   // Poly
   1,
   2,
