@@ -10,6 +10,9 @@ vim.cmd([[
   syntax keyword tinyctrlConditional if elif else
   syntax keyword tinyctrlRepeat for in
 
+  syntax match tinyctrlDelimiter /[{}()\[\],]/
+  syntax match tinyctrlOperator  /[-+*\/^@<>=]/
+
   syntax match tinyctrlNumber /\v<\d+(\.\d+)?([eE][+-]?\d+)?>/
 
   syntax match tinyctrlFunction /\v<[A-Za-z_][A-Za-z0-9_]*\ze\s*\(/
@@ -24,6 +27,8 @@ local groups = {
   tinyctrlKeyword     = "Keyword",
   tinyctrlConditional = "Conditional",
   tinyctrlRepeat      = "Repeat",
+  tinyctrlDelimiter   = "Delimiter",
+  tinyctrlOperator    = "Operator",
   tinyctrlNumber      = "Number",
   tinyctrlFunction    = "Function",
   tinyctrlString      = "String",
