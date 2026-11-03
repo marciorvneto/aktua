@@ -15,6 +15,8 @@
 #define ISZERO(x) CLOSE((x), 0)
 #define ALIGNMENT 16 	// Might change that in the future
 #define ALIGN_ALLOC(offset, align) ((offset + ((align) - 1)) & (~((align) - 1))) // Alignment trick
+#define ENV_INITIAL_VARS 64
+
 
 #define UNREACHABLE(x) do { fprintf(stderr, "Unreachable: " x); exit(1); } while(0);
 #define MAX(x,y) ((x) > (y) ? (x) : (y))
@@ -1674,17 +1676,31 @@ struct Environment {
   Arena       *frame;
 	Variable    *vars;
 	size_t      num_vars;
+	size_t      vars_capacity;
 	Environment *parent;
 	RunStats    *run_stats;
 	char        *exe_path;
 };
 
+// -------- Runtime errors ------
+
+void runtime_error(Environment *e, const char *fmt, ...){
+	va_list args;
+	va_start(args,fmt);
+	fprintf(stderr, "Error: ");
+	vfprintf(stderr, fmt, args);
+	fprintf(stderr, "\n");
+	va_end(args);
+	e->run_stats->runtime_errors++;
+}
+
 void initialize_native_fns(Environment *e);
 void env_init(Environment *e, Arena *pa){
-  e->persistent = pa;
-	e->vars       = arena_alloc(pa, 128 * sizeof(Variable));
-	e->num_vars   = 0;
-	e->parent     = NULL;
+  e->persistent    = pa;
+	e->vars          = arena_alloc(pa, ENV_INITIAL_VARS * sizeof(Variable));
+  e->vars_capacity = ENV_INITIAL_VARS;
+	e->num_vars      = 0;
+	e->parent        = NULL;
 }
 
 
@@ -1738,9 +1754,27 @@ Variable *env_find_variable(Environment *e, const char* name){
 
 }
 
+int env_reserve_vars(Environment *e, size_t needed){
+  if(needed <= e->vars_capacity) return 1;
+  size_t new_capacity = e->vars_capacity * 2;
+  while(new_capacity < needed) new_capacity *= 2;
+
+  Variable *new_vars = arena_alloc(env_storage(e), new_capacity * sizeof(Variable));
+  if(new_vars == NULL) return 0;
+
+  memcpy(new_vars, e->vars, e->num_vars * sizeof(Variable));
+  e->vars          = new_vars;
+  e->vars_capacity = new_capacity;
+  return 1;
+}
+
 
 
 void env_alloc_variable(Environment *e, const char* name, Value *value){
+  if(!env_reserve_vars(e, e->num_vars + 1)){
+    runtime_error(e, "Out of memory allocating variable %s", name);
+    return; 
+  }
   Arena *storage  = env_storage(e);
 
 	Variable *var   = &e->vars[e->num_vars];
@@ -1764,8 +1798,8 @@ void env_set_variable(Environment *e, const char* name, Value *value){
 		return;
 	}
 
-	Variable *var       = &e->vars[idx];
-	*var->value         = *value;
+	Variable *var = &e->vars[idx];
+	*var->value   = *value;
 }
 
 void  env_list_variables(Environment  *e){
@@ -1774,21 +1808,6 @@ void  env_list_variables(Environment  *e){
 	}
 }
 
-//============================== 
-//
-//    Runtime errors
-//
-//============================== 
-
-void runtime_error(Environment *e, const char *fmt, ...){
-	va_list args;
-	va_start(args,fmt);
-	fprintf(stderr, "Error: ");
-	vfprintf(stderr, fmt, args);
-	fprintf(stderr, "\n");
-	va_end(args);
-	e->run_stats->runtime_errors++;
-}
 
 //============================== 
 //
@@ -3573,13 +3592,14 @@ Environment *push_env(Environment *e){
 
 	Environment *new_env = arena_alloc(fa, sizeof(Environment));
 
-  new_env->persistent = e->persistent;
-	new_env->parent     = e;
-  new_env->frame      = e->frame;
-  new_env->num_vars   = 0;
-  new_env->vars       = arena_alloc(fa, 32 * sizeof(Variable));
-	new_env->run_stats  = e->run_stats;
-	new_env->exe_path   = e->exe_path;
+  new_env->persistent    = e->persistent;
+	new_env->parent        = e;
+  new_env->frame         = e->frame;
+  new_env->num_vars      = 0;
+  new_env->vars          = arena_alloc(fa, ENV_INITIAL_VARS * sizeof(Variable));
+  new_env->vars_capacity = ENV_INITIAL_VARS;
+	new_env->run_stats     = e->run_stats;
+	new_env->exe_path      = e->exe_path;
 
 	return new_env;
 }

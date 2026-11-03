@@ -1,0 +1,2 @@
+let r = range(0,100)
+print(r)

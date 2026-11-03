@@ -1,0 +1,159 @@
+import("test.tc")
+
+// ---------- Variable storage growth (ENV_INITIAL_VARS = 64) ----------
+
+// 70 globals on top of the natives: forces the global vars array to grow
+let g0 = 0
+let g1 = 1
+let g2 = 2
+let g3 = 3
+let g4 = 4
+let g5 = 5
+let g6 = 6
+let g7 = 7
+let g8 = 8
+let g9 = 9
+let g10 = 10
+let g11 = 11
+let g12 = 12
+let g13 = 13
+let g14 = 14
+let g15 = 15
+let g16 = 16
+let g17 = 17
+let g18 = 18
+let g19 = 19
+let g20 = 20
+let g21 = 21
+let g22 = 22
+let g23 = 23
+let g24 = 24
+let g25 = 25
+let g26 = 26
+let g27 = 27
+let g28 = 28
+let g29 = 29
+let g30 = 30
+let g31 = 31
+let g32 = 32
+let g33 = 33
+let g34 = 34
+let g35 = 35
+let g36 = 36
+let g37 = 37
+let g38 = 38
+let g39 = 39
+let g40 = 40
+let g41 = 41
+let g42 = 42
+let g43 = 43
+let g44 = 44
+let g45 = 45
+let g46 = 46
+let g47 = 47
+let g48 = 48
+let g49 = 49
+let g50 = 50
+let g51 = 51
+let g52 = 52
+let g53 = 53
+let g54 = 54
+let g55 = 55
+let g56 = 56
+let g57 = 57
+let g58 = 58
+let g59 = 59
+let g60 = 60
+let g61 = 61
+let g62 = 62
+let g63 = 63
+let g64 = 64
+let g65 = 65
+let g66 = 66
+let g67 = 67
+let g68 = 68
+let g69 = 69
+assert(g0 == 0, "first global survives growth")
+assert(g69 == 69, "last global")
+assert(g0 + g1 + g2 + g3 + g4 + g5 + g6 + g7 + g8 + g9 + g10 + g11 + g12 + g13 + g14 + g15 + g16 + g17 + g18 + g19 + g20 + g21 + g22 + g23 + g24 + g25 + g26 + g27 + g28 + g29 + g30 + g31 + g32 + g33 + g34 + g35 + g36 + g37 + g38 + g39 + g40 + g41 + g42 + g43 + g44 + g45 + g46 + g47 + g48 + g49 + g50 + g51 + g52 + g53 + g54 + g55 + g56 + g57 + g58 + g59 + g60 + g61 + g62 + g63 + g64 + g65 + g66 + g67 + g68 + g69 == 2415, "sum of all globals")
+
+// 70 locals in one frame, called recursively: each frame grows its own array
+fn many_locals(n) {
+  let l0 = n + 0
+  let l1 = n + 1
+  let l2 = n + 2
+  let l3 = n + 3
+  let l4 = n + 4
+  let l5 = n + 5
+  let l6 = n + 6
+  let l7 = n + 7
+  let l8 = n + 8
+  let l9 = n + 9
+  let l10 = n + 10
+  let l11 = n + 11
+  let l12 = n + 12
+  let l13 = n + 13
+  let l14 = n + 14
+  let l15 = n + 15
+  let l16 = n + 16
+  let l17 = n + 17
+  let l18 = n + 18
+  let l19 = n + 19
+  let l20 = n + 20
+  let l21 = n + 21
+  let l22 = n + 22
+  let l23 = n + 23
+  let l24 = n + 24
+  let l25 = n + 25
+  let l26 = n + 26
+  let l27 = n + 27
+  let l28 = n + 28
+  let l29 = n + 29
+  let l30 = n + 30
+  let l31 = n + 31
+  let l32 = n + 32
+  let l33 = n + 33
+  let l34 = n + 34
+  let l35 = n + 35
+  let l36 = n + 36
+  let l37 = n + 37
+  let l38 = n + 38
+  let l39 = n + 39
+  let l40 = n + 40
+  let l41 = n + 41
+  let l42 = n + 42
+  let l43 = n + 43
+  let l44 = n + 44
+  let l45 = n + 45
+  let l46 = n + 46
+  let l47 = n + 47
+  let l48 = n + 48
+  let l49 = n + 49
+  let l50 = n + 50
+  let l51 = n + 51
+  let l52 = n + 52
+  let l53 = n + 53
+  let l54 = n + 54
+  let l55 = n + 55
+  let l56 = n + 56
+  let l57 = n + 57
+  let l58 = n + 58
+  let l59 = n + 59
+  let l60 = n + 60
+  let l61 = n + 61
+  let l62 = n + 62
+  let l63 = n + 63
+  let l64 = n + 64
+  let l65 = n + 65
+  let l66 = n + 66
+  let l67 = n + 67
+  let l68 = n + 68
+  let l69 = n + 69
+  if n > 0 {
+    return many_locals(n - 1) + l0 + l69
+  }
+  l0 + l1 + l2 + l3 + l4 + l5 + l6 + l7 + l8 + l9 + l10 + l11 + l12 + l13 + l14 + l15 + l16 + l17 + l18 + l19 + l20 + l21 + l22 + l23 + l24 + l25 + l26 + l27 + l28 + l29 + l30 + l31 + l32 + l33 + l34 + l35 + l36 + l37 + l38 + l39 + l40 + l41 + l42 + l43 + l44 + l45 + l46 + l47 + l48 + l49 + l50 + l51 + l52 + l53 + l54 + l55 + l56 + l57 + l58 + l59 + l60 + l61 + l62 + l63 + l64 + l65 + l66 + l67 + l68 + l69
+}
+assert(many_locals(0) == 2415, "70 locals")
+assert(many_locals(3) == 2634, "70 locals per frame, recursion depth 3")
+assert(g69 == 69, "globals intact after calls")
