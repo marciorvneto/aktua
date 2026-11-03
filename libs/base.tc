@@ -25,3 +25,23 @@ fn pid(kp, ki, kd) {
 fn closedloop(G) {
   G / (1 + G)
 }
+
+// Useful functions
+
+fn map(f, list){
+	let out = []
+	for v in list {
+		out = push(out, f(v))
+	}
+	out
+}
+
+fn filter(f, list){
+	let out = []
+	for v in list {
+		if f(v) {
+			out = push(out, v)
+		}
+	}
+	out
+}

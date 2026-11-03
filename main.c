@@ -3422,6 +3422,32 @@ Value native_len(Arena *a, Environment *e, char* script, size_t argc, Value *arg
   return make_num(0);
 }
 
+Value native_push(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+  Value arr = argv[0];
+  Value val = argv[1];
+  if(
+      arr.valueType != VALUE_ARRAY ||
+      val.valueType != VALUE_NUMBER
+    )
+  {
+    runtime_error(e, "push requires an array and a number");
+    return make_nan();
+  }
+
+	size_t n = arr.value.array.size;
+	Array new_arr = {
+		.size = n + 1,
+		.nums = arena_alloc(a, (n + 1) * sizeof(double)),
+	};
+
+	for(size_t i = 0; i < arr.value.array.size; i++){
+		new_arr.nums[i] = arr.value.array.nums[i];
+	}
+	new_arr.nums[n] = val.value.number;
+
+  return make_array(new_arr);
+}
+
 Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
   if(val.valueType == VALUE_ARRAY){
@@ -3517,6 +3543,7 @@ static const NativeValueDispatch native_fns[] = {
   // Arrays and tuples
   native_range,
   native_len,
+  native_push,
   // Poly
   native_poly,
   native_polymod,
@@ -3546,6 +3573,7 @@ static const char *native_fn_names[] = {
   // Arrays and tuples
 	"range",
   "len",
+	"push",
   // Poly
   "poly",
   "polymod",
@@ -3575,6 +3603,7 @@ static const size_t native_fn_argc[] = {
   // Arrays and tuples
 	2,
   1,
+	2,
   // Poly
   1,
   2,

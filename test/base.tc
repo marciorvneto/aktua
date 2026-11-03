@@ -1,0 +1,76 @@
+import("test.tc")
+import("base.tc")
+
+// There is no array equality operator yet, so compare element by element
+fn assert_arr_eq(actual, expected) {
+  assert_eq(len(actual), len(expected))
+  for i in range(0, len(expected)) {
+    assert_eq(actual[i], expected[i])
+  }
+}
+
+fn sq(x) { x * x }
+fn double(x) { 2 * x }
+fn big(x) { x > 2 }
+fn never(x) { 0 }
+fn always(x) { 1 }
+
+// ---------- push ----------
+
+assert_arr_eq(push([], 1), [1])
+assert_arr_eq(push([1, 2], 3), [1, 2, 3])
+assert_arr_eq(push(push(push([], 1), 2), 3), [1, 2, 3])
+assert_arr_eq(push([1], -2.5), [1, -2.5])
+
+// push returns a new array and leaves its argument untouched
+let a = [1, 2]
+let b = push(a, 9)
+assert_arr_eq(a, [1, 2])
+assert_arr_eq(b, [1, 2, 9])
+
+// Pushing onto the same array twice gives independent results
+let c1 = push(a, 3)
+let c2 = push(a, 4)
+assert_arr_eq(c1, [1, 2, 3])
+assert_arr_eq(c2, [1, 2, 4])
+
+// ---------- map ----------
+
+assert_arr_eq(map(sq, range(0, 5)), [0, 1, 4, 9, 16])
+assert_arr_eq(map(double, [1, -2, 3.5]), [2, -4, 7])
+assert_arr_eq(map(sq, []), [])
+assert_arr_eq(map(sq, [3]), [9])
+
+// map leaves its input untouched
+let xs = [1, 2, 3]
+let ys = map(double, xs)
+assert_arr_eq(xs, [1, 2, 3])
+assert_arr_eq(ys, [2, 4, 6])
+
+// Length is preserved, also past a few hundred elements
+let squares = map(sq, range(0, 300))
+assert_eq(len(squares), 300)
+assert_eq(squares[-1], 299 * 299)
+
+// Composition
+assert_arr_eq(map(double, map(sq, [1, 2, 3])), [2, 8, 18])
+
+// ---------- filter ----------
+
+// Keeps the elements themselves, not the predicate results
+assert_arr_eq(filter(big, range(0, 7)), [3, 4, 5, 6])
+assert_arr_eq(filter(big, [5, 1, 4, 0]), [5, 4])
+assert_arr_eq(filter(never, [1, 2, 3]), [])
+assert_arr_eq(filter(always, [1, 2, 3]), [1, 2, 3])
+assert_arr_eq(filter(big, []), [])
+
+// filter leaves its input untouched
+let zs = [1, 5, 2, 6]
+let big_zs = filter(big, zs)
+assert_arr_eq(zs, [1, 5, 2, 6])
+assert_arr_eq(big_zs, [5, 6])
+
+// ---------- map and filter together ----------
+
+assert_arr_eq(map(sq, filter(big, range(0, 5))), [9, 16])
+assert_arr_eq(filter(big, map(sq, range(0, 4))), [4, 9])
