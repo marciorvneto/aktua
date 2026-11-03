@@ -1,0 +1,89 @@
+import("test.tc")
+
+// ---------- Indexing (modulo bug: index 0 read past the end) ----------
+
+let b = [5, 6, 7]
+assert(b[0] == 5, "array index 0")
+assert(b[2] == 7, "array last index")
+assert(b[-1] == 7, "array index -1")
+assert(b[-3] == 5, "array index -3")
+
+let t = (1, 2)
+assert(t[0] == 1, "tuple index 0")
+assert(t[-1] == 2, "tuple index -1")
+
+// ---------- Root finding (Aberth: complex Horner + start angle) ----------
+
+// x^2 + 1 -> +-j
+let p = poles(1 / poly([1, 0, 1]))
+let p0 = p[0]
+let p1 = p[1]
+assert_close(abs(p0 * p0 + 1), 0, 1e-9)
+assert_close(abs(p1 * p1 + 1), 0, 1e-9)
+assert_close(real(p0), 0, 1e-9)
+assert_close(abs(imag(p0)), 1, 1e-9)
+
+// x^3 - 2x^2 + x + 5: every root must satisfy the polynomial
+let q = poles(1 / poly([5, 1, -2, 1]))
+let q0 = q[0]
+let q1 = q[1]
+let q2 = q[2]
+assert_close(abs(q0^3 - 2*q0^2 + q0 + 5), 0, 1e-9)
+assert_close(abs(q1^3 - 2*q1^2 + q1 + 5), 0, 1e-9)
+assert_close(abs(q2^3 - 2*q2^2 + q2 + 5), 0, 1e-9)
+
+// (x + 1)^2: double root, slower convergence
+let d = poles(1 / poly([1, 2, 1]))
+let d0 = d[0]
+let d1 = d[1]
+assert_close(abs(d0 + 1), 0, 1e-6)
+assert_close(abs(d1 + 1), 0, 1e-6)
+
+// ---------- return ----------
+
+fn early(x) {
+  return x
+  assert(0, "code after return ran")
+}
+assert(early(3) == 3, "early return")
+
+fn sign(x) {
+  if x < 0 { return -1 } elif x > 0 { return 1 } else { 0 }
+  99
+}
+assert(sign(-5) == -1, "return from if")
+assert(sign(5) == 1, "return from elif")
+assert(sign(0) == 99, "fall through after else")
+
+fn fact(n) {
+  if n <= 1 { return 1 }
+  n * fact(n - 1)
+}
+assert(fact(5) == 120, "return does not escape recursive calls")
+
+fn bare() {
+  return
+  assert(0, "code after bare return ran")
+}
+assert(bare() == 0, "bare return")
+
+// ---------- Statement ends (one-line blocks) ----------
+
+fn inc(x) { x + 1 }
+assert(inc(2) == 3, "one-line function body")
+
+fn inc2(x) { let y = x + 2 }
+assert(inc2(1) == 0, "assignment as last statement in one-line block")
+
+fn empty() {}
+assert(empty() == 0, "empty block")
+
+// ---------- Number literals ----------
+
+assert(1e3 == 1000, "exponent")
+assert(2.5e-1 == 0.25, "negative exponent")
+assert(1E2 == 100, "uppercase exponent")
+assert(2e-1-1 == -0.8, "exponent followed by subtraction")
+
+// The file deliberately ends with a comment and no trailing newline
+// (statement end at EOF, comment scan at EOF)

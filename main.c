@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdarg.h>
 #include <math.h>
 #include <sys/types.h>
 
@@ -68,6 +69,7 @@ void arena_restore(Arena *a, size_t offset){
 #define CONCAT_INTERNAL(x,y) x##y
 #define CONCAT(x, y) CONCAT_INTERNAL(x, y)
 #define SCRATCH_SCOPE(arena) for(size_t CONCAT(scratch_, __LINE__) = arena_save(arena), _once = 1; _once == 1; arena_restore(arena, CONCAT(scratch_, __LINE__)), _once = 0)
+
 
 //============================== 
 //
@@ -1661,6 +1663,11 @@ typedef struct {
 	Value *value;
 } Variable;
 
+typedef struct {
+	size_t failed_asserts;
+	size_t runtime_errors;
+} RunStats;
+
 typedef struct Environment Environment;
 struct Environment {
   Arena       *persistent;
@@ -1668,25 +1675,25 @@ struct Environment {
 	Variable    *vars;
 	size_t      num_vars;
 	Environment *parent;
-	size_t      *failed_asserts;
+	RunStats    *run_stats;
 	char        *exe_path;
 };
 
 void initialize_native_fns(Environment *e);
 void env_init(Environment *e, Arena *pa){
   e->persistent = pa;
-	e->vars       = arena_alloc(pa, 32 * sizeof(Variable));
+	e->vars       = arena_alloc(pa, 128 * sizeof(Variable));
 	e->num_vars   = 0;
 	e->parent     = NULL;
 }
 
 
-Environment env_create(Arena *pa, Arena *fa, size_t *failed_asserts, char* exe_path){
+Environment env_create(Arena *pa, Arena *fa, RunStats *run_stats, char* exe_path){
 	Environment e;
 	env_init(&e, pa);
-  e.frame          = fa;
-	e.failed_asserts = failed_asserts;
-	e.exe_path       = exe_path;
+  e.frame     = fa;
+	e.run_stats = run_stats;
+	e.exe_path  = exe_path;
   initialize_native_fns(&e);
 	return e;
 }
@@ -1765,6 +1772,22 @@ void  env_list_variables(Environment  *e){
 	for(size_t i = 0; i < e->num_vars; i++){
 		printf("%s\n", e->vars[i].name);
 	}
+}
+
+//============================== 
+//
+//    Runtime errors
+//
+//============================== 
+
+void runtime_error(Environment *e, const char *fmt, ...){
+	va_list args;
+	va_start(args,fmt);
+	fprintf(stderr, "Error: ");
+	vfprintf(stderr, fmt, args);
+	fprintf(stderr, "\n");
+	va_end(args);
+	e->run_stats->runtime_errors++;
 }
 
 //============================== 
@@ -3196,12 +3219,12 @@ Value native_assert(Arena *a, Environment *e, char* script, size_t argc, Value *
 	Value msg  = argv[1];
 	if(msg.valueType != VALUE_STRING){
 		fprintf(stderr, "Second argument must me a string\n");
-		(*e->failed_asserts)++;
+		(e->run_stats->failed_asserts)++;
 		return make_nan();
 	}
 	if(!cond.value.number){
 		fprintf(stderr, "FAIL: %s: %s\n", script, msg.value.str);
-		(*e->failed_asserts)++;
+		(e->run_stats->failed_asserts)++;
 	}
   return make_num(cond.value.number);
 }
@@ -3225,11 +3248,13 @@ Value native_import(Arena *a, Environment *e, char* script, size_t argc, Value *
   Value val = argv[0];
   if(val.valueType != VALUE_STRING){
     char buf[1024];
-    printf("Importing a module expects a string.\n");
+		runtime_error(e, "Importing a module expects a string.");
     *silent = 1;
     return make_num(0);
   }
-  import_script(a, e, script, val.value.str);
+  if(import_script(a, e, script, val.value.str) != 0){
+		runtime_error(e, "Error importing script %s", val.value.str);
+	}
   *silent = 1;
   return make_num(0);
 }
@@ -3458,7 +3483,7 @@ Value resolve_variable(Arena *a, Environment *e, Value *literal){
     }
 		Variable *var = env_find_variable(e, literal->value.str);
 		if(!var) {
-			printf("Undefined variable %s\n", literal->value.str);
+			runtime_error(e, "Undefined variable %s", literal->value.str);
 			return make_nan();
 		}
 		return *var->value;
@@ -3493,14 +3518,14 @@ Value eval_unop(Arena *a, Environment *e, AST *op, Value *arg_given){
 	UnaryFn fn = unop_dispatch[op->as.binop.op][arg->valueType];
 
 	if(!fn){
-		printf("Unsupported operation!\n");
+		runtime_error(e, "Unsupported operation!");
 		return make_nan();
 	}
 
 	return fn(a, arg);
 
 
-	fprintf(stderr, "Unrecognized unary operator\n");
+	runtime_error(e, "Unrecognized unary operator");
 	exit(1);
 
 }
@@ -3531,14 +3556,13 @@ Value eval_binop(Arena *a, Environment *e, AST *op, Value *raw_left, Value *raw_
 	BinaryFn fn = binop_dispatch[op->as.binop.op][left->valueType][right->valueType];
 
 	if(!fn){
-		printf("Unsupported binary operation!\n");
+		runtime_error(e, "Unsupported binary operation!");
 		return make_nan();
 	}
 
 	return fn(a, left, right);
 
-
-	fprintf(stderr, "Expected 2 numbers, got something else!\n");
+	runtime_error(e, "Expected 2 numbers, got something else!");
 	exit(1);
 
 }
@@ -3549,13 +3573,13 @@ Environment *push_env(Environment *e){
 
 	Environment *new_env = arena_alloc(fa, sizeof(Environment));
 
-  new_env->persistent     = e->persistent;
-	new_env->parent         = e;
-  new_env->frame          = e->frame;
-  new_env->num_vars       = 0;
-  new_env->vars           = arena_alloc(fa, 32 * sizeof(Variable));
-	new_env->failed_asserts = e->failed_asserts;
-	new_env->exe_path       = e->exe_path;
+  new_env->persistent = e->persistent;
+	new_env->parent     = e;
+  new_env->frame      = e->frame;
+  new_env->num_vars   = 0;
+  new_env->vars       = arena_alloc(fa, 32 * sizeof(Variable));
+	new_env->run_stats  = e->run_stats;
+	new_env->exe_path   = e->exe_path;
 
 	return new_env;
 }
@@ -3584,7 +3608,7 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 
 	Variable *fun_var = env_find_variable(e, fn_name);
 	if(!fun_var) {
-		printf("Undefined function %s\n", fn_call->as.fn_call.fn_name);
+		runtime_error(e, "Undefined function %s", fn_call->as.fn_call.fn_name);
 		return make_nan();
 	}
 	Value *fun = fun_var->value;
@@ -3592,7 +3616,7 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 	// Sanity checks
 
 	if (fun->valueType != VALUE_FUNCTION) {
-		fprintf(stderr, "%s is not a function\n", fn_name);
+		runtime_error(e, "%s is not a function", fn_name);
 		return make_nan();
 	}
 
@@ -3606,16 +3630,14 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 	size_t expected = num_args;
 
 	if ((size_t)argc != expected) {
-		fprintf(stderr,
-				"%s expects %zu arguments, got %d\n",
-				fn_name, expected, argc);
+		runtime_error(e, "%s expects %zu arguments, got %d", fn_name, expected, argc);
 		return make_nan();
 	}
 
   if(fun->value.fun.kind == FN_NATIVE){
     int idx = fun->value.fun.native_data.native_index;
     if(idx < 0 || idx >= LEN(native_fns)){
-      fprintf(stderr, "%s not registered\n", fn_name );
+			runtime_error(e, "%s not registered", fn_name);
       return make_nan();
     }
     NativeValueDispatch dispatch = native_fns[idx];
@@ -3897,7 +3919,7 @@ Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int 
       if(var->value->valueType >= VALUE_TYPE_COUNT ||
          val.valueType >= VALUE_TYPE_COUNT)
       {
-        printf("Unsupported operation!\n");
+				runtime_error(e, "Unsupported operation!");
         return make_nan();
       }
 
@@ -3906,7 +3928,7 @@ Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int 
 
 
       if(!dispatch){
-        printf("Unsupported operation!\n");
+				runtime_error(e, "Unsupported operation!");
         return make_nan();
       }
 
@@ -3916,6 +3938,7 @@ Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int 
 
   }
 
+	runtime_error(e, "Undefined function %s", name);
 	return make_nan();
 
 }
@@ -3925,7 +3948,7 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
   char *name = indexing->as.indexing.var_name;
 	Value val = eval_expr(ta, e, script_path, indexing->as.indexing.index_expr, silent);
 	if(val.valueType != VALUE_NUMBER){
-		printf("Indices must be numbers.%s\n", name);
+		runtime_error(e, "Indices must be numbers.%s", name);
 		return make_nan();
 	}
   int idx = (int)val.value.number;
@@ -3934,7 +3957,7 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 
 	Variable *var = env_find_variable(e, name);
 	if(!var){
-		printf("Undefined variable %s\n", name);
+		runtime_error(e, "Undefined variable %s", name);
 		return make_nan();
 	}
 
@@ -3945,14 +3968,14 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 			)
 		)
 	{
-		printf("Can't index from variable %s\n", name);
+		runtime_error(e, "Can't index from variable %s", name);
 		return make_nan();
 	}
 
 	if(var->value->valueType == VALUE_ARRAY){
 		int size = (int)var->value->value.array.size;
 		if(idx >= size){
-			printf("Index out of bounds: %s\n", name);
+			runtime_error(e, "Index out of bounds: %s", name);
 			return make_nan();
 		}
 		return make_num(var->value->value.array.nums[modulo(idx, size)]);
@@ -3961,7 +3984,7 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 	if(var->value->valueType == VALUE_TUPLE){
 		int size = (int)var->value->value.tuple.size;
 		if(idx >= size){
-			printf("Index out of bounds: %s\n", name);
+			runtime_error(e, "Index out of bounds: %s", name);
 			return make_nan();
 		}
 		return var->value->value.tuple.items[modulo(idx, size)];
@@ -4103,7 +4126,7 @@ ExecStatus eval_stmt(
 		char *dst = stmt->as.statement.dst;
 		// Check if it hasn't been defined before
     if(env_find_local(e, dst) != NULL){
-			printf("Variable %s has already been defined\n", dst);
+			runtime_error(e, "Variable %s has already been defined", dst);
 			return 1;
     }
 
@@ -4376,10 +4399,6 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
   }
 
   free(buffer);
-	if(*e->failed_asserts > 0){
-    printf("Assertions failed: %zu...\n", *e->failed_asserts);
-		return 1;
-	}
   if(parse_code != 0){
     printf("Exiting with code %i...\n", parse_code);
   }
@@ -4388,16 +4407,16 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
 
 
 int main(int argc, char **argv){
-	size_t size           = 0;
-	ssize_t nread         = 0;
-	ssize_t last_good     = 0;
-	int parse_code        = 0;
-	size_t failed_asserts = 0;
+	size_t size        = 0;
+	ssize_t nread      = 0;
+	ssize_t last_good  = 0;
+	int parse_code     = 0;
+	RunStats run_stats = {0};
 
 	Arena ta      = arena_create(1024 * 1024);      // 1 MB for now
 	Arena pa      = arena_create(32 * 1024 * 1024); // 32 MB for now
 	Arena fa      = arena_create(1 * 1024 * 1024); // Frame arena
-	Environment e = env_create(&pa, &fa, &failed_asserts, argv[0]);
+	Environment e = env_create(&pa, &fa, &run_stats, argv[0]);
 
 	if(argc < 2){
 		// REPL
@@ -4418,13 +4437,17 @@ int main(int argc, char **argv){
 
 		if(f != NULL){
 			int code = run_program(&ta, &e, f, argv[1]);
-			cleanup(&ta, &pa);
+			if(run_stats.failed_asserts > 0 || run_stats.runtime_errors > 0){ 
+				fprintf(stderr, "%zu assertion(s) failed, %zu runtime error(s)\n",
+						run_stats.failed_asserts, run_stats.runtime_errors);
+				return 1; 
+			}
+			fclose(f);
 			return code;
 		}else{
 			fprintf(stderr, "Could not load file at %s\n", argv[1]);
+			return 1;
 		}
-
-		fclose(f);
 
 	}
 

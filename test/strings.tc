@@ -1,0 +1,22 @@
+import("test.tc")
+
+// Concatenation
+assert("a" + "b" == "ab", "str + str")
+assert("ab" + "c" + "d" == "abcd", "chained concat")
+assert("" + "" == "", "empty + empty")
+
+let s = "hi"
+assert(s + "!" == "hi!", "variable + str")
+
+// Numbers are formatted with %f when concatenated
+assert("x" + 1 == "x1.000000", "str + num")
+assert(1 + "x" == "1.000000x", "num + str")
+assert("x" + 1.5 == "x1.500000", "str + fractional num")
+
+// Equality
+assert("a" == "a", "equal strings")
+assert(("a" == "b") == 0, "different strings")
+
+// Strings inside tuples
+let t = (1, "two", 3)
+assert(t[1] == "two", "string in tuple")
