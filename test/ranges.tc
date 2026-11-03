@@ -1,2 +1,9 @@
-let r = range(0,100)
-print(r)
+// Loops over ranges
+for i in range(0,20) {
+  print("range[i] = " + i)
+}
+
+// Loops over arrays
+for i in [0,1,2] {
+  print("array[i] = " + i)
+}

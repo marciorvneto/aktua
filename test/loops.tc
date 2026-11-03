@@ -1,0 +1,82 @@
+import("test.tc")
+
+// ---------- Basic iteration ----------
+
+let total = 0
+for i in range(0, 5) {
+  total = total + i
+}
+assert(total == 10, "sum over range")
+assert(i == 4, "loop variable keeps its last value")
+
+let prod = 1
+for x in [2, 3, 4] {
+  prod = prod * x
+}
+assert(prod == 24, "loop over array literal")
+
+let arr = [5, 6, 7]
+let count = 0
+for x in arr {
+  count = count + 1
+}
+assert(count == 3, "loop over array variable")
+
+let untouched = 1
+for x in range(0, 0) {
+  untouched = 0
+}
+assert(untouched == 1, "empty range runs no iterations")
+
+// ---------- Nested loops ----------
+
+let pairs = 0
+for a in range(0, 4) {
+  for b in range(0, 3) {
+    pairs = pairs + 1
+  }
+}
+assert(pairs == 12, "nested loops")
+
+// ---------- Loops inside functions ----------
+
+fn sum_to(n) {
+  let s = 0
+  for k in range(0, n) {
+    s = s + k
+  }
+  s
+}
+assert(sum_to(4) == 6, "loop in function")
+assert(sum_to(4) == 6, "loop in function, second call")
+assert(sum_to(0) == 0, "loop in function, no iterations")
+
+// return must leave the function from inside the loop
+fn first_above(values, limit) {
+  for v in values {
+    if v > limit {
+      return v
+    }
+  }
+  return -1
+}
+assert(first_above([1, 5, 3], 2) == 5, "return from inside loop")
+assert(first_above([1, 2], 9) == -1, "fall through after loop")
+
+// ---------- Memory: temporaries are freed every iteration ----------
+
+// Expression statements allocate in the temporary arena; without a
+// per-iteration reset this exhausts it
+let passes = 0
+for n in range(0, 50000) {
+  [n, n, n, n]
+  passes = passes + 1
+}
+assert(passes == 50000, "long loop with temporaries")
+
+// ---------- Keywords as identifier prefixes ----------
+
+let in1 = 3
+let for2 = 4
+let fn3 = 5
+assert(in1 + for2 + fn3 == 12, "keyword followed by a digit is an identifier")

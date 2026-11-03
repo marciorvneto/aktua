@@ -394,6 +394,8 @@ int tokenizer_eat_string(Arena *a, Tokenizer *tokenizer, Token *out){
         X(else)        \
         X(elif)        \
         X(return)      \
+        X(for)         \
+        X(in)          \
         V(KEYWORDS_COUNT)
 
 typedef enum {
@@ -417,7 +419,7 @@ size_t keywork_match(const char *pos){
     size_t len = strlen(KEYWORDS[i]);
     if(
         tokenizer_is_str(pos, KEYWORDS[i], len)
-        && !isalpha((unsigned char)pos[len])
+        && !isalnum((unsigned char)pos[len])
         && pos[len] != '_'
       )
     {
@@ -744,6 +746,7 @@ typedef enum {
 	STATEMENT_ASSIGN,
 	STATEMENT_FUNCTION_DEF,
 	STATEMENT_IF,
+	STATEMENT_FOR,
 	STATEMENT_RETURN,
 	STATEMENT_EXPR,
 } StatementType;
@@ -789,6 +792,11 @@ struct AST {
 			AST    *first;
 		} statement_list;
 
+		struct {
+			AST    *id;
+			AST    *expr;
+			AST    *block;
+		} for_stmt;
 
 		struct {
 			AST *condition;
@@ -1375,6 +1383,30 @@ AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
   return stmt;
 }
 
+AST *parse_for_stmt(Arena *pa, AST *parent, Parser *parser){
+  if(parser_keyword_eat("for", parser) == NULL) return NULL;
+
+  AST *stmt   = ast_make_statement(pa, STATEMENT_FOR);
+
+  AST *id     = parse_id(pa, parent, parser);
+  if(!id) return NULL;
+
+  if(parser_keyword_eat("in", parser) == NULL) return NULL;
+
+  AST *expr   = parse_expression(pa, stmt, parser);
+  if(!expr) return NULL;
+
+  AST *block  = parse_block(pa, stmt, parser);
+  if(!block)  return NULL;
+
+  stmt->as.for_stmt.id    = id;
+  stmt->as.for_stmt.expr  = expr;
+  stmt->as.for_stmt.block = block;
+
+  if(!parser_eat_stmt_end(parser)) return NULL;
+  return stmt;
+}
+
 AST *parse_if_stmt(Arena *pa, AST *parent, Parser *parser){
     if(parser_keyword_eat("if", parser)) {
       AST *stmt                     = ast_make_statement(pa, STATEMENT_IF);
@@ -1484,10 +1516,11 @@ AST *parse_statement(Arena *pa, AST *parent, Parser *parser){
   AST *stmt = NULL;
 
   if(
-      (parser->next = save, (stmt = parse_assignment(pa, parent, parser))) ||
-      (parser->next = save, (stmt = parse_return_stmt(pa, parent, parser)))    ||
-      (parser->next = save, (stmt = parse_if_stmt(pa, parent, parser)))    ||
-      (parser->next = save, (stmt = parse_fn_def(pa, parent, parser)))     ||
+      (parser->next = save, (stmt = parse_assignment(pa, parent, parser)))  ||
+      (parser->next = save, (stmt = parse_return_stmt(pa, parent, parser))) ||
+      (parser->next = save, (stmt = parse_for_stmt(pa, parent, parser)))    ||
+      (parser->next = save, (stmt = parse_if_stmt(pa, parent, parser)))     ||
+      (parser->next = save, (stmt = parse_fn_def(pa, parent, parser)))      ||
       (parser->next = save, (stmt = parse_expr_stmt(pa, parent, parser)))
     ) return stmt;
 
@@ -4220,6 +4253,34 @@ ExecStatus eval_stmt(
     }
 
     return eval_block(ta, ast, e, script_path, branch, result_out);
+  }
+
+  if(stmt->statement_type == STATEMENT_FOR){
+
+    Value iterable = eval_expr(ta, e, script_path, stmt->as.for_stmt.expr, &silent);
+    if(iterable.valueType != VALUE_ARRAY){
+      runtime_error(e, "for: expected an array");
+      return EXEC_ERROR;
+    } 
+
+    char *id = stmt->as.for_stmt.id->as.literal.value.id;
+    for(size_t i = 0; i < iterable.value.array.size; i++){
+      size_t scratch = arena_save(ta);   // iterable lives below this mark, so it survives
+
+      Value item = make_num(iterable.value.array.nums[i]);
+      env_set_variable(e, id, &item);
+
+      Value body_result;
+      ExecStatus status = eval_block(ta, ast, e, script_path, stmt->as.for_stmt.block, &body_result);
+      if(status == EXEC_RETURN){
+        if(result_out) *result_out = body_result;   // don't restore: it may point into ta
+        return EXEC_RETURN;
+      } 
+      if(status != EXEC_OK) return status;
+
+      arena_restore(ta, scratch);
+    }   
+    return EXEC_OK;
   }
 
   if(stmt->statement_type == STATEMENT_RETURN){
