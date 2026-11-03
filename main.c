@@ -7,10 +7,14 @@
 #include <string.h>
 #include <stdarg.h>
 #include <math.h>
+#include <float.h>
 #include <sys/types.h>
+
+#define DISPLAY_SIG 6
 
 #define LEN(x) sizeof((x))/sizeof((x)[0])
 #define EPSILON 1e-8
+#define POLY_CANCEL_TOL (64 * DBL_EPSILON)
 #define CLOSE(x,y) fabs((x)-(y)) < EPSILON
 #define ISZERO(x) CLOSE((x), 0)
 #define ALIGNMENT 16 	// Might change that in the future
@@ -72,6 +76,20 @@ void arena_restore(Arena *a, size_t offset){
 #define CONCAT(x, y) CONCAT_INTERNAL(x, y)
 #define SCRATCH_SCOPE(arena) for(size_t CONCAT(scratch_, __LINE__) = arena_save(arena), _once = 1; _once == 1; arena_restore(arena, CONCAT(scratch_, __LINE__)), _once = 0)
 
+//============================== 
+//
+//    Formatting
+//
+//============================== 
+
+
+int format_number(char *buf, size_t n, double x, int sig){
+  if(isnan(x)) return snprintf(buf, n, "nan");
+  if(isinf(x)) return snprintf(buf, n, x > 0 ? "inf" : "-inf");
+  if(x == 0)   x = 0;
+  if(x == trunc(x) && fabs(x) < 1e15) return snprintf(buf, n, "%.0f", x);
+  return snprintf(buf, n, "%.*g", sig, x);
+}
 
 //============================== 
 //
@@ -141,26 +159,33 @@ int poly_repr(Arena *a, Polynomial *p, char* buf, char* variable){
   if(variable == NULL){
     variable = "x";
   }
-	for(size_t i = 0; i < p->num_coeffs; i++){
+	// Highest power first: 3 x^2 - 5 x + 1
+	for(size_t i = p->num_coeffs; i-- > 0;){
 		double coef = p->coeffs[i];
 		if(coef == 0) continue;
-		if(i > 1){
-			printed += sprintf(buf + printed, "%.2e %s^%zu", coef, variable, i);
-		}else if(i == 1){
-			printed += sprintf(buf + printed, "%.2e %s", coef, variable);
+
+		// The sign goes in the separator, so we get "- 5 x" instead of "+ -5 x"
+		if(printed == 0){
+			if(coef < 0) printed += sprintf(buf + printed, "-");
 		}else{
-			printed += sprintf(buf + printed, "%.2e", coef);
+			printed += sprintf(buf + printed, coef < 0 ? " - " : " + ");
 		}
-		if(i < p->num_coeffs - 1) printed += sprintf(buf + printed, " + ");
+
+		double mag = fabs(coef);
+		char cbuf[32];
+		format_number(cbuf, sizeof(cbuf), mag, DISPLAY_SIG);
+
+		// A coefficient of 1 is implicit, except on the constant term
+		if(i == 0 || mag != 1) printed += sprintf(buf + printed, "%s", cbuf);
+		if(i > 0 && mag != 1)  printed += sprintf(buf + printed, " ");
+		if(i > 1)              printed += sprintf(buf + printed, "%s^%zu", variable, i);
+		else if(i == 1)        printed += sprintf(buf + printed, "%s", variable);
 	}
+	if(printed == 0) printed += sprintf(buf, "0");
 	buf[printed] = '\0';
   return printed;
 }
 
-// Example: 3x2 - 5x + 1:
-// coeffs     = [1, -5, 3]
-// num_coeffs = 3
-// deg        = 2
 typedef struct {
 	Polynomial num;
 	Polynomial den;
@@ -2108,8 +2133,8 @@ char *cat_strings(Arena *a, char *str1, char *str2){
 }
 
 char *string_from_num(Arena *a, double num){
-  char *num_str = arena_alloc(a, 1024);
-  sprintf(num_str, "%f", num);
+  char *num_str = arena_alloc(a, 32);
+  format_number(num_str, 32, num, DISPLAY_SIG);
   return num_str;
 }
 
@@ -2135,10 +2160,16 @@ int poly_is_zero(Polynomial *p){
   return 0;
 }
 
+
+double cancel_add(double a, double b){
+	double s = a + b;
+	if(fabs(s) <= POLY_CANCEL_TOL * (fabs(a) + fabs(b))) return 0.0;
+	return s;
+}
+
 void poly_update_degree(Polynomial *p){
   int i = p->num_coeffs - 1;
-  while(ISZERO(p->coeffs[i]) && i > 0){
-		p->coeffs[i] = 0.0;
+  while(p->coeffs[i] == 0.0 && i > 0){
 		i--;
 	}
   p->num_coeffs = i + 1;
@@ -2174,7 +2205,7 @@ int poly_divmod(Arena *arena, Polynomial a, Polynomial b, Polynomial *q_out, Pol
 		q.coeffs[q_deg] = coef;
 
 		for(int j = 0; j < b.num_coeffs; j++){
-			r.coeffs[j + q_deg] -= coef * b.coeffs[j];
+			r.coeffs[j + q_deg] = cancel_add(r.coeffs[j + q_deg], -coef * b.coeffs[j]);
 		}
 
 		// To avoid floating point issues in the subtraction:
@@ -2632,9 +2663,10 @@ Value add_poly_poly(Arena *a, Value *left, Value *right){
 			double v2 = 0;
 			if(i < p1.num_coeffs) v1 = p1.coeffs[i];
 			if(i < p2.num_coeffs) v2 = p2.coeffs[i];
-			pnew.coeffs[i] = v1 + v2;
+			pnew.coeffs[i] = cancel_add(v1, v2);
 		}
 
+		poly_update_degree(&pnew);
 		return make_poly(pnew);
 }
 
@@ -2672,9 +2704,10 @@ Value sub_poly_poly(Arena *a, Value *left, Value *right){
 			double v2 = 0;
 			if(i < p1.num_coeffs) v1 = p1.coeffs[i];
 			if(i < p2.num_coeffs) v2 = p2.coeffs[i];
-			pnew.coeffs[i] = v1 - v2;
+			pnew.coeffs[i] = cancel_add(v1, -v2);
 		}
 
+		poly_update_degree(&pnew);
 		return make_poly(pnew);
 }
 
@@ -3732,6 +3765,7 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 	return escaped;
 }
 
+
 void print_value(Arena *ta, Environment *e, Value *value){
   printf("\n");
 	switch(value->valueType){
@@ -3752,30 +3786,24 @@ void print_value(Arena *ta, Environment *e, Value *value){
 			}
 		case VALUE_NUMBER:
 			{
-				printf("%.4f\n", value->value.number);
+        char buf[32];
+        format_number(buf, 32, value->value.number, DISPLAY_SIG);
+				printf("%s\n", buf);
 				break;
 			}
 		case VALUE_COMPLEX: 
-			{
-				if(fabs(cimag(value->value.complex_number)) > 1e-12){
-					if(cimag(value->value.complex_number) > 0){
-						printf(
-								"%.4f + %.4f * i\n", 
-								creal(value->value.complex_number),
-								cimag(value->value.complex_number)
-								);
-						break;
-					}
-					printf(
-							"%.4f - %.4f * i\n", 
-							creal(value->value.complex_number),
-							-cimag(value->value.complex_number)
-							);
-					break;
-				}
-				printf("%.4f\n", creal(value->value.complex_number));
-				break;
-			}
+      {
+        double re = creal(value->value.complex_number);
+        double im = cimag(value->value.complex_number);
+        char re_buf[32], im_buf[32];
+        format_number(re_buf, sizeof(re_buf), re, DISPLAY_SIG);
+        format_number(im_buf, sizeof(im_buf), fabs(im), DISPLAY_SIG);
+        if(fabs(im) > 1e-12 * MAX(1.0, fabs(re))) 
+          printf("%s %c %si\n", re_buf, im < 0 ? '-' : '+', im_buf);
+        else
+          printf("%s\n", re_buf);
+        break;
+      }
 		case VALUE_STRING:
 			{
         printf("%s\n", value->value.str);
@@ -3783,9 +3811,11 @@ void print_value(Arena *ta, Environment *e, Value *value){
 			}
 		case VALUE_ARRAY:
 			{
+        char buf[32];
 				printf("[");
 				for(size_t i = 0; i < value->value.poly.num_coeffs; i++){
-					printf("%.2f", value->value.poly.coeffs[i]);
+          format_number(buf, sizeof(buf), value->value.poly.coeffs[i], DISPLAY_SIG);
+          printf("%s%s", buf, i < value->value.array.size - 1 ? ", " : "");
 					if(i < value->value.poly.num_coeffs - 1){
 						printf(", ");
 					}

@@ -8,10 +8,10 @@ assert("" + "" == "", "empty + empty")
 let s = "hi"
 assert(s + "!" == "hi!", "variable + str")
 
-// Numbers are formatted with %f when concatenated
-assert("x" + 1 == "x1.000000", "str + num")
-assert(1 + "x" == "1.000000x", "num + str")
-assert("x" + 1.5 == "x1.500000", "str + fractional num")
+// Numbers are formatted with format_number when concatenated
+assert("x" + 1 == "x1", "str + num")
+assert(1 + "x" == "1x", "num + str")
+assert("x" + 1.5 == "x1.5", "str + fractional num")
 
 // Equality
 assert("a" == "a", "equal strings")

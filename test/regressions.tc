@@ -87,3 +87,26 @@ assert(2e-1-1 == -0.8, "exponent followed by subtraction")
 
 // The file deliberately ends with a comment and no trailing newline
 // (statement end at EOF, comment scan at EOF)
+
+// ---------- Polynomial trimming (only exact zeros and cancellation noise) ----------
+
+// Small but intentional coefficients survive: (1 + 1e-6 s)^2
+let tiny = poly([1, 2e-6, 1e-12])
+assert_close(tiny(1e6), 4, 1e-9)
+// Double pole at -1e6; dropping the s^2 term would give a single pole at -5e5
+let tp = poles(1 / tiny)
+let tp0 = tp[0]
+let tp1 = tp[1]
+assert_close(real(tp0), -1e6, 1)
+assert_close(real(tp1), -1e6, 1)
+
+// Cancellation in subtraction trims the degree
+let cancelled = poly([0, 1, 1]) - poly([0, 0, 1])
+// Leaves just x, whose only root is 0
+let cp = poles(1 / cancelled)
+let cp0 = cp[0]
+assert_close(abs(cp0), 0, 1e-12)
+
+// Rounding noise in division becomes an exact zero remainder
+let rem = polymod(poly([0.1, 0.3, 0.2]), poly([0.1, 0.2]))
+assert(rem(7) == 0, "remainder is exactly zero")
