@@ -3404,6 +3404,23 @@ Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *a
 
 	return make_array(arr);
 }
+
+Value native_len(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+  Value val = argv[0];
+  if(
+      val.valueType != VALUE_ARRAY &&
+      val.valueType != VALUE_TUPLE
+    )
+  {
+    runtime_error(e, "len requires an array or a tuple");
+    return make_nan();
+  }
+
+  if(val.valueType == VALUE_ARRAY) return make_num(val.value.array.size);
+  if(val.valueType == VALUE_TUPLE) return make_num(val.value.tuple.size);
+  return make_num(0);
+}
+
 Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
   if(val.valueType == VALUE_ARRAY){
@@ -3496,7 +3513,9 @@ static const NativeValueDispatch native_fns[] = {
   native_cos,
   native_sqr,
   native_sqrt,
+  // Arrays and tuples
   native_range,
+  native_len,
   // Poly
   native_poly,
   native_polymod,
@@ -3523,7 +3542,9 @@ static const char *native_fn_names[] = {
   "cos",
   "sqr",
   "sqrt",
+  // Arrays and tuples
 	"range",
+  "len",
   // Poly
   "poly",
   "polymod",
@@ -3550,7 +3571,9 @@ static const size_t native_fn_argc[] = {
   1,
   1,
   1,
+  // Arrays and tuples
 	2,
+  1,
   // Poly
   1,
   2,
