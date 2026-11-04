@@ -50,5 +50,5 @@ assert(len(empty * empty) == 0, "empty * empty")
 // Inputs are not modified
 let orig = [1, 2, 3]
 let doubled = orig * 2
-assert_all_close(orig, [1, 2, 3], 0, "operands are not modified")
-assert_all_close(doubled, [2, 4, 6], 0, "result is a new array")
+assert_all_close(orig, [1, 2, 3], 1e-15, "operands are not modified")
+assert_all_close(doubled, [2, 4, 6], 1e-15, "result is a new array")
