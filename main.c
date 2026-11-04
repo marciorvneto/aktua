@@ -56,7 +56,7 @@ void arena_destroy(Arena *a){
 void *arena_alloc(Arena *a, size_t size){
 	size_t aligned_offset = ALIGN_ALLOC(a->offset, ALIGNMENT);
 	if(aligned_offset + size > a->capacity){
-		fprintf(stderr, "Arena capacity exceeded. Currently at %zu, requested %zu", a->offset, size);
+		fprintf(stderr, "Arena capacity exceeded. Currently at %zu, requested %zu\n", a->offset, size);
 		return NULL;
 	}
 	a->offset = aligned_offset + size;
@@ -1928,6 +1928,7 @@ Array clone_array(Arena *a, Array *old){
   Array arr;
   arr.size = old->size;
   arr.nums = arena_alloc(a, arr.size * sizeof(double));
+  if(arr.nums == NULL){ arr.size = 0; return arr; }
   memcpy(arr.nums, old->nums, arr.size * sizeof(double));
   return arr;
 }
@@ -2515,11 +2516,11 @@ static const UnaryFn unop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT] = {
 //============================
 
 
-typedef Value (*BinaryFn)(Arena *a, Value *left, Value *right);
+typedef Value (*BinaryFn)(Arena *a, Environment *e, Value *left, Value *right);
 
 
 
-Value op_with_nan(Arena *a, Value *left, Value *right){
+Value op_with_nan(Arena *a, Environment *e, Value *left, Value *right){
 	return make_nan();
 }
 
@@ -2528,27 +2529,27 @@ double complex as_complex(Value *v){
 	return v->valueType == VALUE_COMPLEX ? v->value.complex_number : v->value.number;
 }
 
-Value add_scalar_scalar(Arena *a, Value *left, Value *right){
+Value add_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
 	if(left->valueType == VALUE_NUMBER && right->valueType == VALUE_NUMBER)
 		return make_num(left->value.number + right->value.number);
 	return make_complex(as_complex(left) + as_complex(right));
 }
-Value sub_scalar_scalar(Arena *a, Value *left, Value *right){
+Value sub_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
 	if(left->valueType == VALUE_NUMBER && right->valueType == VALUE_NUMBER)
 		return make_num(left->value.number - right->value.number);
 	return make_complex(as_complex(left) - as_complex(right));
 }
-Value mul_scalar_scalar(Arena *a, Value *left, Value *right){
+Value mul_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
 	if(left->valueType == VALUE_NUMBER && right->valueType == VALUE_NUMBER)
 		return make_num(left->value.number * right->value.number);
 	return make_complex(as_complex(left) * as_complex(right));
 }
-Value div_scalar_scalar(Arena *a, Value *left, Value *right){
+Value div_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
 	if(left->valueType == VALUE_NUMBER && right->valueType == VALUE_NUMBER)
 		return make_num(left->value.number / right->value.number);
 	return make_complex(as_complex(left) / as_complex(right));
 }
-Value pow_scalar_scalar(Arena *a, Value *left, Value *right){
+Value pow_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
 	if(left->valueType == VALUE_NUMBER && right->valueType == VALUE_NUMBER)
 		return make_num(pow(left->value.number , right->value.number));
 	return make_complex(cpow(as_complex(left),  as_complex(right)));
@@ -2556,120 +2557,35 @@ Value pow_scalar_scalar(Arena *a, Value *left, Value *right){
 
 // Real-specific
 
-Value eq_scalar_scalar(Arena *a, Value *left, Value *right){
+Value eq_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
 	return make_num(as_complex(left) == as_complex(right));
 }
-Value lt_num_num(Arena *a, Value *left, Value *right){
+Value lt_num_num(Arena *a, Environment *e, Value *left, Value *right){
 	return make_num(left->value.number < right->value.number);
 }
-Value gt_num_num(Arena *a, Value *left, Value *right){
+Value gt_num_num(Arena *a, Environment *e, Value *left, Value *right){
 	return make_num(left->value.number > right->value.number);
 }
-Value leq_num_num(Arena *a, Value *left, Value *right){
+Value leq_num_num(Arena *a, Environment *e, Value *left, Value *right){
 	return make_num(left->value.number <= right->value.number);
 }
-Value geq_num_num(Arena *a, Value *left, Value *right){
+Value geq_num_num(Arena *a, Environment *e, Value *left, Value *right){
 	return make_num(left->value.number >= right->value.number);
 }
 
-// ------------- Arrays --------------------
-
-Value add_num_array(Arena *a, Value *left, Value *right){
-		double num = left->valueType == VALUE_NUMBER ? left->value.number : right->value.number;
-		Array  arr = left->valueType == VALUE_ARRAY ? left->value.array : right->value.array;
-
-    Array new_arr = clone_array(a, &arr);
-
-		for(size_t i = 0; i < arr.size; i++){
-			new_arr.nums[i] += num;
-		}
-		return make_array(new_arr);
-}
-
-Value add_array_array(Arena *a, Value *left, Value *right){
-		Array arr1 = left->value.array;
-		Array arr2 = right->value.array;
-		if(arr1.size != arr2.size){
-			printf("Incompatible array sizes: %zu and %zu\n", arr1.size, arr2.size);
-			return make_nan();
-		}
-    Array new_arr = clone_array(a, &arr1);
-		for(size_t i = 0; i < arr1.size; i++){
-			new_arr.nums[i] = arr1.nums[i] + arr2.nums[i];
-		}
-		return make_array(new_arr);
-}
-Value sub_num_array(Arena *a, Value *left, Value *right){
-		double num         = left->value.number;
-		Array  arr         = right->value.array;
-
-    Array new_arr      = clone_array(a, &arr);
-		for(size_t i = 0; i < arr.size; i++){
-			new_arr.nums[i] = num - arr.nums[i];
-		}
-		return make_array(new_arr);
-}
-Value sub_array_num(Arena *a, Value *left, Value *right){
-		Array  arr         = left->value.array;
-		double num         = right->value.number;
-
-    Array new_arr      = clone_array(a, &arr);
-		for(size_t i = 0; i < arr.size; i++){
-			new_arr.nums[i] = arr.nums[i] - num;
-		}
-		return make_array(new_arr);
-}
-Value sub_array_array(Arena *a, Value *left, Value *right){
-		Array arr1 = left->value.array;
-		Array arr2 = right->value.array;
-		if(arr1.size != arr2.size){
-			printf("Incompatible array sizes: %zu and %zu\n", arr1.size, arr2.size);
-			return make_nan();
-		}
-		for(size_t i = 0; i < arr1.size; i++){
-			arr1.nums[i] -= arr2.nums[i];
-		}
-		return make_array(arr1);
-}
-
-Value mul_num_array(Arena *a, Value *left, Value *right){
-		double num = left->valueType == VALUE_NUMBER ? left->value.number : right->value.number;
-		Array  arr = left->valueType == VALUE_ARRAY ? left->value.array : right->value.array;
-
-    Array new_arr = clone_array(a, &arr);
-
-		for(size_t i = 0; i < arr.size; i++){
-			new_arr.nums[i] *= num;
-		}
-		return make_array(new_arr);
-}
-
-Value div_array_num(Arena *a, Value *left, Value *right){
-		Array  arr = left->value.array;
-		double num = right->value.number;
-
-    Array new_arr = clone_array(a, &arr);
-
-		for(size_t i = 0; i < arr.size; i++){
-			new_arr.nums[i] /= num;
-		}
-		return make_array(new_arr);
-}
-
-
 // ------------- Polynomials --------------------
 
-Value add_num_poly(Arena *a, Value *left, Value *right){
-		double num       = left->valueType == VALUE_NUMBER ? left->value.number : right->value.number;
-		Polynomial  poly = left->valueType == VALUE_POLYNOMIAL ? left->value.poly : right->value.poly;
+Value add_num_poly(Arena *a, Environment *e, Value *left, Value *right){
+		double num       =  left->valueType == VALUE_NUMBER ? left->value.number : right->value.number;
+		Polynomial  poly =  left->valueType == VALUE_POLYNOMIAL ? left->value.poly : right->value.poly;
 
-		Polynomial pnew = clone_poly(a, &poly);
+		Polynomial pnew  =  clone_poly(a, &poly);
 
-		pnew.coeffs[0] += num;
+		pnew.coeffs[0]   += num;
 		return make_poly(pnew);
 }
 
-Value add_poly_poly(Arena *a, Value *left, Value *right){
+Value add_poly_poly(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial p1    = left->value.poly;
 		Polynomial p2    = right->value.poly;
 		size_t max_size  = MAX(p1.num_coeffs, p2.num_coeffs);
@@ -2688,7 +2604,7 @@ Value add_poly_poly(Arena *a, Value *left, Value *right){
 		return make_poly(pnew);
 }
 
-Value sub_num_poly(Arena *a, Value *left, Value *right){
+Value sub_num_poly(Arena *a, Environment *e, Value *left, Value *right){
 		double num          = left->value.number;
 		Polynomial  poly    = right->value.poly;
 
@@ -2698,7 +2614,7 @@ Value sub_num_poly(Arena *a, Value *left, Value *right){
 		return make_poly(new_poly);
 }
 
-Value sub_poly_num(Arena *a, Value *left, Value *right){
+Value sub_poly_num(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial  poly    = left->value.poly;
 		double num          = right->value.number;
 
@@ -2710,7 +2626,7 @@ Value sub_poly_num(Arena *a, Value *left, Value *right){
 
 
 
-Value sub_poly_poly(Arena *a, Value *left, Value *right){
+Value sub_poly_poly(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial p1    = left->value.poly;
 		Polynomial p2    = right->value.poly;
 		size_t max_size  = MAX(p1.num_coeffs, p2.num_coeffs);
@@ -2729,7 +2645,7 @@ Value sub_poly_poly(Arena *a, Value *left, Value *right){
 		return make_poly(pnew);
 }
 
-Value mul_poly_poly(Arena *a, Value *left, Value *right){
+Value mul_poly_poly(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial p1   = left->value.poly;
 		Polynomial p2   = right->value.poly;
 
@@ -2745,7 +2661,7 @@ Value mul_poly_poly(Arena *a, Value *left, Value *right){
 		return make_poly(pnew);
 }
 
-Value mul_num_poly(Arena *a, Value *left, Value *right){
+Value mul_num_poly(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial p = left->valueType == VALUE_POLYNOMIAL ? left->value.poly : right->value.poly;
 		double num   = left->valueType == VALUE_NUMBER ? left->value.number : right->value.number;
 
@@ -2754,7 +2670,7 @@ Value mul_num_poly(Arena *a, Value *left, Value *right){
 }
 
 
-Value div_poly_poly(Arena *a, Value *left, Value *right){
+Value div_poly_poly(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial p1 = left->value.poly;
 		Polynomial p2 = right->value.poly;
 
@@ -2766,7 +2682,7 @@ Value div_poly_poly(Arena *a, Value *left, Value *right){
 }
 
 
-Value ordered_div_num_poly(Arena *a, Value *left, Value *right){
+Value ordered_div_num_poly(Arena *a, Environment *e, Value *left, Value *right){
 		double num   = left->value.number;
     Polynomial p = right->value.poly; 
 
@@ -2780,20 +2696,20 @@ Value ordered_div_num_poly(Arena *a, Value *left, Value *right){
 		return make_transfer_function(tf_simplify(a, &tf));
 }
 
-Value ordered_div_poly_num(Arena *a, Value *left, Value *right){
+Value ordered_div_poly_num(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial p = left->valueType == VALUE_POLYNOMIAL ? left->value.poly : right->value.poly;
 		double num   = left->valueType == VALUE_NUMBER ? left->value.number : right->value.number;
 
     Value poly_value = make_poly(p);
     Value inv_num    = make_num(1.0/num);
 
-    return mul_num_poly(a, &inv_num, &poly_value);
+    return mul_num_poly(a, e, &inv_num, &poly_value);
 }
 
 
 // ------------- Transfer Functions --------------------
 
-Value add_tf_tf(Arena *a, Value *left, Value *right){
+Value add_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf1 = left->value.tf;
     TransferFunction tf2 = right->value.tf;
 
@@ -2806,11 +2722,11 @@ Value add_tf_tf(Arena *a, Value *left, Value *right){
     Value C = make_poly(tf2.num);
     Value D = make_poly(tf2.den);
 
-    Value AD = mul_poly_poly(a, &A, &D);
-    Value BC = mul_poly_poly(a, &B, &C);
-    Value BD = mul_poly_poly(a, &B, &D);
+    Value AD = mul_poly_poly(a, e, &A, &D);
+    Value BC = mul_poly_poly(a, e, &B, &C);
+    Value BD = mul_poly_poly(a, e, &B, &D);
 
-    Value AD_BC = add_poly_poly(a, &AD, &BC);
+    Value AD_BC = add_poly_poly(a, e, &AD, &BC);
 
     TransferFunction tf = {
       .num = AD_BC.value.poly,
@@ -2820,7 +2736,7 @@ Value add_tf_tf(Arena *a, Value *left, Value *right){
     return make_transfer_function(tf_simplify(a, &tf));
 }
 
-Value sub_tf_tf(Arena *a, Value *left, Value *right){
+Value sub_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf1 = left->value.tf;
     TransferFunction tf2 = right->value.tf;
 
@@ -2833,11 +2749,11 @@ Value sub_tf_tf(Arena *a, Value *left, Value *right){
     Value C = make_poly(tf2.num);
     Value D = make_poly(tf2.den);
 
-    Value AD = mul_poly_poly(a, &A, &D);
-    Value BC = mul_poly_poly(a, &B, &C);
-    Value BD = mul_poly_poly(a, &B, &D);
+    Value AD = mul_poly_poly(a, e, &A, &D);
+    Value BC = mul_poly_poly(a, e, &B, &C);
+    Value BD = mul_poly_poly(a, e, &B, &D);
 
-    Value AD_BC = sub_poly_poly(a, &AD, &BC);
+    Value AD_BC = sub_poly_poly(a, e, &AD, &BC);
 
     TransferFunction tf = {
       .num = AD_BC.value.poly,
@@ -2847,7 +2763,7 @@ Value sub_tf_tf(Arena *a, Value *left, Value *right){
     return make_transfer_function(tf_simplify(a, &tf));
 }
 
-Value mul_tf_tf(Arena *a, Value *left, Value *right){
+Value mul_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf1 = left->value.tf;
     TransferFunction tf2 = right->value.tf;
 
@@ -2860,8 +2776,8 @@ Value mul_tf_tf(Arena *a, Value *left, Value *right){
     Value C = make_poly(tf2.num);
     Value D = make_poly(tf2.den);
 
-    Value AC = mul_poly_poly(a, &A, &C);
-    Value BD = mul_poly_poly(a, &B, &D);
+    Value AC = mul_poly_poly(a, e, &A, &C);
+    Value BD = mul_poly_poly(a, e, &B, &D);
 
     TransferFunction tf = {
       .num = AC.value.poly,
@@ -2871,7 +2787,7 @@ Value mul_tf_tf(Arena *a, Value *left, Value *right){
     return make_transfer_function(tf_simplify(a, &tf));
 }
 
-Value mul_tf_poly(Arena *a, Value *left, Value *right){
+Value mul_tf_poly(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = left->valueType == VALUE_TRANSFER_FUNCTION ? left->value.tf : right->value.tf;
     Polynomial poly     = left->valueType == VALUE_TRANSFER_FUNCTION ? right->value.poly : left->value.poly;
 
@@ -2879,10 +2795,10 @@ Value mul_tf_poly(Arena *a, Value *left, Value *right){
 		Value tf_val             = make_transfer_function(tf);
 		Value poly_tf_val        = make_transfer_function(poly_tf);
 
-    return mul_tf_tf(a, &tf_val, &poly_tf_val);
+    return mul_tf_tf(a, e, &tf_val, &poly_tf_val);
 }
 
-Value add_tf_poly(Arena *a, Value *left, Value *right){
+Value add_tf_poly(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = left->valueType == VALUE_TRANSFER_FUNCTION ? left->value.tf : right->value.tf;
     Polynomial poly     = left->valueType == VALUE_TRANSFER_FUNCTION ? right->value.poly : left->value.poly;
 
@@ -2890,10 +2806,10 @@ Value add_tf_poly(Arena *a, Value *left, Value *right){
 		Value tf_val             = make_transfer_function(tf);
 		Value poly_tf_val        = make_transfer_function(poly_tf);
 
-    return add_tf_tf(a, &tf_val, &poly_tf_val);
+    return add_tf_tf(a, e, &tf_val, &poly_tf_val);
 }
 
-Value sub_tf_poly(Arena *a, Value *left, Value *right){
+Value sub_tf_poly(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = left->value.tf;
     Polynomial poly     = right->value.poly;
 
@@ -2901,10 +2817,10 @@ Value sub_tf_poly(Arena *a, Value *left, Value *right){
 		Value tf_val             = make_transfer_function(tf);
 		Value poly_tf_val        = make_transfer_function(poly_tf);
 
-    return sub_tf_tf(a, &tf_val, &poly_tf_val);
+    return sub_tf_tf(a, e, &tf_val, &poly_tf_val);
 }
 
-Value sub_poly_tf(Arena *a, Value *left, Value *right){
+Value sub_poly_tf(Arena *a, Environment *e, Value *left, Value *right){
     Polynomial poly     = left->value.poly;
     TransferFunction tf = right->value.tf;
 
@@ -2912,10 +2828,10 @@ Value sub_poly_tf(Arena *a, Value *left, Value *right){
 		Value tf_val             = make_transfer_function(tf);
 		Value poly_tf_val        = make_transfer_function(poly_tf);
 
-    return sub_tf_tf(a, &poly_tf_val, &tf_val);
+    return sub_tf_tf(a, e, &poly_tf_val, &tf_val);
 }
 
-Value add_num_tf(Arena *a, Value *left, Value *right){
+Value add_num_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = left->valueType == VALUE_TRANSFER_FUNCTION ? left->value.tf : right->value.tf;
     double num          = left->valueType == VALUE_TRANSFER_FUNCTION ? right->value.number : left->value.number;
 
@@ -2923,11 +2839,11 @@ Value add_num_tf(Arena *a, Value *left, Value *right){
 		Value tf_val            = make_transfer_function(tf);
 		Value num_tf_val        = make_transfer_function(num_tf);
 
-    return add_tf_tf(a, &tf_val, &num_tf_val);
+    return add_tf_tf(a, e, &tf_val, &num_tf_val);
 }
 
 
-Value sub_tf_num(Arena *a, Value *left, Value *right){
+Value sub_tf_num(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = left->value.tf;
     double num          = right->value.number;
 
@@ -2935,9 +2851,9 @@ Value sub_tf_num(Arena *a, Value *left, Value *right){
 		Value tf_val            = make_transfer_function(tf);
 		Value num_tf_val        = make_transfer_function(num_tf);
 
-    return sub_tf_tf(a, &tf_val, &num_tf_val);
+    return sub_tf_tf(a, e, &tf_val, &num_tf_val);
 }
-Value sub_num_tf(Arena *a, Value *left, Value *right){
+Value sub_num_tf(Arena *a, Environment *e, Value *left, Value *right){
     double num          = left->value.number;
     TransferFunction tf = right->value.tf;
 
@@ -2945,16 +2861,16 @@ Value sub_num_tf(Arena *a, Value *left, Value *right){
 		Value tf_val            = make_transfer_function(tf);
 		Value num_tf_val        = make_transfer_function(num_tf);
 
-    return sub_tf_tf(a, &num_tf_val, &tf_val);
+    return sub_tf_tf(a, e, &num_tf_val, &tf_val);
 }
-Value mul_num_tf(Arena *a, Value *left, Value *right){
+Value mul_num_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = left->valueType == VALUE_TRANSFER_FUNCTION ? left->value.tf : right->value.tf;
     double num          = left->valueType == VALUE_TRANSFER_FUNCTION ? right->value.number : left->value.number;
 
 		TransferFunction new_tf = scale_tf(a, &tf, num);
     return make_transfer_function(new_tf);
 }
-Value div_num_tf(Arena *a, Value *left, Value *right){
+Value div_num_tf(Arena *a, Environment *e, Value *left, Value *right){
     double num          = left->value.number;
     TransferFunction tf = right->value.tf;
 
@@ -2964,7 +2880,7 @@ Value div_num_tf(Arena *a, Value *left, Value *right){
     return make_transfer_function(new_tf);
 }
 
-Value div_tf_num(Arena *a, Value *left, Value *right){
+Value div_tf_num(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = left->value.tf;
     double num          = right->value.number;
 
@@ -2973,7 +2889,7 @@ Value div_tf_num(Arena *a, Value *left, Value *right){
     return make_transfer_function(new_tf);
 }
 
-Value div_tf_tf(Arena *a, Value *left, Value *right){
+Value div_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf1 = left->value.tf;
     TransferFunction tf2 = right->value.tf;
 
@@ -2982,10 +2898,10 @@ Value div_tf_tf(Arena *a, Value *left, Value *right){
 		Value tf1_val     = make_transfer_function(tf1);
 		Value inv_tf2_val = make_transfer_function(inv_tf2);
 
-    return mul_tf_tf(a, &tf1_val, &inv_tf2_val);
+    return mul_tf_tf(a, e, &tf1_val, &inv_tf2_val);
 }
 
-Value div_poly_tf(Arena *a, Value *left, Value *right){
+Value div_poly_tf(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial p        = left->value.poly;
 		TransferFunction tf = right->value.tf;
 
@@ -2995,10 +2911,10 @@ Value div_poly_tf(Arena *a, Value *left, Value *right){
 		Value tf_inv_val = make_transfer_function(tf_inv);
 		Value tf_poly_val = make_transfer_function(tf_poly);
 
-		return mul_tf_tf(a, &tf_inv_val, &tf_poly_val);
+		return mul_tf_tf(a, e, &tf_inv_val, &tf_poly_val);
 }
 
-Value div_tf_poly(Arena *a, Value *left, Value *right){
+Value div_tf_poly(Arena *a, Environment *e, Value *left, Value *right){
 		TransferFunction tf = left->value.tf;
 		Polynomial p        = right->value.poly;
 
@@ -3007,36 +2923,117 @@ Value div_tf_poly(Arena *a, Value *left, Value *right){
 
 		Value tf_val                 = make_transfer_function(tf);
 		Value tf_poly_inv_val        = make_transfer_function(tf_poly_inv);
-		return mul_tf_tf(a, &tf_val, &tf_poly_inv_val);
+		return mul_tf_tf(a, e, &tf_val, &tf_poly_inv_val);
 		
 }
 
 // ----------- Strings ------------------
 
-Value cat_num_str(Arena *a, Value *left, Value *right){
+Value cat_num_str(Arena *a, Environment *e, Value *left, Value *right){
   double num    = left->value.number;
   char *str     = right->value.str;
   char *num_str = string_from_num(a, num);
   return make_string(cat_strings(a, num_str, str));
 }
 
-Value cat_str_num(Arena *a, Value *left, Value *right){
+Value cat_str_num(Arena *a, Environment *e, Value *left, Value *right){
   char *str  = left->value.str;
   double num = right->value.number;
   char *num_str = string_from_num(a, num);
   return make_string(cat_strings(a, str, num_str));
 }
 
-Value cat_str_str(Arena *a, Value *left, Value *right){
+Value cat_str_str(Arena *a, Environment *e, Value *left, Value *right){
   char *str1 = left->value.str;
   char *str2 = right->value.str;
   return make_string(cat_strings(a, str1, str2));
 }
-Value eq_str_str(Arena *a, Value *left, Value *right){
+Value eq_str_str(Arena *a, Environment *e, Value *left, Value *right){
 		return make_num(strcmp(left->value.str, right->value.str) == 0);
 }
 
 
+//------------ Broadcasting --------------
+
+#define BROADCAST_OP(name, sym, expr) \
+  static double scalar_##name(double x, double y) {return (expr); } \
+  Value broadcast_##name(Arena *a, Environment *e, Value *l, Value *r) { \
+    return broadcast(a, e, sym, l, r, scalar_##name); \
+  }
+
+typedef double (*ScalarOp)(double, double); 
+
+typedef struct {
+  double *data;
+  size_t size;
+  size_t stride;
+} Operand;
+
+int as_operand(Value *v, Operand *out){
+  switch (v->valueType) {
+    case VALUE_NUMBER: 
+      {
+        *out = (Operand) { 
+          .size   = 1,
+          .stride = 0,
+          .data   = &v->value.number
+        };
+        return 1;
+      }
+    case VALUE_ARRAY: 
+      {
+        *out = (Operand) { 
+          .size   = v->value.array.size,
+          .stride = 1,
+          .data   = v->value.array.nums
+        };
+        return 1;
+      }
+    default: return 0;
+  }
+  return 0;
+}
+
+Value broadcast(Arena *a, Environment *e, const char *sym, Value *l, Value *r, ScalarOp op){
+  Operand x, y;
+  if(!as_operand(l, &x) || !as_operand(r, &y)){
+    runtime_error(e, "%s: unsupported operand types", sym);
+    return make_nan();
+  }
+  if(x.stride && y.stride && x.size != y.size){
+    // Two arrays whose sizes are unequal
+    runtime_error(e, "%s: arrays have different lengths (%zu and %zu)", sym, x.size, y.size);
+    return make_nan();
+  }
+  // Could be a number and an array or two arrays
+
+  //  Possibilities for n:
+  //
+  //  x/y      array    number
+  //  --------------------------
+  //  array   x.size    x.size
+  //  number  y.size    1
+
+  size_t n = x.stride ? x.size : y.size;
+
+  Array out = {.size = n, .nums = arena_alloc(a, n * sizeof(double)) };
+  if(out.nums == NULL && n > 0){
+    runtime_error(e, "%s: out of memory for %zu elements", sym, n);
+    return make_nan();
+  }
+
+  for(size_t i = 0; i < n; i++){
+    out.nums[i] = op(x.data[i * x.stride], y.data[i * y.stride]);
+  }
+
+  return make_array(out);
+}
+
+BROADCAST_OP(add, "+", x + y)
+BROADCAST_OP(sub, "-", x - y)
+BROADCAST_OP(mul, "*", x * y) 
+BROADCAST_OP(div, "/", x / y)
+BROADCAST_OP(pow, "^", pow(x, y))
 
 
 static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE_TYPE_COUNT] = {
@@ -3044,7 +3041,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER]              = {
 			[VALUE_NUMBER]            = add_scalar_scalar,
 			[VALUE_COMPLEX]           = add_scalar_scalar,
-			[VALUE_ARRAY]             = add_num_array,
+			[VALUE_ARRAY]             = broadcast_add,
 			[VALUE_POLYNOMIAL]        = add_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = add_num_tf,
 			[VALUE_STRING]            = cat_num_str,
@@ -3060,8 +3057,8 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_ARRAY] = {
-			[VALUE_NUMBER]            = add_num_array,
-			[VALUE_ARRAY]             = add_array_array,
+			[VALUE_NUMBER]            = broadcast_add,
+			[VALUE_ARRAY]             = broadcast_add,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -3102,7 +3099,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]            = sub_scalar_scalar,
 			[VALUE_COMPLEX]           = sub_scalar_scalar,
-			[VALUE_ARRAY]             = sub_num_array,
+			[VALUE_ARRAY]             = broadcast_sub,
 			[VALUE_POLYNOMIAL]        = sub_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = sub_num_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -3117,8 +3114,8 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_ARRAY] = {
-			[VALUE_NUMBER]            = sub_array_num,
-			[VALUE_ARRAY]             = sub_array_array,
+			[VALUE_NUMBER]            = broadcast_sub,
+			[VALUE_ARRAY]             = broadcast_sub,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -3151,7 +3148,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]            = mul_scalar_scalar,
 			[VALUE_COMPLEX]           = mul_scalar_scalar,
-			[VALUE_ARRAY]             = mul_num_array,
+			[VALUE_ARRAY]             = broadcast_mul,
 			[VALUE_POLYNOMIAL]        = mul_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = mul_num_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -3165,8 +3162,8 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_ARRAY] = {
-			[VALUE_NUMBER]            = mul_num_array,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_NUMBER]            = broadcast_mul,
+			[VALUE_ARRAY]             = broadcast_mul,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -3199,7 +3196,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]            = div_scalar_scalar,
 			[VALUE_COMPLEX]           = div_scalar_scalar,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_ARRAY]             = broadcast_div,
       [VALUE_POLYNOMIAL]        = ordered_div_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = div_num_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -3213,8 +3210,8 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_ARRAY] = {
-			[VALUE_NUMBER]            = div_array_num,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_NUMBER]            = broadcast_div,
+			[VALUE_ARRAY]             = broadcast_div,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -3247,13 +3244,19 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]  = pow_scalar_scalar,
 			[VALUE_COMPLEX] = pow_scalar_scalar,
-			[VALUE_ARRAY]   = op_with_nan,
+			[VALUE_ARRAY]   = broadcast_pow,
 			[VALUE_NAN]     = op_with_nan,
 		},
 		[VALUE_COMPLEX] = {
 			[VALUE_NUMBER]  = pow_scalar_scalar,
 			[VALUE_COMPLEX] = pow_scalar_scalar,
 			[VALUE_ARRAY]   = op_with_nan,
+			[VALUE_NAN]     = op_with_nan,
+		},
+		[VALUE_ARRAY] = {
+			[VALUE_NUMBER]  = broadcast_pow,
+			[VALUE_COMPLEX] = broadcast_pow,
+			[VALUE_ARRAY]   = broadcast_pow,
 			[VALUE_NAN]     = op_with_nan,
 		},
 		[VALUE_NAN] = {
@@ -3365,38 +3368,75 @@ Value native_import(Arena *a, Environment *e, char* script, size_t argc, Value *
 
 
 
+typedef double         (*RealFn)       (double);
+typedef double complex (*ComplexFn)    (double complex);
+typedef double         (*RealComplexFn)(double complex);
+
+
+Value lift_unary(Arena *a, Environment *e, const char *name, Value v, RealFn rf, ComplexFn cf, RealComplexFn rcf){
+  switch(v.valueType){
+    case VALUE_NUMBER: return make_num(rf(v.value.number));
+    case VALUE_COMPLEX:
+       {
+         if(cf)  return make_complex(cf(v.value.complex_number));
+         if(rcf) return make_num(rcf(v.value.complex_number));
+         break;
+       }
+    case VALUE_ARRAY:
+       {
+          Array new_array = clone_array(a, &v.value.array);
+          if(new_array.nums == NULL && v.value.array.size > 0){
+            runtime_error(e, "%s: out of memory for %zu elements", name, v.value.array.size);
+            return make_nan();
+          }
+          for(size_t i = 0; i < v.value.array.size; i++){
+            new_array.nums[i] = rf(new_array.nums[i]);
+          }
+          return make_array(new_array);
+       }
+  }
+  runtime_error(e, "%s: unsupported argument type", name);
+  return make_nan();
+}
+
+
 //------------ Math --------------
 
+// These functions are here simply for compatibility purposes
+double real_identity(double x)                  { return x; }
+double real_zero(double x)                      { return 0.0; }
+double real_arg(double x)                       { return atan2(0.0, x); }
+double real_sqr(double x)                       { return x * x; }
+double complex complex_sqr(double complex x)    { return x * x; }
+
 Value native_abs(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-	if(argv[0].valueType == VALUE_COMPLEX) return make_num(cabs(argv[0].value.complex_number));
-  return make_num(fabs(argv[0].value.number));
+  return lift_unary(a, e, "abs", argv[0], fabs, NULL, cabs);
 }
-Value native_real(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  return make_num(creal(argv[0].value.complex_number));
+Value native_real(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ return lift_unary(a, e, "real", argv[0], real_identity, NULL, creal);
 }
-Value native_imag(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  return make_num(cimag(argv[0].value.complex_number));
+Value native_imag(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+ return lift_unary(a, e, "imag", argv[0], real_zero, NULL, cimag);
 }
 Value native_arg(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  return make_num(carg(argv[0].value.complex_number));
+ return lift_unary(a, e, "arg", argv[0], real_arg, NULL, carg);
 }
 Value native_log(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  return make_num(log(argv[0].value.number));
+ return lift_unary(a, e, "log", argv[0], log, clog, NULL);
 }
 Value native_exp(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  return make_num(exp(argv[0].value.number));
+ return lift_unary(a, e, "exp", argv[0], exp, cexp, NULL);
 }
 Value native_sin(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  return make_num(sin(argv[0].value.number));
+ return lift_unary(a, e, "sin", argv[0], sin, csin, NULL);
 }
 Value native_cos(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
-  return make_num(cos(argv[0].value.number));
+ return lift_unary(a, e, "cos", argv[0], cos, ccos, NULL);
 }
 Value native_sqr(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  return make_num(argv[0].value.number * argv[0].value.number);
+ return lift_unary(a, e, "sqr", argv[0], real_sqr, complex_sqr, NULL);
 }
-Value native_sqrt(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  return make_num(sqrt(argv[0].value.number));
+Value native_sqrt(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+  return lift_unary(a, e, "sqrt", argv[0], sqrt, csqrt, NULL);
 }
 Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){    
 	Value from_val = argv[0];
@@ -3790,7 +3830,7 @@ Value eval_binop(Arena *a, Environment *e, AST *op, Value *raw_left, Value *raw_
 		return make_nan();
 	}
 
-	return fn(a, left, right);
+	return fn(a, e, left, right);
 
 	runtime_error(e, "Expected 2 numbers, got something else!");
 	exit(1);
