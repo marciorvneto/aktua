@@ -26,6 +26,16 @@ fn closedloop(G) {
   G / (1 + G)
 }
 
+fn stable(G) {
+	// Checks if a CT system represented by the
+	// transfer function G is stable
+	let p = poles(G)
+	for i in range(0, len(p)){
+		if real(p[i]) > -1e-6 { return 0 }
+	}
+	1
+}
+
 // Useful functions
 
 fn map(f, list){

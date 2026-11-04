@@ -1,0 +1,152 @@
+import("test.tc")
+import("base.tc")
+
+// Transfer functions can't be compared with == yet, so two rational
+// functions are checked for equality by evaluating them at a few points
+// that are not poles of either one. The expected side is written as a
+// plain numeric function, so it doesn't depend on the TF operators under
+// test.
+fn assert_tf(G, expected) {
+  assert_close(G(0.5), expected(0.5), 1e-9)
+  assert_close(G(2),   expected(2),   1e-9)
+  assert_close(G(3.5), expected(3.5), 1e-9)
+}
+
+// Pole helpers. poles() returns a tuple of complex numbers in no
+// particular order, so these look for a match instead of indexing.
+fn has_pole(G, re, im) {
+  let p = poles(G)
+  for i in range(0, len(p)) {
+    if abs(p[i] - complex(re, im)) < 1e-6 { return 1 }
+  }
+  0
+}
+fn assert_pole(G, re, im) {
+  assert(has_pole(G, re, im), "missing pole " + re + " + " + im + "j")
+}
+
+let G = 1 / (s + 1)
+
+// ---------- Division (div_tf_poly and div_tf_num were broken) ----------
+
+// TF / poly
+fn e1(x) { 1 / (x * (x + 1)) }
+assert_tf((1 / s) / (s + 1), e1)
+
+// TF / poly with a cancelling factor: ((s+1)/s) / (s+1) = 1/s
+fn e2(x) { 1 / x }
+assert_tf(((s + 1) / s) / (s + 1), e2)
+assert_eq(len(poles(((s + 1) / s) / (s + 1))), 1)
+assert_pole(((s + 1) / s) / (s + 1), 0, 0)
+
+fn e3(x) { (x + 2) / (x * (x + 1)) }
+assert_tf(((s + 2) / s) / (s + 1), e3)
+
+fn e4(x) { 1 / (x + 2) }
+assert_tf((s / (s + 2)) / s, e4)
+
+// TF / number
+fn e5(x) { 0.5 / x }
+assert_tf((1 / s) / 2, e5)
+
+fn e6(x) { 0.5 * x / (x + 1) }
+assert_tf((s / (s + 1)) / 2, e6)
+
+// number / TF and poly / TF
+fn e7(x) { 2 * (x + 1) }
+assert_tf(2 / G, e7)
+
+fn e8(x) { x * (x + 1) }
+assert_tf(s / G, e8)
+
+// TF / TF
+fn e9(x) { (x + 2) / (x + 1) }
+assert_tf(G / (1 / (s + 2)), e9)
+
+fn one(x) { 1 }
+assert_tf(G / G, one)
+
+// ---------- TF with numbers and polynomials, both orders ----------
+
+fn m2(x)  { 2 / (x + 1) }
+fn a2(x)  { 1 / (x + 1) + 2 }
+fn s2(x)  { 1 / (x + 1) - 2 }
+fn r2(x)  { 2 - 1 / (x + 1) }
+assert_tf(G * 2, m2)
+assert_tf(2 * G, m2)
+assert_tf(G + 2, a2)
+assert_tf(2 + G, a2)
+assert_tf(G - 2, s2)
+assert_tf(2 - G, r2)
+
+fn mp(x) { x / (x + 1) }
+fn ap(x) { 1 / (x + 1) + x }
+fn sp(x) { 1 / (x + 1) - x }
+fn rp(x) { x - 1 / (x + 1) }
+assert_tf(G * s, mp)
+assert_tf(s * G, mp)
+assert_tf(G + s, ap)
+assert_tf(s + G, ap)
+assert_tf(G - s, sp)
+assert_tf(s - G, rp)
+
+fn neg(x) { -1 / (x + 1) }
+assert_tf(-G, neg)
+
+// ---------- pid, feedback, closedloop ----------
+
+fn epid(x) { 2 + 3 / x + 0.5 * x }
+assert_tf(pid(2, 3, 0.5), epid)
+
+// feedback(G, H) = G / (1 + G H)
+fn efb(x) { 1 / (x + 3) }
+assert_tf(feedback(G, 2), efb)
+assert_pole(feedback(G, 2), -3, 0)
+
+// Unity feedback around 1/s^2 puts the poles at +-j
+assert_pole(feedback(1 / (s * s), 1), 0, 1)
+assert_pole(feedback(1 / (s * s), 1), 0, -1)
+
+// closedloop(G) = G / (1 + G)
+fn ecl(x) { 1 / (x + 2) }
+assert_tf(closedloop(G), ecl)
+assert_pole(closedloop(G), -2, 0)
+
+// ---------- stable ----------
+
+// Strictly stable
+assert_eq(stable(1 / (s + 1)), 1)
+assert_eq(stable(1 / (s * s + 3 * s + 2)), 1)
+assert_eq(stable(1 / (s * s * s + 2 * s * s + 2 * s + 1)), 1)
+
+// Underdamped but stable: poles at -1 +- 2j
+assert_eq(stable(1 / (s * s + 2 * s + 5)), 1)
+
+// Unstable
+assert_eq(stable(1 / (s - 1)), 0)
+assert_eq(stable(1 / (s * s - 1)), 0)
+assert_eq(stable(1 / (s * s - 2 * s + 5)), 0)
+
+// Marginally stable counts as not stable, including repeated poles on
+// the imaginary axis, whose computed real parts are only ~1e-9 from zero
+assert_eq(stable(1 / s), 0)
+assert_eq(stable(1 / (s * s)), 0)
+assert_eq(stable(1 / (s * s + 1)), 0)
+assert_eq(stable(1 / ((s * s + 1) * (s * s + 1))), 0)
+assert_eq(stable(feedback(1 / (s * s), 1)), 0)
+
+// No poles at all
+assert_eq(stable((s + 1) / (s + 1)), 1)
+
+// Unity feedback around K / (s (s+1) (s+2)): stable for K < 6
+let plant = 1 / (s * (s + 1) * (s + 2))
+assert_eq(stable(feedback(plant, 1)), 1)
+assert_eq(stable(feedback(5 * plant, 1)), 1)
+assert_eq(stable(feedback(7 * plant, 1)), 0)
+assert_eq(stable(feedback(10 * plant, 1)), 0)
+
+// A PI controller's integrator makes the open loop marginal; closing the
+// loop stabilizes it
+let loop = pid(1, 1, 0) / (s + 1)
+assert_eq(stable(loop), 0)
+assert_eq(stable(closedloop(loop)), 1)

@@ -1752,6 +1752,15 @@ void runtime_error(Environment *e, const char *fmt, ...){
 	e->run_stats->runtime_errors++;
 }
 
+void runtime_warning(const char *fmt, ...){
+	va_list args;
+	va_start(args, fmt);
+	fprintf(stderr, "Warning: ");
+	vfprintf(stderr, fmt, args);
+	fprintf(stderr, "\n");
+	va_end(args);
+}
+
 void initialize_native_fns(Environment *e);
 void env_init(Environment *e, Arena *pa){
   e->persistent    = pa;
@@ -2304,7 +2313,8 @@ void poly_aberth_solve(Arena *ta, Polynomial poly, double complex *roots) {
     // Aberth-Ehrlich iterations
     bool converged = false;
 
-    for (size_t iter = 0; iter < ABERTH_MAX_ITER; iter++) {
+		int iter = 0;
+    for (iter = 0; iter < ABERTH_MAX_ITER; iter++) {
         double max_step = 0.0;
 
         for (size_t i = 0; i < deg; i++) {
@@ -2364,9 +2374,9 @@ void poly_aberth_solve(Arena *ta, Polynomial poly, double complex *roots) {
     }
 
 cleanup:
-    if (!converged) {
-        fprintf(stderr, "Aberth solver did not converge\n");
-    }
+		if (!converged) {
+			runtime_warning("Aberth solver did not converge (degree %zu, %d iterations)", deg, iter);
+		}
 
     arena_restore(ta, scratch);
 }
@@ -2947,8 +2957,8 @@ Value div_num_tf(Arena *a, Value *left, Value *right){
 }
 
 Value div_tf_num(Arena *a, Value *left, Value *right){
-    double num          = left->value.number;
-    TransferFunction tf = right->value.tf;
+    TransferFunction tf = left->value.tf;
+    double num          = right->value.number;
 
 		TransferFunction new_tf = scale_tf(a, &tf, 1.0/num);
 
@@ -2986,11 +2996,11 @@ Value div_tf_poly(Arena *a, Value *left, Value *right){
 
 		TransferFunction tf_poly     = tf_from_poly(a, &p);
 		TransferFunction tf_poly_inv = tf_invert(a, &tf_poly);
-		
-		Value tf_poly_val     = make_transfer_function(tf_poly);
-		Value tf_poly_inv_val = make_transfer_function(tf_poly_inv);
 
-		return mul_tf_tf(a, &tf_poly_inv_val, &tf_poly_val);
+		Value tf_val                 = make_transfer_function(tf);
+		Value tf_poly_inv_val        = make_transfer_function(tf_poly_inv);
+		return mul_tf_tf(a, &tf_val, &tf_poly_inv_val);
+		
 }
 
 // ----------- Strings ------------------
