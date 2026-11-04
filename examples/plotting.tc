@@ -1,11 +1,5 @@
-import("base.tc")
-
 let xs = linspace(0, 2, 100)
 
-fn quadratic(x) {
-  sqr(x)
-}
-
-let ys = map(quadratic, xs)
+let ys = sqrt(xs)
 
 print(ys)

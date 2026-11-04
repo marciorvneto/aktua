@@ -97,7 +97,87 @@ int format_number(char *buf, size_t n, double x, int sig){
 //
 //============================== 
 
+typedef struct {
+  const double *x_data;
+  const double *y_data;
+  size_t        num_points;
+  const char   *name;
+} PlotSeries;
 
+typedef struct {
+  const  PlotSeries *series;
+  size_t             num_series;
+  const  char       *title;
+  const  char       *x_label;
+  const  char       *y_label;
+} PlotData;
+
+typedef struct {
+  double lo, hi;
+  double step;
+  size_t num_ticks;
+  int    decimals;
+} PlotAxis;
+
+// May extend this in the future. At the moment
+// we only support one axis
+typedef struct {
+  PlotAxis x, y;
+} PlotLayout;
+
+// Helpers for Heckbert's algorithm
+double nice_num(double x, bool round_ticks){
+  // Closest "nice" number times a power of 10
+  int    exponent      = floor(log10(x));
+  double fraction      = x / pow(10.0, exponent);
+  double nice_fraction = 0;
+
+  if(round_ticks){
+    if(fraction < 1.5)       nice_fraction = 1.0;
+    else if(fraction < 3.0)  nice_fraction = 2.0;
+    else if(fraction < 7.0)  nice_fraction = 5.0;
+    else                     nice_fraction = 10.0;
+  }else{
+    if(fraction <= 1.0)      nice_fraction = 1.0;
+    else if(fraction <= 2.0) nice_fraction = 2.0;
+    else if(fraction <= 5.0) nice_fraction = 5.0;
+    else                     nice_fraction = 10.0;
+  }
+  
+  return nice_fraction * pow(10, exponent);
+}
+
+PlotAxis compute_axis(double min, double max, size_t target_ticks){
+  if(target_ticks < 2) target_ticks = 2;
+  if(!(isfinite(min) && isfinite(max))){
+    min = 0;
+    max = 1;
+  }
+  double scale = MAX(fabs(min), fabs(max));
+  if(max - min <= 1e-12 * scale || max == min){
+    double pad  =  (scale == 0) ? 1.0 : 0.1 * scale;
+    min        -= pad;
+    max        += pad;
+  }
+
+  double raw_range = nice_num(max - min, false);
+  double raw_step  = nice_num(raw_range / (target_ticks - 1), true);
+
+  double axis_min  = floor(min / raw_step + 1e-9) * raw_step;
+  double axis_max  = ceil(max / raw_step - 1e-9)  * raw_step;
+
+  size_t num_ticks = (size_t)round((axis_max - axis_min)/raw_step) + 1;
+
+  PlotAxis axis = {
+    .lo        = axis_min,
+    .hi        = axis_max,
+    .num_ticks = num_ticks,
+    .step      = raw_step
+    
+  };
+
+  return axis;
+}
 
 
 //============================== 
