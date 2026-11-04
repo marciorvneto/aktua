@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <complex.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -116,7 +117,6 @@ typedef struct {
   double lo, hi;
   double step;
   size_t num_ticks;
-  int    decimals;
 } PlotAxis;
 
 // May extend this in the future. At the moment
@@ -179,6 +179,221 @@ PlotAxis compute_axis(double min, double max, size_t target_ticks){
   return axis;
 }
 
+// ----- Braille-specific
+
+#define TICK_LABEL_MAX 32
+
+typedef struct {
+	size_t  cols;
+	size_t  rows;
+	uint8_t *cells; // cols x rows
+} BrailleCanvas;
+
+// dot position     bit
+// (0,0) (1,0)     0x01  0x08
+// (0,1) (1,1)     0x02  0x10
+// (0,2) (1,2)     0x04  0x20
+// (0,3) (1,3)     0x40  0x80
+static const uint8_t BRAILLE_BITS[4][2] = {
+	{0x01, 0x08},
+	{0x02, 0x10},
+	{0x04, 0x20},
+	{0x40, 0x80},
+};
+
+// px in [0, 2*cols), py in [0, 4*rows)
+void canvas_set(BrailleCanvas *c, long px, long py){
+	if(px < 0 || py < 0) return;
+	if((size_t)px >= 2 * c->cols || (size_t)py >= 4 * c->rows) return;
+	c->cells[(py / 4) * c->cols + (px / 2)] |= BRAILLE_BITS[py % 4][px % 2];
+}
+
+// To UTF-8
+void put_braille(FILE *out, uint8_t bits){
+	int cp = 0x2800 + bits;
+	fputc(0xE0 | (cp >> 12),         out);
+	fputc(0x80 | ((cp >> 6) & 0x3F), out);
+	fputc(0x80 | (cp & 0x3F),        out);
+}
+
+long to_px(double x, const PlotAxis *ax, size_t width){
+	return lround((x - ax->lo) / (ax->hi - ax->lo) * (width - 1));
+}
+long to_py(double y, const PlotAxis *ay, size_t height){
+	return lround((ay->hi - y) / (ay->hi - ay->lo) * (height - 1));
+}
+
+// Bresenham
+void canvas_line(BrailleCanvas *c, long x0, long y0, long x1, long y1){
+	long dx =  labs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+	long dy = -labs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+	long err = dx + dy; 
+	for(;;){
+		canvas_set(c, x0, y0);
+		if(x0 == x1 && y0 == y1) break;
+		long e2 = 2 * err;
+		if(e2 >= dy){ err += dy; x0 += sx; }
+		if(e2 <= dx){ err += dx; y0 += sy; }
+	} 
+}
+
+// Number of decimals needed to print every multiple of step exactly
+int tick_decimals(double step){
+        for(int d = 0; d < 10; d++){
+                double scaled = step * pow(10.0, d);
+                if(fabs(scaled - round(scaled)) < 1e-6 * scaled) return d;
+        }
+        return 10;
+}
+
+// k-th tick: the first multiple of step inside [lo, hi], then every step after
+double tick_value(const PlotAxis *axis, size_t k){
+        double first = ceil(axis->lo / axis->step - 1e-9) * axis->step;
+        double t     = first + k * axis->step;
+        // Avoid printing "-0" for a tick that is zero up to rounding
+        if(fabs(t) < 1e-9 * axis->step) t = 0.0;
+        return t;
+}
+
+size_t num_ticks(const PlotAxis *axis){
+        double first = ceil(axis->lo / axis->step - 1e-9) * axis->step;
+        if(first > axis->hi + 1e-9 * axis->step) return 0;
+        return (size_t)floor((axis->hi - first) / axis->step + 1e-9) + 1;
+}
+
+
+void plot_braille_frame(
+		Arena *a,
+		FILE *out, 
+		const BrailleCanvas *c, 
+		const PlotAxis *ax, 
+		const PlotAxis *ay
+		)
+{ 
+	size_t scratch = arena_save(a);
+
+	// ---- y labels: one optional label per character row ----
+
+	char  (*row_label)[TICK_LABEL_MAX] = arena_alloc(a, c->rows * TICK_LABEL_MAX);
+	memset(row_label, 0, c->rows * TICK_LABEL_MAX);
+
+	int    y_dec  = tick_decimals(ay->step);
+	size_t width  = 0;
+	size_t ny     = num_ticks(ay);
+	for(size_t k = 0; k < ny; k++){
+		double t   = tick_value(ay, k);
+		long   row = to_py(t, ay, 4 * c->rows) / 4;
+		if(row < 0 || (size_t)row >= c->rows) continue;
+		snprintf(row_label[row], TICK_LABEL_MAX, "%.*f", y_dec, t);
+		width = MAX(width, strlen(row_label[row]));
+	}
+
+	// ---- Rows: label, axis, braille cells ----
+
+	for(size_t r = 0; r < c->rows; r++){
+		bool has_label = row_label[r][0] != '\0';
+		fprintf(out, "%*s %s", (int)width, row_label[r], has_label ? "┤" : "│");
+		for(size_t col = 0; col < c->cols; col++){
+			put_braille(out, c->cells[r * c->cols + col]);
+		}
+		fputc('\n', out);
+	}
+
+	// ---- x axis line, with ┬ under each tick ----
+
+	bool  *has_tick = arena_alloc(a, c->cols * sizeof(bool));
+	memset(has_tick, 0, c->cols * sizeof(bool));
+
+	size_t nx = num_ticks(ax);
+	for(size_t k = 0; k < nx; k++){
+		long col = to_px(tick_value(ax, k), ax, 2 * c->cols) / 2;
+		if(col >= 0 && (size_t)col < c->cols) has_tick[col] = true;
+	}
+
+	fprintf(out, "%*s └", (int)width, "");
+	for(size_t col = 0; col < c->cols; col++){
+		fputs(has_tick[col] ? "┬" : "─", out);
+	}
+	fputc('\n', out);
+
+	// ---- x labels, centered under their tick ----
+
+	// Labels are ASCII, so one byte is one terminal column here
+	size_t offset   = width + 2;         
+	size_t line_len = offset + c->cols + TICK_LABEL_MAX;
+	char  *line     = arena_alloc(a, line_len + 1);
+	memset(line, ' ', line_len);
+	line[line_len]  = '\0';
+
+	int  x_dec    = tick_decimals(ax->step);
+	long last_end = -1;                    // column after the previous label
+	for(size_t k = 0; k < nx; k++){
+		double t   = tick_value(ax, k);
+		long   col = to_px(t, ax, 2 * c->cols) / 2;
+		if(col < 0 || (size_t)col >= c->cols) continue;
+
+		char label[TICK_LABEL_MAX];
+		int  len   = snprintf(label, sizeof(label), "%.*f", x_dec, t);
+		long start = (long)offset + col - len / 2;
+		if(start < 0) start = 0;
+		if(start <= last_end) continue;    // would touch the previous label
+		memcpy(line + start, label, len);
+		last_end = start + len;
+	}
+
+	// Trim trailing spaces
+	size_t end = line_len;
+	while(end > 0 && line[end - 1] == ' ') end--;
+	fprintf(out, "%.*s\n", (int)end, line);
+
+	arena_restore(a, scratch);
+}
+
+int plot_layout(const PlotData *data, PlotLayout *out){
+	double x_min = INFINITY, x_max = -INFINITY;
+	double y_min = INFINITY, y_max = -INFINITY;
+	for(size_t s = 0; s < data->num_series; s++){
+		const PlotSeries *ser = &data->series[s];
+		for(size_t i = 0; i < ser->num_points; i++){
+			double x = ser->x_data[i], y = ser->y_data[i];
+			if(!isfinite(x) || !isfinite(y)) continue;
+			x_min = MIN(x_min, x);  x_max = MAX(x_max, x);
+			y_min = MIN(y_min, y);  y_max = MAX(y_max, y);
+		}
+	}
+	if(x_min > x_max) return 0;
+	out->x = compute_axis(x_min, x_max, 6);
+	out->y = compute_axis(y_min, y_max, 5);
+	return 1;
+}
+
+void plot_braille(Arena *a, FILE *out, const PlotData *data,
+		const PlotLayout *layout, size_t cols, size_t rows){
+	size_t scratch = arena_save(a);
+	BrailleCanvas c = {
+		.cols  = cols,
+		.rows  = rows,
+		.cells = arena_alloc(a, cols * rows),
+	};
+
+	for(size_t s = 0; s < data->num_series; s++){
+		const PlotSeries *ser = &data->series[s];
+		bool have_prev = false;
+		long px_prev = 0, py_prev = 0;
+		for(size_t i = 0; i < ser->num_points; i++){
+			double x = ser->x_data[i], y = ser->y_data[i];
+			if(!isfinite(x) || !isfinite(y)){ have_prev = false; continue; }
+			long px = to_px(x, &layout->x, 2 * cols);
+			long py = to_py(y, &layout->y, 4 * rows);
+			if(have_prev) canvas_line(&c, px_prev, py_prev, px, py);
+			else          canvas_set(&c, px, py);
+			px_prev = px; py_prev = py; have_prev = true;
+		}
+	}
+
+	plot_braille_frame(a, out, &c, &layout->x, &layout->y);
+	arena_restore(a, scratch);
+}
 
 //============================== 
 //
@@ -3649,6 +3864,41 @@ Value native_push(Arena *a, Environment *e, char* script, size_t argc, Value *ar
   return make_array(new_arr);
 }
 
+// ------------- Plotting ------------
+
+Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+	*silent = 1;
+	Value x_val = argv[0];
+	Value y_val = argv[1];
+	if(x_val.valueType != VALUE_ARRAY || y_val.valueType != VALUE_ARRAY){
+		runtime_error(e, "plot requires two arrays");
+		return make_nan();
+	}
+	if(x_val.value.array.size != y_val.value.array.size){
+		runtime_error(e, "plot: arrays have different lengths (%zu and %zu)",
+				x_val.value.array.size, y_val.value.array.size);
+		return make_nan();
+	}
+
+	PlotSeries series = {
+		.x_data     = x_val.value.array.nums,
+		.y_data     = y_val.value.array.nums,
+		.num_points = x_val.value.array.size,
+	};
+	PlotData data = { .series = &series, .num_series = 1 };
+
+	PlotLayout layout;
+	if(!plot_layout(&data, &layout)){
+		runtime_error(e, "plot: no finite points to plot");
+		return make_nan();
+	}
+
+	plot_braille(a, stdout, &data, &layout, 60, 15);
+	return make_num(0);
+}
+
+// ------------- Polynomials ------------
+
 Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
   if(val.valueType == VALUE_ARRAY){
@@ -3753,7 +4003,7 @@ static const NativeValueDispatch native_fns[] = {
   native_len,
   native_push,
   // Plotting
-  // native_plot,
+  native_plot,
   // Poly
   native_poly,
   native_polymod,
@@ -3785,6 +4035,8 @@ static const char *native_fn_names[] = {
   "linspace",
   "len",
 	"push",
+  // Plotting
+	"plot",
   // Poly
   "poly",
   "polymod",
@@ -3815,6 +4067,8 @@ static const size_t native_fn_argc[] = {
 	2,
 	3,
   1,
+	2,
+  // Plotting
 	2,
   // Poly
   1,

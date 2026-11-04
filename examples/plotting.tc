@@ -1,5 +1,5 @@
-let xs = linspace(0, 2, 100)
+let xs = linspace(0, 15, 100)
 
-let ys = sqrt(xs)
+let ys = sqrt(xs) + sin(xs)
 
-print(ys)
+plot(xs, ys)
