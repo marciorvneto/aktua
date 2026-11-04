@@ -17,6 +17,9 @@ vim.cmd([[
 
   syntax match tinyctrlFunction /\v<[A-Za-z_][A-Za-z0-9_]*\ze\s*\(/
 
+  " Native functions implemented in C (native_fn_names in main.c)
+  syntax keyword tinyctrlBuiltin assert ls print import abs complex real imag arg log exp sin cos sqr sqrt range len push poly polymod polydiv polygcd poles
+
   syntax region tinyctrlString start=/"/ skip=/\\./ end=/"/
 
   syntax match tinyctrlComment /\/\/.*/
@@ -31,6 +34,7 @@ local groups = {
   tinyctrlOperator    = "Operator",
   tinyctrlNumber      = "Number",
   tinyctrlFunction    = "Function",
+  tinyctrlBuiltin     = "@function.builtin",
   tinyctrlString      = "String",
   tinyctrlComment     = "Comment",
 }
