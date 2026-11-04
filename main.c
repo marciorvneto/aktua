@@ -2194,7 +2194,6 @@ int poly_divmod(Arena *arena, Polynomial a, Polynomial b, Polynomial *q_out, Pol
 	poly_update_degree(&b);
 
 	if(poly_is_zero(&b)){
-		printf("Polynomial division by zero.\n");
 		return 1;
 	}
 
@@ -3313,7 +3312,7 @@ Value native_assert(Arena *a, Environment *e, char* script, size_t argc, Value *
 	Value cond = argv[0];
 	Value msg  = argv[1];
 	if(msg.valueType != VALUE_STRING){
-		fprintf(stderr, "Second argument must me a string\n");
+		runtime_error(e, "Second argument must be a string");
 		(e->run_stats->failed_asserts)++;
 		return make_nan();
 	}
@@ -3394,7 +3393,7 @@ Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *a
 	Value from_val = argv[0];
 	Value to_val   = argv[1];
 	if(from_val.valueType != VALUE_NUMBER || to_val.valueType != VALUE_NUMBER){
-		printf("Expected 2 real numbers. Example: range(1,5) = [1,2,3,4]\n");
+		runtime_error(e, "Expected 2 real numbers. Example: range(1,5) = [1,2,3,4]");
 		return make_nan();
 	}
 	int from = floor(from_val.value.number);
@@ -3466,7 +3465,7 @@ Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *ar
     poly_update_degree(&p);
     return make_poly(p);
   }
-  printf("Unsupported operation!\n");
+	runtime_error(e, "Unsupported operation");
   return make_nan();
 }
 Value native_polymod(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
@@ -3474,21 +3473,27 @@ Value native_polymod(Arena *a, Environment *e, char* script, size_t argc, Value 
   Value second = argv[1];
   if(first.valueType == VALUE_POLYNOMIAL && second.valueType == VALUE_POLYNOMIAL){
     Polynomial rem;
-    poly_divmod(a, first.value.poly, second.value.poly, NULL, &rem);
+    if(poly_divmod(a, first.value.poly, second.value.poly, NULL, &rem) != 0) {
+			runtime_error(e, "polymod: division by the zero polynomial");
+			return make_nan();
+		}
     return make_poly(rem);
   }
-  printf("Unsupported operation, expected a polynomial!\n");
+	runtime_error(e, "Unsupported operation, expected a polynomial!");
   return make_nan();
 }
 Value native_polydiv(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value first = argv[0];
   Value second = argv[1];
-  if(first.valueType == VALUE_POLYNOMIAL && second.valueType == VALUE_POLYNOMIAL){
-    Polynomial div;
-    poly_divmod(a, first.value.poly, second.value.poly, &div, NULL);
-    return make_poly(div);
-  }
-  printf("Unsupported operation, expected a polynomial!\n");
+	if(first.valueType == VALUE_POLYNOMIAL && second.valueType == VALUE_POLYNOMIAL){
+		Polynomial div;
+		if(poly_divmod(a, first.value.poly, second.value.poly, &div, NULL) != 0){ 
+			runtime_error(e, "polydiv: division by the zero polynomial");
+			return make_nan();
+		}
+		return make_poly(div);
+	}
+  runtime_error(e, "Unsupported operation, expected a polynomial!");
   return make_nan();
 }
 Value native_polygcd(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
@@ -3498,7 +3503,7 @@ Value native_polygcd(Arena *a, Environment *e, char* script, size_t argc, Value 
     Polynomial gcd = poly_gcd(a, first.value.poly, second.value.poly);
     return make_poly(gcd);
   }
-  printf("Unsupported operation, expected a polynomial!\n");
+  runtime_error(e, "Unsupported operation, expected a polynomial!");
   return make_nan();
 }
 
@@ -3517,7 +3522,7 @@ Value native_poles(Arena *a, Environment *e, char* script, size_t argc, Value *a
 		};
 		return make_tuple(t);
   }
-  printf("Unsupported operation, expected a transfer function.\n");
+	runtime_error(e, "Unsupported operation, expected a transfer function.");
   return make_nan();
 }
 
@@ -3525,7 +3530,7 @@ Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value 
 	Value re = argv[0];
 	Value im = argv[1];
 	if(re.valueType != VALUE_NUMBER || im.valueType != VALUE_NUMBER){
-		printf("Expected 2 real numbers. Example: complex(1,2) = 1 + 2*j\n");
+		runtime_error(e, "Expected 2 real numbers. Example: complex(1,2) = 1 + 2*j");
 		return make_nan();
 	}
 	return make_complex(re.value.number + I * im.value.number);
@@ -4295,7 +4300,7 @@ ExecStatus eval_stmt(
 		char *dst = stmt->as.statement.dst;
 		// Check if it has been defined before
     if(env_find_local(e, dst) == NULL){
-			printf("Variable %s has not been defined\n", dst);
+			runtime_error(e, "Variable %s has not been defined", dst);
 			return 1;
     }
 
@@ -4313,7 +4318,7 @@ ExecStatus eval_stmt(
 
 		// Check if it has been defined before
 		if(env_find_variable(e, id) != NULL){
-			printf("There's already a variable with the name: %s\n", id);
+			runtime_error(e, "There's already a variable with the name: %s", id);
 			return 1;
 		}
 
@@ -4334,7 +4339,7 @@ ExecStatus eval_stmt(
         );
 
     if (cond.valueType != VALUE_NUMBER) {
-      fprintf(stderr, "Expected numeric condition\n");
+			runtime_error(e,"Expected numeric condition");
       return 1;
     }
 
