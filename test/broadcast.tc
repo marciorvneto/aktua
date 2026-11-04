@@ -1,0 +1,54 @@
+import("test.tc")
+
+// Element-wise comparison of two arrays
+fn assert_all_close(actual, expected, tol, msg) {
+  assert(len(actual) == len(expected), msg + ": lengths differ")
+  for i in range(0, len(actual)) {
+    assert(abs(actual[i] - expected[i]) < tol, msg + ": element " + i)
+  }
+}
+
+let xs = [1, 2, 4]
+
+// ---------- Number with array, both orders ----------
+
+assert_all_close(xs + 1, [2, 3, 5], 1e-12, "array + number")
+assert_all_close(1 + xs, [2, 3, 5], 1e-12, "number + array")
+assert_all_close(xs - 2, [-1, 0, 2], 1e-12, "array - number")
+assert_all_close(2 - xs, [1, 0, -2], 1e-12, "number - array keeps operand order")
+assert_all_close(xs * 3, [3, 6, 12], 1e-12, "array * number")
+assert_all_close(3 * xs, [3, 6, 12], 1e-12, "number * array")
+assert_all_close(xs / 2, [0.5, 1, 2], 1e-12, "array / number")
+assert_all_close(1 / xs, [1, 0.5, 0.25], 1e-12, "number / array keeps operand order")
+assert_all_close(xs ^ 2, [1, 4, 16], 1e-12, "array ^ number")
+assert_all_close(2 ^ xs, [2, 4, 16], 1e-12, "number ^ array keeps operand order")
+
+// ---------- Array with array ----------
+
+let ys = [2, 3, 5]
+assert_all_close(xs + ys, [3, 5, 9], 1e-12, "array + array")
+assert_all_close(ys - xs, [1, 1, 1], 1e-12, "array - array")
+assert_all_close(xs * ys, [2, 6, 20], 1e-12, "array * array")
+assert_all_close(xs / ys, [0.5, 2 / 3, 0.8], 1e-12, "array / array")
+assert_all_close(xs ^ ys, [1, 8, 1024], 1e-12, "array ^ array")
+
+// ---------- Consistency with the math built-ins ----------
+
+let t = linspace(-2, 2, 41)
+assert_all_close(t * t, sqr(t), 1e-12, "t * t matches sqr(t)")
+assert_all_close(t ^ 2, sqr(t), 1e-12, "t ^ 2 matches sqr(t)")
+assert_all_close(sqr(sin(t)) + sqr(cos(t)), t * 0 + 1, 1e-12, "sin^2 + cos^2 = 1")
+assert_all_close(2 - t, -(t - 2), 1e-12, "operand order under negation")
+
+// ---------- Edge cases ----------
+
+let empty = linspace(0, 1, 0)
+assert(len(empty + 1) == 0, "empty array + number")
+assert(len(2 * empty) == 0, "number * empty array")
+assert(len(empty * empty) == 0, "empty * empty")
+
+// Inputs are not modified
+let orig = [1, 2, 3]
+let doubled = orig * 2
+assert_all_close(orig, [1, 2, 3], 0, "operands are not modified")
+assert_all_close(doubled, [2, 4, 6], 0, "result is a new array")
