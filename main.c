@@ -93,6 +93,15 @@ int format_number(char *buf, size_t n, double x, int sig){
 
 //============================== 
 //
+//    Plotting
+//
+//============================== 
+
+
+
+
+//============================== 
+//
 //    Data structures
 //
 //============================== 
@@ -3415,6 +3424,69 @@ Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *a
 	return make_array(arr);
 }
 
+Value native_linspace(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){    
+	Value from_val  = argv[0];
+	Value to_val    = argv[1];
+	Value steps_val = argv[2];
+	if(
+      from_val.valueType  != VALUE_NUMBER   ||
+      to_val.valueType    != VALUE_NUMBER   ||
+      steps_val.valueType != VALUE_NUMBER
+      ){
+		runtime_error(e, "Expected 3 real numbers. Example: linspace(0, 1, 100)");
+		return make_nan();
+	}
+  if(!(steps_val.value.number <= 1e7)){
+		runtime_error(e, "Number of points is too high");
+		return make_nan();
+  }
+  if(steps_val.value.number < 0) {
+		runtime_error(e, "Number of points must be positive");
+		return make_nan();
+  }
+  if(steps_val.value.number != floor(steps_val.value.number)) {
+		runtime_error(e, "Number of points must be an integer");
+		return make_nan();
+  }
+
+	double from  = from_val.value.number;
+	double to    = to_val.value.number;
+	int n_points = ceil(steps_val.value.number);
+	double dx    = (to - from) / (n_points - 1.0);
+
+  if(n_points == 0) {
+    Array arr = {
+      .size = 0,
+      .nums = arena_alloc(a, 0 * sizeof(double)),
+    };
+		return make_array(arr);
+  }
+  if(n_points == 1) {
+    Array arr = {
+      .size = 1,
+      .nums = arena_alloc(a, 1 * sizeof(double)),
+    };
+    arr.nums[0] = from;
+		return make_array(arr);
+  }
+
+	Array arr = {
+		.size = n_points,
+		.nums = arena_alloc(a, n_points * sizeof(double))
+	};
+  if(arr.nums == NULL){
+    runtime_error(e, "Not enough memory for %d points", n_points); 
+    return make_nan(); 
+  }
+
+	for(int i = 0; i < n_points; i++) {
+		arr.nums[i] = from + (i * dx);
+	}
+  arr.nums[n_points - 1] = to;
+
+	return make_array(arr);
+}
+
 Value native_len(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
   if(
@@ -3557,8 +3629,11 @@ static const NativeValueDispatch native_fns[] = {
   native_sqrt,
   // Arrays and tuples
   native_range,
+  native_linspace,
   native_len,
   native_push,
+  // Plotting
+  // native_plot,
   // Poly
   native_poly,
   native_polymod,
@@ -3587,6 +3662,7 @@ static const char *native_fn_names[] = {
   "sqrt",
   // Arrays and tuples
 	"range",
+  "linspace",
   "len",
 	"push",
   // Poly
@@ -3617,6 +3693,7 @@ static const size_t native_fn_argc[] = {
   1,
   // Arrays and tuples
 	2,
+	3,
   1,
 	2,
   // Poly
@@ -4598,9 +4675,9 @@ int main(int argc, char **argv){
 	int parse_code     = 0;
 	RunStats run_stats = {0};
 
-	Arena ta      = arena_create(1024 * 1024);      // 1 MB for now
+	Arena ta      = arena_create(32 * 1024 * 1024); // 32 MB for now
 	Arena pa      = arena_create(32 * 1024 * 1024); // 32 MB for now
-	Arena fa      = arena_create(1 * 1024 * 1024); // Frame arena
+	Arena fa      = arena_create(1 * 1024 * 1024);  // Frame arena
 	Environment e = env_create(&pa, &fa, &run_stats, argv[0]);
 
 	if(argc < 2){
