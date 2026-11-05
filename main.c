@@ -2743,8 +2743,6 @@ double complex *tf_poles(Arena *ta, TransferFunction tf){
 //
 //============================== 
 
-#include <stddef.h>
-
 typedef void (*ODEFn)(double t, double *x, double *dxdt, size_t n, void* data);
 
 void rk4_step(ODEFn f, double t, double *y, double h, size_t n, double *work, void *data){
@@ -2778,7 +2776,8 @@ typedef struct {
 	double h;  // Integrator step
 } LtiSystem;
 
-// h = 0.5 / fastest pole magnitude, so that h*|λ| stays inside RK4's stability region
+// h = 0.05 / fastest pole magnitude. 0.5 already keeps RK4 stable, but
+// gives errors around 1e-4; 0.05 brings them down to around 1e-8.
 double lti_step_size(Arena *a, TransferFunction monic){
 	size_t n = monic.den.deg;
 	double fastest = 0;
@@ -2786,7 +2785,7 @@ double lti_step_size(Arena *a, TransferFunction monic){
 		double complex *p = tf_poles(a, monic);
 		for(size_t i = 0; i < n; i++) if(cabs(p[i]) > fastest) fastest = cabs(p[i]);
 	}       
-	return fastest > 0 ? 0.5 / fastest : 0.01;
+	return fastest > 0 ? 0.05 / fastest : 0.01;
 }
 
 int lti_from_tf(Arena *a, Environment *e, TransferFunction tf, LtiSystem *sys){
@@ -2800,7 +2799,7 @@ int lti_from_tf(Arena *a, Environment *e, TransferFunction tf, LtiSystem *sys){
 	sys->n = n;
 	sys->a = m.den.coeffs;
 	sys->d = n <= m.num.deg ? m.num.coeffs[n] : 0;
-	sys->c = arena_alloc(a, (n ? n : 1) * sizeof(double));
+	sys->c = arena_alloc(a, n * sizeof(double));
 
 	if(!sys->c) return 0; // Allocation failure
 
@@ -2824,9 +2823,7 @@ typedef struct {
 } LtiCtx;
           
 void lti_derivative(double t, double *x, double *dxdt, size_t n, void *data){
-	// This follows from the companion matrix of the transfer function.
-	// We assume that a[n] = 1, where a[n] is the coefficient of the 
-	// term of highest degree
+	// Last row of the companion matrix (a[n] == 1, see LtiCtx)
 
 	LtiCtx *c = data;
 	double last = c->u;
@@ -2835,39 +2832,56 @@ void lti_derivative(double t, double *x, double *dxdt, size_t n, void *data){
 	dxdt[n - 1] = last;
 }     
 
-void impulse(Arena *a, Environment *e, TransferFunction tf, double t_max){
-	ControlSimulationCtx ctx = {
-		.abort = false,
-		.e     = e,
-		.tf    = &tf
-	};
+int lti_simulate(Arena *a, const LtiSystem *sys, double *x, double u,
+		const double *ts, size_t m, double *y){
+	double *work = arena_alloc(a, (3 * sys->n) * sizeof(double));
+	if(!work) return 0;
+	LtiCtx ctx = { .a = sys->a, .u = u };
 
-	size_t n     = tf.den.deg;
-	double *x0   = arena_alloc(a, n * sizeof(double));
-	double *dxdt = arena_alloc(a, n * sizeof(double));
-	double *buf  = arena_alloc(a, 3 * n * sizeof(double));
-	double dt    = t_max / 100;
-
-	rk4_solve(impulse_derivative, x0, t_max, dt, dxdt, buf, n, &ctx);
-
+	if(m == 0) return 1;
+	double t = ts[0];
+	for(size_t k = 0; k < m; k++){
+		double span = ts[k] - t;
+		if(sys->n > 0 && span > 0){
+			size_t steps = (size_t)ceil(span / sys->h);
+			double h = span / steps;
+			for(size_t s = 0; s < steps; s++)
+				rk4_step(lti_derivative, t + s * h, x, h, sys->n, work, &ctx);
+		}
+		t = ts[k];
+		y[k] = lti_output(sys, x, u);
+	}
+	return 1;
 }
 
-void step(Arena *a, Environment *e, TransferFunction tf, double t_max){
-	ControlSimulationCtx ctx = {
-		.abort = false,
-		.e     = e,
-		.tf    = &tf
-	};
+double *step_response(Arena *a, Environment *e, TransferFunction tf, const double *ts, size_t m){
+	LtiSystem sys;          
+	if(!lti_from_tf(a, e, tf, &sys)) return NULL;
 
-	size_t n     = tf.den.deg;
-	double *x0   = arena_alloc(a, n * sizeof(double));
-	double *dxdt = arena_alloc(a, n * sizeof(double));
-	double *buf  = arena_alloc(a, n * sizeof(double));
-	double dt    = t_max / 100;
+	double *x = arena_alloc(a, sys.n * sizeof(double));   // at rest
+	double *y = arena_alloc(a, m * sizeof(double));
+	if(!x || !y) return NULL;
 
-	rk4_solve(step_derivative, x0, t_max, dt, dxdt, buf, n, &ctx);
+	if(!lti_simulate(a, &sys, x, 1.0, ts, m, y)) return NULL;
+	return y; 
+}       
 
+double *impulse_response(Arena *a, Environment *e, TransferFunction tf, const double *ts, size_t
+		m){
+	LtiSystem sys;
+	if(!lti_from_tf(a, e, tf, &sys)) return NULL;
+	if(sys.d != 0){
+		runtime_error(e, "impulse: system is not strictly proper");
+		return NULL;
+	}
 
+	double *x = arena_alloc(a, sys.n * sizeof(double));
+	double *y = arena_alloc(a, m * sizeof(double));
+	if(!x || !y) return NULL;
+	x[sys.n - 1] = 1;                    // the impulse kicks the state by B
+
+	if(!lti_simulate(a, &sys, x, 0.0, ts, m, y)) return NULL;
+	return y;
 }
 
 //============================
@@ -4113,6 +4127,45 @@ Value native_poles(Arena *a, Environment *e, char* script, size_t argc, Value *a
   return make_nan();
 }
 
+// Checks the (G, t) arguments shared by impulse() and step().
+// t must be an array of non-decreasing times.
+static int check_response_args(Environment *e, const char *name, Value *argv){
+	if(argv[0].valueType != VALUE_TRANSFER_FUNCTION || argv[1].valueType != VALUE_ARRAY){
+		runtime_error(e, "%s expects a transfer function and an array of times. Example: %s(1/(s+1), linspace(0, 10, 200))", name, name);
+		return 0;
+	}
+	Array ts = argv[1].value.array;
+	for(size_t i = 1; i < ts.size; i++){
+		if(!(ts.nums[i] >= ts.nums[i - 1])){
+			runtime_error(e, "%s: times must be non-decreasing (t[%zu] = %g comes after %g)", name, i, ts.nums[i], ts.nums[i - 1]);
+			return 0;
+		}
+	}
+	return 1;
+}
+
+Value native_impulse(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+	if(!check_response_args(e, "impulse", argv)) return make_nan();
+
+	Array ts  = argv[1].value.array;
+	double *y = impulse_response(a, e, argv[0].value.tf, ts.nums, ts.size);
+	if(!y) return make_nan();
+
+	Array out = { .size = ts.size, .nums = y };
+	return make_array(out);
+}
+
+Value native_step(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+	if(!check_response_args(e, "step", argv)) return make_nan();
+
+	Array ts  = argv[1].value.array;
+	double *y = step_response(a, e, argv[0].value.tf, ts.nums, ts.size);
+	if(!y) return make_nan();
+
+	Array out = { .size = ts.size, .nums = y };
+	return make_array(out);
+}
+
 Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
 	Value re = argv[0];
 	Value im = argv[1];
@@ -4156,6 +4209,8 @@ static const NativeValueDispatch native_fns[] = {
   native_polygcd,
 	// TF
 	native_poles,
+	native_impulse,
+	native_step,
 };
 
 static const char *native_fn_names[] = {
@@ -4188,7 +4243,9 @@ static const char *native_fn_names[] = {
   "polydiv",
   "polygcd",
 	// TF
-	"poles"
+	"poles",
+	"impulse",
+	"step",
 };
 
 static const size_t native_fn_argc[] = {
@@ -4222,8 +4279,12 @@ static const size_t native_fn_argc[] = {
   2,
 	// TF
 	1,
+	2,
+	2,
 };
 
+_Static_assert(LEN(native_fn_names) == LEN(native_fns), "native_fn_names out of sync with native_fns");
+_Static_assert(LEN(native_fn_argc)  == LEN(native_fns), "native_fn_argc out of sync with native_fns");
 
 
 Value resolve_variable(Arena *a, Environment *e, Value *literal){

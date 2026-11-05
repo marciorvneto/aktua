@@ -47,12 +47,12 @@ assert(e3[35] == 0.7, "exact endpoint 0.7 with 36 points")
 // ---------- Uniform spacing ----------
 
 let pts  = linspace(-2, 3, 51)
-let step = 0.1
+let spacing = 0.1
 let prev = pts[0]
 let first = 1
 for p in pts {
   if first == 0 {
-    assert_close(p - prev, step, 1e-12)
+    assert_close(p - prev, spacing, 1e-12)
   }
   first = 0
   prev = p
