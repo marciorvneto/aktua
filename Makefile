@@ -1,4 +1,4 @@
-.PHONY: tctl stdlib clean test
+.PHONY: tctl stdlib clean test syntax
 
 tctl: build/tctl stdlib
 
@@ -20,3 +20,7 @@ stdlib: | build
 
 clean:
 	rm -rf build
+
+syntax: build/tctl
+	@names=$$(./build/tctl --builtins | tr '\n' ' ' | sed 's/ $$//'); \
+	sed -i "s/^\(  syntax keyword tinyctrlBuiltin\).*/\1 $$names/" editors/nvim/syntax/tinyctrl.lua

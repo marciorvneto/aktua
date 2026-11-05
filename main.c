@@ -2085,6 +2085,11 @@ Environment env_create(Arena *pa, Arena *fa, RunStats *run_stats, char* exe_path
 	return e;
 }
 
+Environment * env_root(Environment *e){
+  while(e->parent) e = e->parent;
+  return e;
+}
+
 Arena *env_storage(Environment *e) {
   return e->parent ? e->frame : e->persistent;
 }
@@ -2095,6 +2100,7 @@ int env_variable_idx(Environment *e, const char* name){
 	}
 	return -1;
 }
+
 
 Variable *env_get_variable_from_idx(Environment *e, int idx){
 	if(idx < 0) return NULL;
@@ -3870,20 +3876,29 @@ double real_sqr(double x)                       { return x * x; }
 double complex complex_sqr(double complex x)    { return x * x; }
 
 #define UNARY_NATIVE_MATHS_LIST \
-      M(abs,  fabs,          NULL,        cabs)             \
-      M(real, real_identity, NULL,        creal)            \
-      M(imag, real_zero,     NULL,        cimag)            \
-      M(arg,  real_arg,      NULL,        carg)             \
-      M(log,  log,           clog,        NULL)             \
-      M(exp,  exp,           cexp,        NULL)             \
-      M(sin,  sin,           csin,        NULL)             \
-      M(cos,  cos,           ccos,        NULL)             \
-      M(tan,  tan,           ctan,        NULL)             \
-      M(sinh, sinh,          csinh,       NULL)             \
-      M(cosh, cosh,          ccosh,       NULL)             \
-      M(tanh, tanh,          ctanh,       NULL)             \
-      M(sqr,  real_sqr,      complex_sqr, NULL)             \
-      M(sqrt, sqrt,          csqrt,       NULL)
+      M(abs,   fabs,          NULL,        cabs)             \
+      M(real,  real_identity, NULL,        creal)            \
+      M(imag,  real_zero,     NULL,        cimag)            \
+      M(arg,   real_arg,      NULL,        carg)             \
+      M(log,   log,           clog,        NULL)             \
+      M(exp,   exp,           cexp,        NULL)             \
+      M(sin,   sin,           csin,        NULL)             \
+      M(cos,   cos,           ccos,        NULL)             \
+      M(tan,   tan,           ctan,        NULL)             \
+      M(asin,  asin,          casin,       NULL)             \
+      M(acos,  acos,          cacos,       NULL)             \
+      M(atan,  atan,          catan,       NULL)             \
+      M(sinh,  sinh,          csinh,       NULL)             \
+      M(cosh,  cosh,          ccosh,       NULL)             \
+      M(tanh,  tanh,          ctanh,       NULL)             \
+      M(asinh, asinh,         casinh,      NULL)             \
+      M(acosh, acosh,         cacosh,      NULL)             \
+      M(atanh, atanh,         catanh,      NULL)             \
+      M(floor, floor,         NULL,        NULL)             \
+      M(ceil,  ceil,          NULL,        NULL)             \
+      M(round, round,         NULL,        NULL)             \
+      M(sqr,   real_sqr,      complex_sqr, NULL)             \
+      M(sqrt,  sqrt,          csqrt,       NULL)
 
 #define M(name, rf, cf, rcf) \
   Value native_##name(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){  \
@@ -4056,6 +4071,54 @@ Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	return make_num(0);
 }
 
+// ------------- Arrays ------------
+
+typedef double (*ReducerFn)(double acc, double x);
+double reducer_max(double acc, double x) { return x > acc ? x : acc; }
+double reducer_min(double acc, double x) { return x < acc ? x : acc; }
+double reducer_sum(double acc, double x) { return x + acc; }
+double reducer_prod(double acc, double x) { return x * acc; }
+
+Value reduce(Environment *e, const char* name, ReducerFn reducer, Value val, double init, bool emtpy_ok){
+  if(val.valueType == VALUE_NUMBER) return make_num(val.value.number);
+  if(val.valueType != VALUE_ARRAY){
+    runtime_error(e, "max expects an array");
+    return make_nan();
+  }
+  size_t size = val.value.array.size;
+  if(size == 0 && !emtpy_ok){
+    runtime_error(e, "%s: array can't be empty.", name);
+    return make_nan();
+  }
+  double acc = init;
+  for(size_t i = 0; i < size; i++){
+    double v = val.value.array.nums[i];
+    if(isnan(v)) return make_num(NAN);
+    acc = reducer(acc, v);
+  }
+  return make_num(acc);
+}
+
+#define NATIVE_REDUCER_LIST                  \
+  R(max,  reducer_max,  -INFINITY, false)    \
+  R(min,  reducer_min,  INFINITY,  false)    \
+  R(sum,  reducer_sum,  0.0,       true)     \
+  R(prod, reducer_prod, 1.0,       false)
+
+#define R(name, reducer_fn, init, empty_ok) \
+Value native_##name(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent) \
+{  \
+    return reduce(e, #name, reducer_fn, argv[0], init, empty_ok); \
+}
+  NATIVE_REDUCER_LIST
+#undef R
+
+Value native_mean(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+  Value total = reduce(e, "mean", reducer_sum, argv[0], 0.0, false);
+  if(total.valueType != VALUE_NUMBER || argv[0].valueType != VALUE_ARRAY) return total;
+  return make_num(total.value.number / argv[0].value.array.size);
+}       
+
 // ------------- Polynomials ------------
 
 Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
@@ -4190,10 +4253,12 @@ typedef struct {
         N(import,   1)               \
         N(complex,  2)               \
         UNARY_NATIVE_MATHS_LIST      \
+        NATIVE_REDUCER_LIST          \
         N(range,    2)               \
         N(linspace, 3)               \
         N(len,      1)               \
         N(push,     2)               \
+        N(mean,     1)               \
         N(plot,     2)               \
         N(poly,     1)               \
         N(polymod,  2)               \
@@ -4204,9 +4269,11 @@ typedef struct {
         N(step,     2)
 #define N(name, argc) { #name, native_##name, argc },
 #define M(name, rf, cf, rcf) N(name, 1)
+#define R(name, reducer_fn, init, empty_ok) N(name, 1)
 static const NativeFn natives[] = { NATIVE_LIST };
 #undef M
 #undef N
+#undef R
 
 
 Value resolve_variable(Arena *a, Environment *e, Value *literal){
@@ -4306,7 +4373,7 @@ Environment *push_env(Environment *e){
 	Environment *new_env = arena_alloc(fa, sizeof(Environment));
 
   new_env->persistent    = e->persistent;
-	new_env->parent        = e;
+	new_env->parent        = env_root(e);
   new_env->frame         = e->frame;
   new_env->num_vars      = 0;
   new_env->vars          = arena_alloc(fa, ENV_INITIAL_VARS * sizeof(Variable));
@@ -5194,6 +5261,13 @@ int main(int argc, char **argv){
 			cleanup(&ta, &pa);
 			exit(0);
 		}
+
+		if(strcmp(argv[1], "--builtins") == 0){
+      for(size_t i = 0; i < LEN(natives); i++) printf("%s\n", natives[i].name);
+			cleanup(&ta, &pa);
+			exit(0);
+		}
+
 
 		// Launch a program
 

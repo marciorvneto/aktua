@@ -50,13 +50,6 @@ fn last(xs) {
 assert_eq(last([9, 8, 7]), 7)
 assert_eq(last((1, 2, 3)), 3)
 
-fn sum(xs) {
-  let s = 0
-  for i in range(0, len(xs)) {
-    s = s + xs[i]
-  }
-  s
-}
 assert_eq(sum([1, 2, 3, 4]), 10)
 assert_eq(sum([]), 0)
 
