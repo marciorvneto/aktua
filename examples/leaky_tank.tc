@@ -48,3 +48,8 @@ print("W(inf) = " + Winf)
 let p = poles(W)
 print("Poles:")
 print(p)
+
+let ts   = linspace(0, 10, 100)
+let yres = step(W, ts)
+
+plot(ts, yres)
