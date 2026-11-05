@@ -3869,35 +3869,29 @@ double real_arg(double x)                       { return atan2(0.0, x); }
 double real_sqr(double x)                       { return x * x; }
 double complex complex_sqr(double complex x)    { return x * x; }
 
-Value native_abs(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  return lift_unary(a, e, "abs", argv[0], fabs, NULL, cabs);
-}
-Value native_real(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ return lift_unary(a, e, "real", argv[0], real_identity, NULL, creal);
-}
-Value native_imag(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
- return lift_unary(a, e, "imag", argv[0], real_zero, NULL, cimag);
-}
-Value native_arg(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
- return lift_unary(a, e, "arg", argv[0], real_arg, NULL, carg);
-}
-Value native_log(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
- return lift_unary(a, e, "log", argv[0], log, clog, NULL);
-}
-Value native_exp(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
- return lift_unary(a, e, "exp", argv[0], exp, cexp, NULL);
-}
-Value native_sin(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
- return lift_unary(a, e, "sin", argv[0], sin, csin, NULL);
-}
-Value native_cos(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
- return lift_unary(a, e, "cos", argv[0], cos, ccos, NULL);
-}
-Value native_sqr(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
- return lift_unary(a, e, "sqr", argv[0], real_sqr, complex_sqr, NULL);
-}
-Value native_sqrt(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
-  return lift_unary(a, e, "sqrt", argv[0], sqrt, csqrt, NULL);
-}
+#define UNARY_NATIVE_MATHS_LIST \
+      M(abs,  fabs,          NULL,        cabs)             \
+      M(real, real_identity, NULL,        creal)            \
+      M(imag, real_zero,     NULL,        cimag)            \
+      M(arg,  real_arg,      NULL,        carg)             \
+      M(log,  log,           clog,        NULL)             \
+      M(exp,  exp,           cexp,        NULL)             \
+      M(sin,  sin,           csin,        NULL)             \
+      M(cos,  cos,           ccos,        NULL)             \
+      M(tan,  tan,           ctan,        NULL)             \
+      M(sinh, sinh,          csinh,       NULL)             \
+      M(cosh, cosh,          ccosh,       NULL)             \
+      M(tanh, tanh,          ctanh,       NULL)             \
+      M(sqr,  real_sqr,      complex_sqr, NULL)             \
+      M(sqrt, sqrt,          csqrt,       NULL)
+
+#define M(name, rf, cf, rcf) \
+  Value native_##name(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){  \
+   return lift_unary(a, e, #name, argv[0], rf, cf, rcf); \
+  } 
+  UNARY_NATIVE_MATHS_LIST
+#undef M
+
 Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){    
 	Value from_val = argv[0];
 	Value to_val   = argv[1];
@@ -4182,115 +4176,37 @@ Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value 
 	return make_complex(re.value.number + I * im.value.number);
 }
 
+typedef struct {
+  const char          *name;
+  NativeValueDispatch fn;
+  size_t              argc;
+} NativeFn;
 
 
-static const NativeValueDispatch native_fns[] = {
-  native_assert,
-  native_ls,
-  native_print,
-  native_import,
-  // Math
-  native_abs,
-	native_complex,
-  native_real,
-  native_imag,
-  native_arg,
-  native_log,
-  native_exp,
-  native_sin,
-  native_cos,
-  native_sqr,
-  native_sqrt,
-  // Arrays and tuples
-  native_range,
-  native_linspace,
-  native_len,
-  native_push,
-  // Plotting
-  native_plot,
-  // Poly
-  native_poly,
-  native_polymod,
-  native_polydiv,
-  native_polygcd,
-	// TF
-	native_poles,
-	native_impulse,
-	native_step,
-};
-
-static const char *native_fn_names[] = {
-  "assert",
-  "ls",
-  "print",
-  "import",
-  // Math
-  "abs",
-  "complex",
-  "real",
-  "imag",
-  "arg",
-  "log",
-  "exp",
-  "sin",
-  "cos",
-  "sqr",
-  "sqrt",
-  // Arrays and tuples
-	"range",
-  "linspace",
-  "len",
-	"push",
-  // Plotting
-	"plot",
-  // Poly
-  "poly",
-  "polymod",
-  "polydiv",
-  "polygcd",
-	// TF
-	"poles",
-	"impulse",
-	"step",
-};
-
-static const size_t native_fn_argc[] = {
-  2,
-  0,
-  1,
-  1,
-  // Math
-  1,
-	2,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  // Arrays and tuples
-	2,
-	3,
-  1,
-	2,
-  // Plotting
-	2,
-  // Poly
-  1,
-  2,
-  2,
-  2,
-	// TF
-	1,
-	2,
-	2,
-};
-
-_Static_assert(LEN(native_fn_names) == LEN(native_fns), "native_fn_names out of sync with native_fns");
-_Static_assert(LEN(native_fn_argc)  == LEN(native_fns), "native_fn_argc out of sync with native_fns");
+#define NATIVE_LIST                  \
+        N(assert,   2)               \
+        N(ls,       0)               \
+        N(print,    1)               \
+        N(import,   1)               \
+        N(complex,  2)               \
+        UNARY_NATIVE_MATHS_LIST      \
+        N(range,    2)               \
+        N(linspace, 3)               \
+        N(len,      1)               \
+        N(push,     2)               \
+        N(plot,     2)               \
+        N(poly,     1)               \
+        N(polymod,  2)               \
+        N(polydiv,  2)               \
+        N(polygcd,  2)               \
+        N(poles,    1)               \
+        N(impulse,  2)               \
+        N(step,     2)
+#define N(name, argc) { #name, native_##name, argc },
+#define M(name, rf, cf, rcf) N(name, 1)
+static const NativeFn natives[] = { NATIVE_LIST };
+#undef M
+#undef N
 
 
 Value resolve_variable(Arena *a, Environment *e, Value *literal){
@@ -4453,11 +4369,11 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 
   if(fun->value.fun.kind == FN_NATIVE){
     int idx = fun->value.fun.native_data.native_index;
-    if(idx < 0 || idx >= LEN(native_fns)){
+    if(idx < 0 || idx >= LEN(natives)){
 			runtime_error(e, "%s not registered", fn_name);
       return make_nan();
     }
-    NativeValueDispatch dispatch = native_fns[idx];
+    NativeValueDispatch dispatch = natives[idx].fn;
     Value result = dispatch(ta, e, script_path, argc, evaluated, silent);
     return result;
   }
@@ -4576,7 +4492,7 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
           function_repr(
               ta, 
               value->value.fun.native_data.num_arguments_native,
-              native_fn_names[value->value.fun.native_data.native_index],
+              natives[value->value.fun.native_data.native_index].name,
               buf
           );
         }else{
@@ -4702,9 +4618,9 @@ UnaryValueDispatch callable_values_dispatch[VALUE_TYPE_COUNT][VALUE_TYPE_COUNT] 
 
 
 void initialize_native_fns(Environment *e){
-  for(size_t i = 0; i < LEN(native_fns); i++){
+  for(size_t i = 0; i < LEN(natives); i++){
     NativeFunctionData data = {
-      .num_arguments_native = native_fn_argc[i],
+      .num_arguments_native = natives[i].argc,
       .native_index         = i
     };
     Function native_fn = {
@@ -4712,7 +4628,7 @@ void initialize_native_fns(Environment *e){
       .native_data = data
     };
     Value fn = make_function(native_fn);
-    env_set_variable(e, native_fn_names[i], &fn);
+    env_set_variable(e, natives[i].name, &fn);
   }
 }
 
