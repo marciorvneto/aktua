@@ -1,55 +1,15 @@
-// -----------------------------------------------------
-// 
-//  LEAKY TANK
-//  By: Marcio R. V. Neto, 2026
-// 
-//  This script creates the transfer function for a
-//  first-order leaky tank coupled with a PID
-//  controller.
-// 
-// -----------------------------------------------------
+// Level control of a leaky tank with a PI controller.
+// See tank_level_control.tc for where these numbers come from.
+// By: Marcio R. V. Neto, 2026
 
-// PID gains.
-
-let kp = 0.1
-let ki = 0.2
-let kd = 0.3
-
-// Leaky tank constant and transfer function
-let tau = 0.01
-let H = 1 / poly([1, tau])
-
-print("The leaky tank's TF is:")
-print(H)
-
-// PID transfer function
 let s = poly([0, 1])
-let C = kp + ki/s + kd*s
 
-print("The PID's TF is:")
-print(C)
+let H = 0.2 / (100 * s + 1)    // Tank: level [m] per inflow [L/s], time constant 100 s
+let C = 20 + 0.2 / s           // PI controller
+let W = C * H / (1 + C * H)    // Closed loop: level setpoint -> level
 
-// Feedback system
-let W = (C * H) / (1 + C * H)
-
-print("The feedback loop's TF:")
 print(W)
+print(poles(W))
 
-print("Evaluating gains:")
-
-let W0   = W(0)
-let Winf = W(1000000)
-
-print("W(0)   = " + W0)
-print("W(inf) = " + Winf)
-
-// Poles
-
-let p = poles(W)
-print("Poles:")
-print(p)
-
-let ts   = linspace(0, 10, 100)
-let yres = step(W, ts)
-
-plot(ts, yres)
+let t = linspace(0, 150, 151)
+plot(t, step(W, t))

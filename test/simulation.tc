@@ -1,0 +1,69 @@
+import("test.tc")
+import("base.tc")
+
+// Simulated responses compared with closed-form solutions
+
+let t   = linspace(0, 5, 11)
+let tol = 1e-7
+
+// ---------- First order: 1/(s+1) ----------
+
+let G1 = 1 / (s + 1)
+
+let y1 = step(G1, t)
+for i in range(0, len(t)) {
+  assert_close(y1[i], 1 - exp(-t[i]), tol)
+}
+
+let h1 = impulse(G1, t)
+for i in range(0, len(t)) {
+  assert_close(h1[i], exp(-t[i]), tol)
+}
+
+// ---------- Underdamped second order: wn = 2, zeta = 0.3 ----------
+
+let G2 = 4 / (s * s + 1.2 * s + 4)
+let wd = 2 * sqrt(1 - 0.09)
+let y2 = step(G2, t)
+let ex = 0
+for i in range(0, len(t)) {
+  ex = 1 - exp(-0.6 * t[i]) * (cos(wd * t[i]) + 0.6 / wd * sin(wd * t[i]))
+  assert_close(y2[i], ex, tol)
+}
+
+// ---------- Direct feedthrough: (s+2)/(s+1) = 1 + 1/(s+1) ----------
+
+// Step response 2 - exp(-t): starts at G(inf) = 1, settles at G(0) = 2
+let G3 = (s + 2) / (s + 1)
+let y3 = step(G3, t)
+for i in range(0, len(t)) {
+  assert_close(y3[i], 2 - exp(-t[i]), tol)
+}
+
+// ---------- Final value: G(0) ----------
+
+let long = step(G2, linspace(0, 30, 31))
+assert_close(long[30], 1, 1e-6)
+
+// ---------- Time vectors that don't start at 0 ----------
+
+// The input is applied at t = 0, whichever times are requested
+let late = step(G1, linspace(5, 6, 3))
+assert_close(late[0], 1 - exp(-5), tol)
+assert_close(late[1], 1 - exp(-5.5), tol)
+assert_close(late[2], 1 - exp(-6), tol)
+
+// Before t = 0 the system is at rest
+let around = step(G1, linspace(-1, 1, 5))
+assert(around[0] == 0, "at rest at t = -1")
+assert(around[1] == 0, "at rest at t = -0.5")
+assert_close(around[3], 1 - exp(-0.5), tol)
+assert_close(around[4], 1 - exp(-1), tol)
+
+// ---------- Uneven spacing ----------
+
+let uneven = [0, 0.1, 0.15, 1, 4]
+let yu = step(G1, uneven)
+for i in range(0, len(uneven)) {
+  assert_close(yu[i], 1 - exp(-uneven[i]), tol)
+}

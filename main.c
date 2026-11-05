@@ -2839,8 +2839,14 @@ int lti_simulate(Arena *a, const LtiSystem *sys, double *x, double u,
 	LtiCtx ctx = { .a = sys->a, .u = u };
 
 	if(m == 0) return 1;
-	double t = ts[0];
+	// The input starts at t = 0, and the system is at rest before that.
+	// Integrating from 0 (not from ts[0]) keeps y(t) independent of which times are requested
+	double t = 0;
 	for(size_t k = 0; k < m; k++){
+		if(ts[k] < 0){
+			y[k] = 0;
+			continue;
+		}
 		double span = ts[k] - t;
 		if(sys->n > 0 && span > 0){
 			size_t steps = (size_t)ceil(span / sys->h);

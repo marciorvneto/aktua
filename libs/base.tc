@@ -22,6 +22,11 @@ fn pid(kp, ki, kd) {
 	kp + ki/s + kd*s
 }
 
+// PID with derivative filtering
+fn pidf(kp, ki, kd, Tf) {
+	kp + ki/s + kd*s / (1 + Tf * s)
+}
+
 fn closedloop(G) {
   G / (1 + G)
 }

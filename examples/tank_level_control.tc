@@ -1,0 +1,136 @@
+// -----------------------------------------------------
+//
+//  TANK LEVEL CONTROL
+//  By: Marcio R. V. Neto, 2026
+//
+//  A gravity-drained tank, modelled from first
+//  principles and controlled with P, PI and PID
+//  controllers. Each section checks the simulation
+//  against what theory predicts.
+//
+//  All variables are deviations from the operating
+//  point: level in m, flow in L/s, time in s.
+//
+// -----------------------------------------------------
+
+let s = poly([0, 1])
+
+// ---------- 1. The tank ----------
+//
+// Mass balance:   A dh/dt = q_in - q_out
+// Drain valve:    q_out = Cv sqrt(h)
+//
+// Linearizing the valve around the operating point (h0, q0)
+// gives a resistance R = dh/dq_out = 2 h0 / q0, and
+//
+//   H(s) = h(s) / q_in(s) = K / (tau s + 1),   K = R,  tau = A R
+
+let A  = 0.5     // cross-section [m^2], about 0.8 m diameter
+let h0 = 1       // operating level [m]
+let q0 = 10      // operating flow [L/s]
+
+let K   = 2 * h0 / q0        // [m per L/s]
+let tau = A * 1000 * K       // [s]; 1000 converts L to m^3
+
+print("Tank gain K = " + K + " m per L/s, time constant tau = " + tau + " s")
+
+let H = K / (tau * s + 1)
+print("Pole of the tank (expect -1/tau = " + (-1 / tau) + "):")
+print(poles(H))
+
+// A 1 L/s step in inflow: reaches 63% of K at t = tau
+let t_open = linspace(0, 500, 251)
+let y_open = step(H, t_open)
+assert(abs(y_open[50] - K * (1 - exp(-1))) < 1e-6, "63% of K at t = tau")
+print("Open loop: level after a 1 L/s inflow step")
+plot(t_open, y_open)
+
+fn closed_loop(C) {
+  C * H / (1 + C * H)
+}
+
+fn disturbance(C) {
+  H / (1 + C * H)
+}
+
+// ---------- 2. P control: there is always an offset ----------
+//
+// Final value theorem: W(0) = K kp / (1 + K kp) < 1
+
+print("P control, final level for a 1 m setpoint step:")
+let W = 0
+for gain in [5, 20, 100] {
+  W = closed_loop(gain)
+  assert(abs(W(0) - K * gain / (1 + K * gain)) < 1e-12, "P offset matches the final value theorem")
+  print("  kp = " + gain + ": W(0) = " + W(0) + ", offset = " + (1 - W(0)))
+}
+
+// ---------- 3. PI control by lambda (IMC) tuning ----------
+//
+// Choose the closed-loop time constant lambda, then
+//   kp = tau / (K lambda),   ki = kp / tau
+// The PI zero cancels the tank pole, so the loop becomes
+// exactly first order: W(s) = 1 / (lambda s + 1)
+
+let lambda = 25
+let kp = tau / (K * lambda)
+let ki = kp / tau
+print("Lambda tuning for lambda = " + lambda + " s: kp = " + kp + ", ki = " + ki)
+
+let C_pi = kp + ki / s
+let W_pi = closed_loop(C_pi)
+print("PI closed loop (one pole at -1/lambda = " + (-1 / lambda) + "):")
+print(W_pi)
+print(poles(W_pi))
+
+let t = linspace(0, 150, 151)
+let y_pi = step(W_pi, t)
+assert(abs(W_pi(0) - 1) < 1e-12, "PI has no offset")
+assert(abs(y_pi[25] - (1 - exp(-1))) < 1e-6, "63% at t = lambda")
+print("PI control: level after a 1 m setpoint step")
+plot(t, y_pi)
+
+// ---------- 4. Ideal derivative: the kick ----------
+//
+// An ideal derivative turns the setpoint step into a spike, so the
+// level jumps at t = 0. At high frequency C ~ kd s and H ~ K / (tau s):
+//   W(inf) = K kd / (tau + K kd)
+// The spike asks for far more flow than a real valve can deliver;
+// this linear model does not include valve limits.
+
+let kd = 250
+let W_pid = closed_loop(C_pi + kd * s)
+let jump = K * kd / (tau + K * kd)
+assert(abs(W_pid(1e9) - jump) < 1e-6, "derivative kick matches K kd / (tau + K kd)")
+print("Ideal PID: the level jumps to " + jump + " at t = 0")
+plot(t, step(W_pid, t))
+
+// ---------- 5. Filtered derivative ----------
+//
+// kd s / (tf s + 1) limits the derivative at high frequency. The usual
+// choice is tf = Td / 10, with Td = kd / kp. No more jump: W(inf) = 0
+
+let tf = (kd / kp) / 10
+let W_pidf = closed_loop(C_pi + kd * s / (tf * s + 1))
+let y_pidf = step(W_pidf, t)
+assert(abs(y_pidf[0]) < 1e-12, "filtered PID starts at 0")
+print("Filtered PID (tf = " + tf + " s): starts at 0")
+plot(t, y_pidf)
+
+// ---------- 6. Disturbance rejection ----------
+//
+// A 1 L/s inflow step enters through H / (1 + C H):
+//   open loop: +K, P control: +K / (1 + K kp), PI control: back to 0
+// The PI loop returns slowly: the tank pole cancelled in the setpoint
+// response (section 3) is still present in the disturbance response
+
+let t_dist = linspace(0, 400, 201)
+let d_p  = step(disturbance(20), t_dist)
+let d_pi = step(disturbance(C_pi), t_dist)
+assert(abs(d_p[200] - K / (1 + K * 20)) < 1e-6, "P disturbance offset is K / (1 + K kp)")
+print("Level after a 1 L/s inflow disturbance at t = 400 s:")
+print("  no control: " + K + " m (final)")
+print("  P, kp = 20: " + d_p[200] + " m")
+print("  PI:         " + d_pi[200] + " m, still returning to 0")
+print("PI control: level after a 1 L/s inflow disturbance")
+plot(t_dist, d_pi)
