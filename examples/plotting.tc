@@ -1,5 +1,3 @@
 let xs = linspace(0, 15, 100)
-
 let ys = sqrt(xs) + sin(xs)
-
 plot(xs, ys)

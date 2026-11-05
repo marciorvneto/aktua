@@ -2718,11 +2718,156 @@ TransferFunction tf_simplify(Arena *a, TransferFunction *tf){
 	return new_tf;
 }
 
+TransferFunction tf_normalize(Arena *a, TransferFunction *tf){
+	double lead = tf->den.coeffs[tf->den.num_coeffs - 1];
+
+	TransferFunction new_tf = {
+		.num = scale_poly(a, &tf->num, 1.0 / lead),
+		.den = scale_poly(a, &tf->den, 1.0 / lead),
+	};
+
+	return new_tf;
+}
+
+
 double complex *tf_poles(Arena *ta, TransferFunction tf){
 	Polynomial den = tf.den;
 	double complex *roots = arena_alloc(ta, den.deg * sizeof(double complex));
 	poly_aberth_solve(ta, den, roots);
 	return roots;
+}
+
+//============================== 
+//
+//    ODE
+//
+//============================== 
+
+#include <stddef.h>
+
+typedef void (*ODEFn)(double t, double *x, double *dxdt, size_t n, void* data);
+
+void rk4_step(ODEFn f, double t, double *y, double h, size_t n, double *work, void *data){
+	double *k   = work;
+	double *tmp = work + n;
+	double *acc = work + 2*n;
+
+	f(t, y, k, n, data);                                  // k1
+	for(size_t i = 0; i < n; i++){ acc[i] = k[i];      tmp[i] = y[i] + h/2*k[i]; }
+	f(t + h/2, tmp, k, n, data);                          // k2
+	for(size_t i = 0; i < n; i++){ acc[i] += 2*k[i];   tmp[i] = y[i] + h/2*k[i]; }
+	f(t + h/2, tmp, k, n, data);                          // k3
+	for(size_t i = 0; i < n; i++){ acc[i] += 2*k[i];   tmp[i] = y[i] + h*k[i]; }
+	f(t + h, tmp, k, n, data);                            // k4
+	for(size_t i = 0; i < n; i++){ y[i] += h/6 * (acc[i] + k[i]); }
+}
+
+// x' = Ax + Bu
+// y  = Cx + Du
+// For a SISO system, which is what is
+// currently supported, u is simply a
+// number and B = [0,0,...,1]T
+// Likewise, C is a row vector and D is 
+// also a number.
+
+typedef struct {
+	size_t n;
+	double *a; // Denominator coefficients [a0,...,an-1]. Assumes that it is normalized.
+	double *c; 
+	double d;
+	double h;  // Integrator step
+} LtiSystem;
+
+// h = 0.5 / fastest pole magnitude, so that h*|λ| stays inside RK4's stability region
+double lti_step_size(Arena *a, TransferFunction monic){
+	size_t n = monic.den.deg;
+	double fastest = 0;
+	SCRATCH_SCOPE(a){
+		double complex *p = tf_poles(a, monic);
+		for(size_t i = 0; i < n; i++) if(cabs(p[i]) > fastest) fastest = cabs(p[i]);
+	}       
+	return fastest > 0 ? 0.5 / fastest : 0.01;
+}
+
+int lti_from_tf(Arena *a, Environment *e, TransferFunction tf, LtiSystem *sys){
+	if(tf.num.deg > tf.den.deg){
+		runtime_error(e, "Transfer function is improper");
+		return 0;
+	}
+	TransferFunction m = tf_normalize(a, &tf);
+	size_t n = m.den.deg;
+
+	sys->n = n;
+	sys->a = m.den.coeffs;
+	sys->d = n <= m.num.deg ? m.num.coeffs[n] : 0;
+	sys->c = arena_alloc(a, (n ? n : 1) * sizeof(double));
+
+	if(!sys->c) return 0; // Allocation failure
+
+	for(size_t i = 0; i < n; i++){
+		double b  = i <= m.num.deg ? m.num.coeffs[i] : 0;
+		sys->c[i] = b - sys->a[i] * sys->d;
+	}
+	sys->h = lti_step_size(a, m);
+	return 1;
+}
+
+double lti_output(const LtiSystem *sys, const double *x, double u){
+	double y = sys->d * u;
+	for(size_t i = 0; i < sys->n; i++) y += sys->c[i] * x[i];
+	return y;
+}
+
+typedef struct {
+	const double *a; // normalized den coeffs a[0..n-1] (a[n] == 1 is implied)
+	double        u;  
+} LtiCtx;
+          
+void lti_derivative(double t, double *x, double *dxdt, size_t n, void *data){
+	// This follows from the companion matrix of the transfer function.
+	// We assume that a[n] = 1, where a[n] is the coefficient of the 
+	// term of highest degree
+
+	LtiCtx *c = data;
+	double last = c->u;
+	for(size_t i = 0; i < n; i++) last -= c->a[i] * x[i];
+	for(size_t i = 0; i + 1 < n; i++) dxdt[i] = x[i + 1];
+	dxdt[n - 1] = last;
+}     
+
+void impulse(Arena *a, Environment *e, TransferFunction tf, double t_max){
+	ControlSimulationCtx ctx = {
+		.abort = false,
+		.e     = e,
+		.tf    = &tf
+	};
+
+	size_t n     = tf.den.deg;
+	double *x0   = arena_alloc(a, n * sizeof(double));
+	double *dxdt = arena_alloc(a, n * sizeof(double));
+	double *buf  = arena_alloc(a, 3 * n * sizeof(double));
+	double dt    = t_max / 100;
+
+	rk4_solve(impulse_derivative, x0, t_max, dt, dxdt, buf, n, &ctx);
+
+}
+
+void step(Arena *a, Environment *e, TransferFunction tf, double t_max){
+	ControlSimulationCtx ctx = {
+		.abort = false,
+		.e     = e,
+		.tf    = &tf
+	};
+
+	size_t n     = tf.den.deg;
+	double *x0   = arena_alloc(a, n * sizeof(double));
+	double *dxdt = arena_alloc(a, n * sizeof(double));
+	double *buf  = arena_alloc(a, n * sizeof(double));
+	double dt    = t_max / 100;
+
+	rk4_solve(step_derivative, x0, t_max, dt, dxdt, buf, n, &ctx);
+
+
 }
 
 //============================
