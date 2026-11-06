@@ -438,6 +438,170 @@ typedef struct {
 	size_t size;
 } Tuple;
 
+// --------------- Tensors ----------------------
+
+#define MAX_DIMS 8
+typedef enum { DTYPE_REAL, DTYPE_COMPLEX } DType;
+
+typedef struct {
+  DType dtype;
+  union {
+    double         *re;
+    double complex *cx;
+  } data;
+  size_t ndim;
+  size_t count;
+  size_t sizes[MAX_DIMS];
+  size_t strides[MAX_DIMS];
+} Tensor;
+
+int tensor_init(Arena *a, Tensor *t, size_t ndim, size_t *sizes, DType dtype){
+  if(ndim == 0 || ndim > MAX_DIMS) return 1;
+
+  size_t nele = 1;
+  for(size_t i = 0; i < ndim; i++) nele *= sizes[i];
+
+  t->ndim  = ndim;
+  t->dtype = dtype;
+  t->count = nele;
+
+  if(dtype == DTYPE_REAL) {
+    if((t->data.re = arena_alloc(a, nele * sizeof(double))) == NULL) return 1;
+  }else{
+    if((t->data.cx = arena_alloc(a, nele * sizeof(double complex))) == NULL) return 1;
+  }
+
+
+  for(size_t i = 0; i < ndim; i++) t->sizes[i] = sizes[i];
+
+  // Example
+  // sizes   = [2,  3,  4, 5]
+  // strides = [60, 20, 5, 1]
+  //
+
+  t->strides[ndim - 1] = 1;
+  for(size_t d = ndim - 1; d-- > 0;){
+    t->strides[d] = t->sizes[d + 1] * t->strides[d + 1];
+  }
+
+  return 0;
+}
+
+double complex tensor_get_cx(Tensor *t, size_t offset){
+  return t->dtype == DTYPE_COMPLEX ? t->data.cx[offset] : t->data.re[offset];
+}
+
+void tensor_unravel_index(Tensor *t, size_t *indices, size_t index){
+  // Unravels the indices following a row-major convention
+  // Idea: Given a tensor's sizes, such as
+  //       sizes   = [a,b,c,d]
+  //       a set of row-major indices
+  //       indices = [i,j,k,l]
+  //       maps to the index:
+  //       index   = bcd*i + cd*j + d*k + l
+  //
+  //       By repeatedly taking the % between the index and
+  //       the sizes, we can recover the coefficients
+  
+  for(size_t d = t->ndim; d-- > 0;){
+    indices[d] =  index % t->sizes[d];
+    index     /= t->sizes[d];
+  }
+}
+
+size_t tensor_get_offset(Tensor *t, size_t *indices){
+  size_t offset = 0;
+  for(size_t d = t->ndim; d-- > 0;) offset += t->strides[d] * indices[d];
+  return offset;
+}
+
+void tensor_swap_axes(Tensor *t, size_t a, size_t b){
+  size_t tmp    = t->sizes[a];
+  t->sizes[a]   = t->sizes[b];
+  t->sizes[b]   = tmp;
+  tmp           = t->strides[a];
+  t->strides[a] = t->strides[b];
+  t->strides[b] = tmp;
+}
+
+int tensor_dot(Arena *arena, Tensor *a, Tensor *b, double complex *out){
+  if(a->ndim != 1 || b->ndim != 1) return 1;
+  if(a->sizes[0] != b->sizes[0])   return 1;
+  *out = 0;
+  for(size_t k = 0; k < a->count; k++){
+    *out += tensor_get_cx(a, k * a->strides[0]) *
+            tensor_get_cx(b, k * b->strides[0]);
+  }
+  return 0;
+}
+
+int tensor_contract(Arena *arena, Tensor *a, Tensor *b, Tensor *out){
+  // Assume the following sizes:
+  // a: [a1,a2,a3,a4]
+  // b: [b1,b2,b3]
+  // a @ b -> [a1,a2,a3,a4] @ [b1,b2,b3] -> [a1,a2,a3 | b2, b3]
+  // Notice that a4 must be equal to b1.
+
+  if(a->sizes[a->ndim - 1] != b->sizes[0]) return 1;
+  size_t ndim_out          =  a->ndim + b->ndim - 2;
+  DType dtype              =  DTYPE_COMPLEX;
+
+  if(ndim_out > MAX_DIMS) return 1;
+
+  if(a->dtype == DTYPE_REAL && b->dtype == DTYPE_REAL) dtype = DTYPE_REAL;
+
+  size_t out_sizes[MAX_DIMS] = {0};
+  //  0,  1,  2,  3,  4,  5,  6
+  //  --------------------------
+  // [a0, a1, a2, a3]             -> ndims = 4
+  // [b0, b1, b2]                 -> ndims = 3
+  // [a0, a1, a2, b1, b2]         -> ndims = 5
+  //          ^
+  for(size_t i = 0; i < a->ndim - 1; i++) out_sizes[i]               = a->sizes[i];
+  for(size_t i = 1; i < b->ndim    ; i++) out_sizes[i + a->ndim - 2] = b->sizes[i];
+  
+  if(tensor_init(arena, out, ndim_out, out_sizes, dtype) != 0) return 1;
+
+  // If C      = A @ B
+  //    Cijklm = sum (Aijkd * Bdlm)
+  //                 d in [0, last dim)
+  size_t last_ndim            = b->sizes[0];
+  size_t out_indices[MAX_DIMS] = {0};
+  for(size_t linear = 0; linear < out->count; linear++){
+    double sum          = 0;
+    double complex csum = 0;
+
+    size_t a_base = 0;
+    size_t b_base = 0;
+    tensor_unravel_index(out, out_indices, linear); // row-first indices, consistent with out
+    for(size_t d = 0; d < a->ndim - 1; d++) a_base += a->strides[d] * out_indices[d];
+    for(size_t d = 1; d < b->ndim    ; d++) b_base += b->strides[d] * out_indices[d + a->ndim - 2];
+
+    if(out->dtype == DTYPE_REAL){
+      for(size_t k = 0; k < last_ndim; k++){
+        sum  += a->data.re[a_base + k * a->strides[a->ndim - 1]] *
+                b->data.re[b_base + k * b->strides[0]];
+      }
+    }else{
+      for(size_t k = 0; k < last_ndim; k++){
+        csum += tensor_get_cx(a, a_base + k * a->strides[a->ndim - 1]) *
+                tensor_get_cx(b, b_base + k * b->strides[0]);
+      }
+    }
+
+    if(out->dtype == DTYPE_REAL)    out->data.re[linear] = sum;
+    if(out->dtype == DTYPE_COMPLEX) out->data.cx[linear] = csum;
+  }
+
+
+  return 0;
+}
+
+
+
+
+
+// --------------- Polynomials ----------------------
 
 // Example: 3x2 - 5x + 1:
 // coeffs     = [1, -5, 3]
@@ -1066,7 +1230,7 @@ typedef enum {
 	// Things to think about
 	VALUE_ARRAY,
 	VALUE_TUPLE,
-	VALUE_MATRIX,
+	VALUE_TENSOR,
 	VALUE_TYPE_COUNT
 } ValueType;
 
@@ -1093,6 +1257,7 @@ struct Value {
 		char             *str;
 		char             *id;
 		Array            array;
+		Tensor           tensor;
 		Tuple            tuple;
     Function         fun;
 	} value;
@@ -4479,6 +4644,64 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 	return escaped;
 }
 
+//============================== 
+//
+//    Printing
+//
+//============================== 
+
+int format_complex(char *buf, size_t n, double complex z, int sig, bool compact){
+  char re_buf[32], im_buf[32];
+  double im = cimag(z);
+  format_number(re_buf, sizeof(re_buf), creal(z), sig);
+  format_number(im_buf, sizeof(im_buf), fabs(im), sig);
+  const char *sep = compact ? (im < 0 ? "-" : "+") : (im < 0 ? " - " : " + ");
+  return snprintf(buf, n, "%s%s%si", re_buf, sep, im_buf);
+}       
+
+int format_tensor_element(char *buf, size_t n, const Tensor *t, size_t off){
+  if(t->dtype == DTYPE_REAL) return format_number(buf, n, t->data.re[off], DISPLAY_SIG);
+  return format_complex(buf, n, t->data.cx[off], DISPLAY_SIG, true);
+}
+
+int tensor_max_width(Tensor *t){
+  size_t idx[MAX_DIMS];
+  char   buf[80];
+  int    width = 0;
+  for(size_t p = 0; p < t->count; p++){ 
+    tensor_unravel_index(t, idx, p);
+    int len = format_tensor_element(buf, sizeof(buf), t, tensor_get_offset(t, idx));
+    if(len > width) width = len;
+  }
+  return width;
+}
+
+void write_tensor_element(FILE *out, const Tensor *t, size_t off, int width){
+  char buf[80];
+  format_tensor_element(buf, sizeof(buf), t, off);
+  fprintf(out, "%*s", width, buf);
+}
+
+void write_tensor_rec(FILE *out, Tensor *t, size_t dim, size_t offset, int width){
+  fputc('[', out);
+  for(size_t i = 0; i < t->sizes[dim]; i++){
+    size_t off = offset + i * t->strides[dim];
+    if(dim == t->ndim - 1) write_tensor_element(out, t, off, width);
+    else                   write_tensor_rec(out, t, dim + 1, off, width);
+
+    if(i + 1 == t->sizes[dim]) continue;                       // nothing after the last 
+    if(dim == t->ndim - 1){ fputs(", ", out); continue; }      // between numbers in a row
+
+    fputc(',', out);
+    for(size_t k = 0; k < t->ndim - dim - 1; k++) fputc('\n', out);  // newline, plus a 
+    for(size_t k = 0; k <= dim; k++) fputc(' ', out);               // line up under the 
+  }
+  fputc(']', out);
+}
+          
+void write_tensor(FILE *out, Tensor *t){
+  write_tensor_rec(out, t, 0, 0, tensor_max_width(t));
+}
 
 // Prints a single value followed by one newline. Used directly for
 // values nested inside other values (tuple items), so they don't pick up
@@ -4507,17 +4730,15 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
 				printf("%s\n", buf);
 				break;
 			}
-		case VALUE_COMPLEX: 
+  case VALUE_COMPLEX: 
       {
-        double re = creal(value->value.complex_number);
-        double im = cimag(value->value.complex_number);
-        char re_buf[32], im_buf[32];
-        format_number(re_buf, sizeof(re_buf), re, DISPLAY_SIG);
-        format_number(im_buf, sizeof(im_buf), fabs(im), DISPLAY_SIG);
-        if(fabs(im) > 1e-12 * MAX(1.0, fabs(re))) 
-          printf("%s %c %si\n", re_buf, im < 0 ? '-' : '+', im_buf);
-        else
-          printf("%s\n", re_buf);
+        double complex z = value->value.complex_number;
+        char buf[80];
+        if(fabs(cimag(z)) > 1e-12 * MAX(1.0, fabs(creal(z)))) format_complex(buf, sizeof(buf), z,
+            DISPLAY_SIG, false);
+        else                                                  format_number(buf, sizeof(buf),
+            creal(z), DISPLAY_SIG);
+        printf("%s\n", buf);
         break;
       }
 		case VALUE_STRING:
@@ -4534,6 +4755,11 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
           printf("%s%s", buf, i + 1 < value->value.array.size ? ", " : "");
 				}
 				printf("]\n");
+				break;
+			}
+		case VALUE_TENSOR:
+			{
+        write_tensor(stdout, &value->value.tensor);
 				break;
 			}
 		case VALUE_TUPLE:
