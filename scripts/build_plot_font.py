@@ -1,4 +1,4 @@
-# Usage: python build_plot_font.py dejavu-sans-mono-plot.woff2
+# Usage: python scripts/build_plot_font.py docs/fonts/dejavu-sans-mono-plot.woff2
 # Needs fonttools and brotli (pip install fonttools brotli), and the DejaVu
 # fonts installed under /usr/share/fonts/truetype/dejavu.
 #
