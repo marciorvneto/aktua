@@ -1570,13 +1570,13 @@ AST *parse_row_tail(Arena *pa, AST *parent, Parser *parser){
 }
 
 AST *parse_row(Arena *pa, AST *parent, Parser *parser){
-	size_t save = parser->next;
 	AST *row    = ast_make_row(pa);
 
 	AST *expr   = parse_expression(pa, parent, parser);
 	if(!expr) return NULL;
 
-	AST *tail   = parse_row_tail(pa, parent, parser);
+	size_t save            = parser->next;
+	AST *tail              = parse_row_tail(pa, parent, parser);
 	if(!tail) parser->next = save;
 
 	row->as.row.first = expr;
@@ -4388,7 +4388,7 @@ Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	return make_num(0);
 }
 
-// ------------- Arrays ------------
+// ------------- Arrays and Tensors ------------
 
 typedef double (*ReducerFn)(double acc, double x);
 double reducer_max(double acc, double x) { return x > acc ? x : acc; }
@@ -4435,6 +4435,61 @@ Value native_mean(Arena *a, Environment *e, char* script, size_t argc, Value *ar
   if(total.valueType != VALUE_NUMBER || argv[0].valueType != VALUE_ARRAY) return total;
   return make_num(total.value.number / argv[0].value.array.size);
 }       
+
+Value native_eye(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+  Value n_val = argv[0];
+	if(n_val.valueType != VALUE_NUMBER){
+		runtime_error(e, "eye: argument must be a number");
+		return make_nan();
+	}
+	size_t n = floor(n_val.value.number);
+	size_t sizes[MAX_DIMS] = {0};
+	sizes[0] = n;
+	sizes[1] = n;
+
+	Tensor t;
+	if(tensor_init(a, &t, 2, sizes, DTYPE_REAL) != 0) {
+		runtime_error(e, "eye: not enough memory to allocate matrix");
+		return make_nan();
+	}
+
+	size_t indices[MAX_DIMS] = {0};
+	for(size_t i = 0; i < n; i++){
+		indices[0] = i;
+		indices[1] = i;
+		t.data.re[tensor_get_offset(&t, indices)] = 1.0;
+	}
+
+  return make_tensor(t);
+}
+
+Value native_zeros(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+  Value sizes_val = argv[0];
+	if(sizes_val.valueType != VALUE_TENSOR){
+		runtime_error(e, "zeros: argument must be an array");
+		return make_nan();
+	}
+	Tensor sizes_tensor = sizes_val.value.tensor;
+	if(sizes_tensor.ndim != 1){
+		runtime_error(e, "zeros: expected a 1-dimensional array");
+		return make_nan();
+	}
+	if(sizes_tensor.ndim > MAX_DIMS){
+		runtime_error(e, "zeros: accepts at most %zu dimensions", MAX_DIMS);
+		return make_nan();
+	}
+	size_t sizes[MAX_DIMS] = {0};
+	for(size_t i = 0; i < sizes_tensor.count; i++) sizes[i] = floor(sizes_tensor.data.re[i]);
+
+	Tensor t;
+	if(tensor_init(a, &t, sizes_tensor.count, sizes, DTYPE_REAL) != 0){
+		runtime_error(e, "eye: not enough memory to allocate matrix");
+		return make_nan();
+	}
+
+	memset(t.data.re, 0, t.count * sizeof(double));
+  return make_tensor(t);
+}
 
 // ------------- Polynomials ------------
 
@@ -4563,26 +4618,28 @@ typedef struct {
 } NativeFn;
 
 
-#define NATIVE_LIST                  \
-        N(assert,   2)               \
-        N(ls,       0)               \
-        N(print,    1)               \
-        N(import,   1)               \
-        N(complex,  2)               \
-        UNARY_NATIVE_MATHS_LIST      \
-        NATIVE_REDUCER_LIST          \
-        N(range,    2)               \
-        N(linspace, 3)               \
-        N(len,      1)               \
-        N(push,     2)               \
-        N(mean,     1)               \
-        N(plot,     2)               \
-        N(poly,     1)               \
-        N(polymod,  2)               \
-        N(polydiv,  2)               \
-        N(polygcd,  2)               \
-        N(poles,    1)               \
-        N(impulse,  2)               \
+#define NATIVE_LIST             \
+        N(assert,   2)          \
+        N(ls,       0)          \
+        N(print,    1)          \
+        N(import,   1)          \
+        N(complex,  2)          \
+        UNARY_NATIVE_MATHS_LIST \
+        NATIVE_REDUCER_LIST     \
+        N(range,    2)          \
+        N(linspace, 3)          \
+        N(len,      1)          \
+        N(push,     2)          \
+        N(mean,     1)          \
+        N(eye,      1)          \
+        N(zeros,    1)          \
+        N(plot,     2)          \
+        N(poly,     1)          \
+        N(polymod,  2)          \
+        N(polydiv,  2)          \
+        N(polygcd,  2)          \
+        N(poles,    1)          \
+        N(impulse,  2)          \
         N(step,     2)
 #define N(name, argc) { #name, native_##name, argc },
 #define M(name, rf, cf, rcf) N(name, 1)
