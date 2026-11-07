@@ -4978,7 +4978,7 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path);
 
 char *path_join_dir(Arena *a, const char* file, const char *rel){
 	// Example:
-	// a/b/script.tc + x.tc -> a/b/x.tc
+	// a/b/script.akt + x.akt -> a/b/x.akt
 	// script.tx -> current directory
 
 	const char *last_slash = file ? strrchr(file, '/') : NULL;
@@ -4995,8 +4995,8 @@ char *path_join_dir(Arena *a, const char* file, const char *rel){
 char *resolve_path(Arena *a, char* script_path, char *exe_path, char *path){
   char *candidate = NULL;
 
-  // base.tc            -> executable_path/libs/base.tc
-  // ./folder/script.tc -> caller_path/folder/script.tc
+  // base.akt            -> executable_path/libs/base.akt
+  // ./folder/script.akt -> caller_path/folder/script.akt
   // Absolute paths are kept
 
 	// Absolute
@@ -5007,9 +5007,9 @@ char *resolve_path(Arena *a, char* script_path, char *exe_path, char *path){
     if(!home) return NULL;
 
     // Example:
-    // path     = ~/scripts/a.tc              (14 chars)
-    // home     = /home/user                  (10 chars)
-    // combined = /home/user/scripts/a.tc     (23 chars) -> len1 + len2 - 1
+    // path     = ~/scripts/a.akt              (15 chars)
+    // home     = /home/user                   (10 chars)
+    // combined = /home/user/scripts/a.akt     (24 chars) -> len1 + len2 - 1
 
     size_t len       = strlen(home) + strlen(path) - 1;
     candidate        = arena_alloc(a, len + 1);
@@ -5581,8 +5581,8 @@ size_t trim_end(char *str){
 //============================== 
 
 void print_usage(){
-	printf("Usage: tctl [FILE]\n");
-	printf("    Runs a tiny-ctrl script located at FILE\n");
+	printf("Usage: aktua [FILE]\n");
+	printf("    Runs an Aktua script located at FILE\n");
 	printf("    If a FILE argument isn't supplied, a repl is launched\n");
 }
 
@@ -5601,7 +5601,7 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
 
   while(1){
 
-    printf("tiny-ctrl> ");
+    printf("aktua> ");
     nread = getline(&buffer, &size, stdin);
     if(nread == -1){
       printf("\nNo lines were read. Exiting...\n");

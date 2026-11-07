@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use Aktua in your work, please cite it as below."
+type: software
+title: "Aktua: a small programming language for control systems"
+abstract: >-
+  Aktua is a small, experimental programming language for control
+  systems and numerical computing, written in C. It provides transfer
+  functions, LTI simulation, tensors and terminal plotting, and can be
+  used interactively through a REPL or to run scripts.
+authors:
+  - given-names: "Márcio Ribeiro"
+    family-names: "Vianna Neto"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
+repository-code: "https://github.com/marciorvneto/aktua"
+url: "https://aktua.dev"
+license: MIT
+keywords:
+  - control systems
+  - programming language
+  - transfer functions
+  - LTI systems
+  - numerical computing
+version: "0.1.0"
+date-released: "2026-11-07"

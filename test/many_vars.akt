@@ -1,4 +1,4 @@
-import("test.tc")
+import("test.akt")
 
 // ---------- Variable storage growth (ENV_INITIAL_VARS = 64) ----------
 

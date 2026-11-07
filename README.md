@@ -1,6 +1,6 @@
-# tiny-ctrl
+# Aktua
 
-**tiny-ctrl** is a small, experimental programming language for control systems and numerical computing, written in C.
+**Aktua** is a small, experimental programming language for control systems and numerical computing, written in C.
 
 It's a work in progress.
 
@@ -8,11 +8,11 @@ You can use it interactively through a REPL or execute scripts from the command 
 
 ## Example
 
-Level control of a leaky tank with a PI controller ([`examples/leaky_tank.tc`](examples/leaky_tank.tc)):
+Level control of a leaky tank with a PI controller ([`examples/leaky_tank.akt`](examples/leaky_tank.akt)):
 
-```text
+```rust
 // Level control of a leaky tank with a PI controller.
-// See tank_level_control.tc for where these numbers come from.
+// See tank_level_control.akt for where these numbers come from.
 // By: Marcio R. V. Neto, 2026
 
 let s = poly([0, 1])
@@ -56,7 +56,7 @@ Output:
      0                  50                 100                 150
 ```
 
-For the full story, with the tank modelled from first principles, P, PI and PID control compared and every result checked against theory, see [`examples/tank_level_control.tc`](examples/tank_level_control.tc).
+For the full story, with the tank modelled from first principles, P, PI and PID control compared and every result checked against theory, see [`examples/tank_level_control.akt`](examples/tank_level_control.akt).
 
 ## Quick start
 
@@ -64,23 +64,23 @@ Build the project and start the REPL:
 
 ```console
 $ make
-$ ./build/tctl
+$ ./build/aktua
 ```
 
 Try a few commands:
 
 ```text
-tiny-ctrl> let x = 3
-tiny-ctrl> x
+aktua> let x = 3
+aktua> x
 
 3
 
-tiny-ctrl> let p = poly([1,2,3])
-tiny-ctrl> p
+aktua> let p = poly([1,2,3])
+aktua> p
 
 3 x^2 + 2 x + 1
 
-tiny-ctrl> 1/p
+aktua> 1/p
 
        1
 ---------------
@@ -90,13 +90,26 @@ tiny-ctrl> 1/p
 You can also execute scripts directly:
 
 ```console
-$ ./build/tctl examples/leaky_tank.tc
+$ ./build/aktua examples/leaky_tank.akt
 ```
 
 ## Status
 
-tiny-ctrl is under active development. Expect bugs, missing features, and breaking changes.
+Aktua is under active development. Expect bugs, missing features, and breaking changes.
+
+## Citing
+
+If you use Aktua in your work, please cite it. GitHub's "Cite this repository" button, in the sidebar, gives the citation in APA and BibTeX formats, generated from [`CITATION.cff`](CITATION.cff). In BibTeX:
+
+```bibtex
+@software{viannaneto_aktua_2026,
+  author = {Vianna Neto, M{\'a}rcio Ribeiro},
+  title  = {Aktua: a small programming language for control systems},
+  year   = {2026},
+  url    = {https://github.com/marciorvneto/aktua}
+}
+```
 
 ## License
 
-tiny-ctrl is licensed under the [MIT License](LICENSE).
+Aktua is licensed under the [MIT License](LICENSE.md).

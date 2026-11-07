@@ -1,4 +1,4 @@
-import("test.tc")
+import("test.akt")
 
 // Element-wise comparison of two arrays
 fn assert_all_close(actual, expected, tol, msg) {

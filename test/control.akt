@@ -1,5 +1,5 @@
-import("test.tc")
-import("base.tc")
+import("test.akt")
+import("base.akt")
 
 // Transfer functions can't be compared with == yet, so two rational
 // functions are checked for equality by evaluating them at a few points

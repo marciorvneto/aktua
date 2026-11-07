@@ -1,5 +1,5 @@
 vim.filetype.add({
   extension = {
-    tc = "tinyctrl",
+    akt = "aktua",
   },
 })

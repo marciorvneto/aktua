@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aktua</title>
+  <meta name="description" content="Aktua is a small programming language for control systems, written in C.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;600&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header>
+    <h1>Aktua</h1>
+    <p class="lede">
+      A small programming language for control systems, written in C.
+      You write transfer functions the way you would on paper and look at
+      their responses without leaving the terminal.
+    </p>
+    <nav>
+      <a href="https://github.com/marciorvneto/aktua">Source on GitHub</a>
+      <a href="https://github.com/marciorvneto/aktua/tree/main/examples">Examples</a>
+    </nav>
+  </header>
+
+  <main>
+
+    <section>
+      <p>A second-order system with a damping ratio of 0.3:</p>
+
+<pre class="code"><code>let s = poly([0, 1])
+let G = 1 / (s * s + 0.6 * s + 1)
+
+print(G)
+print(poles(G))
+
+let t = linspace(0, 20, 201)
+plot(t, step(G, t))</code></pre>
+
+      <p>Running it prints the transfer function, its poles and the step response:</p>
+
+<pre class="output"><samp>       1
+---------------
+x^2 + 0.6 x + 1
+(
+-0.3 + 0.953939i
+-0.3 - 0.953939i
+)
+1.5 ┤⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⠀⠀⠀⠀⠀⠀⠀⢠⠖⠲⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⠀⠀⠀⠀⠀⠀⢰⠁⠀⠀⠀⠣⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⠀⠀⠀⠀⠀⢀⠇⠀⠀⠀⠀⠀⠱⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⠀⠀⠀⠀⠀⡎⠀⠀⠀⠀⠀⠀⠀⠈⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⡤⠤⠤⠤⠤⢤⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣀⣀⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀
+1.0 ┤⠀⠀⠀⠀⠀⢰⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠳⣀⠀⠀⠀⠀⢀⡤⠞⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠀⠀⠀⠀⠀⠈⠉⠉⠉⠉⠉⠉⠉
+    │⠀⠀⠀⠀⠀⡎⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠑⠒⠒⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⠀⠀⠀⢠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⠀⠀⠀⡎⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+0.5 ┤⠀⠀⠀⢠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⠀⠀⡸⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⠀⢠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⠀⡸⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    │⠀⢀⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+0.0 ┤⣠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    └┬──────────────┬──────────────┬─────────────┬──────────────┬
+     0              5             10            15             20</samp></pre>
+    </section>
+
+    <section>
+      <h2>In the REPL</h2>
+      <p>Polynomials and transfer functions are ordinary values, and they print as fractions.</p>
+
+<pre class="output"><samp>aktua&gt; let p = poly([1, 2, 3])
+aktua&gt; 1/p
+
+       1
+---------------
+3 x^2 + 2 x + 1
+
+aktua&gt; poles(1/p)
+
+(
+-0.333333 + 0.471405i
+-0.333333 - 0.471405i
+)</samp></pre>
+    </section>
+
+    <section>
+      <h2>What it has so far</h2>
+      <ul>
+        <li>Polynomials and transfer functions, with arithmetic between them</li>
+        <li>Poles, and impulse and step responses of LTI systems</li>
+        <li>Real and complex numbers, with the usual math functions</li>
+        <li>Functions, loops, conditionals and imports</li>
+        <li>Line plots drawn in the terminal with braille characters</li>
+        <li>An interactive REPL, or scripts run from the command line</li>
+      </ul>
+      <p>
+        Aktua is experimental. Expect missing features, rough error messages
+        and breaking changes.
+      </p>
+    </section>
+
+    <section>
+      <h2>Building it</h2>
+      <p>You need a C compiler and <code>make</code>.</p>
+
+<pre class="code"><code>git clone https://github.com/marciorvneto/aktua
+cd aktua
+make
+./build/aktua examples/leaky_tank.akt</code></pre>
+
+      <p>Run <code>./build/aktua</code> with no arguments to start the REPL.</p>
+    </section>
+
+  </main>
+
+  <footer>
+    <p>
+      Aktua is written by Marcio R. V. Neto and released under the MIT license.
+      If you use it in your work, the repository has a
+      <a href="https://github.com/marciorvneto/aktua/blob/main/CITATION.cff">citation file</a>.
+    </p>
+  </footer>
+
+</body>
+</html>
