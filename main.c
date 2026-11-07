@@ -4285,14 +4285,35 @@ Value native_import(Arena *a, Environment *e, char* script, size_t argc, Value *
 
 
 
-// Views a Value as a 1-D real tensor. Returns 0 if it isn't one.
-int as_real_vector(Value *v, double **data, size_t *n){
+// Views a Value as a 1-D-like real tensor. Returns 0 if it isn't one.
+// This includes shapes that are 1-D-like, such as:
+// (1,n), (n,1), (1,1,n), etc.
+int as_real_vector(Arena *a, Value *v, double **data, size_t *n){
 	if(v->valueType != VALUE_TENSOR)          return 0;
 	Tensor *t = &v->value.tensor;
-	if(t->ndim != 1 || t->dtype != DTYPE_REAL) return 0;
-	if(t->count > 1 && t->strides[0] != 1)     return 0;
-	*data = t->data.re;
-	*n    = t->count;
+	if(t->dtype != DTYPE_REAL) return 0;
+
+	size_t dim           = 0;
+	size_t non_singleton = 0;
+	for(size_t i = 0; i < t->ndim; i++){
+		if(t->sizes[i] != 1) { dim = i; non_singleton++; }
+	}
+	if(non_singleton > 1) return 0; // This is a matrix
+
+	*n            = t->count;
+	size_t stride = t->strides[dim];
+	// If the elements are adjacent or there aren't more than one,
+	// no need to copy them!
+	if(stride == 1 || t->count <= 1) { *data = t->data.re; return 1; }
+
+	double *buf = arena_alloc(a, t->count * sizeof(double));
+	if(!buf) return 0;
+	// This is because if the tensor has a unique singleton dimension, say:
+	// a: (1,1,n,1,1)
+	// Then we need to map each index k to (0,0,k,0,0)
+	// In other words, the offset will be 0 + 0 + k * stride + 0 + 0
+	for(size_t k = 0; k < t->count; k++) buf[k] = t->data.re[k * stride];
+	*data = buf;
 	return 1;
 }
 
@@ -4557,24 +4578,32 @@ Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 		runtime_error(e, "plot requires two arrays");
 		return make_nan();
 	}
-	if(x_val.value.tensor.ndim != 1 || y_val.value.tensor.ndim != 1){
-		runtime_error(e, "plot requires two 1D arrays");
-		return make_nan();
-	}
-	if(x_val.value.tensor.count != y_val.value.tensor.count){
-		runtime_error(e, "plot: arrays have different lengths (%zu and %zu)",
-				x_val.value.tensor.count, y_val.value.tensor.count);
-		return make_nan();
-	}
 	if(x_val.value.tensor.dtype != DTYPE_REAL || y_val.value.tensor.dtype != DTYPE_REAL){
 		runtime_error(e, "plot: complex values are not supported");
 		return make_nan();
 	}
 
+	double *xs, *ys;
+	size_t  nx,  ny;
+	if(!as_real_vector(a, &x_val, &xs, &nx)){
+		runtime_error(e, "plot: expected both arguments to be 1D arrays");
+		return make_nan();
+	}
+	if(!as_real_vector(a, &y_val, &ys, &ny)){
+		runtime_error(e, "plot: expected both arguments to be 1D arrays");
+		return make_nan();
+	}
+
+	if(nx != ny){
+		runtime_error(e, "plot: arrays have different lengths (%zu and %zu)",
+				x_val.value.tensor.count, y_val.value.tensor.count);
+		return make_nan();
+	}
+
 	PlotSeries series = {
-		.x_data     = x_val.value.tensor.data.re,
-		.y_data     = y_val.value.tensor.data.re,
-		.num_points = x_val.value.tensor.count,
+		.x_data     = xs,
+		.y_data     = ys,
+		.num_points = nx,
 	};
 	PlotData data = { .series = &series, .num_series = 1 };
 
@@ -4730,12 +4759,14 @@ Value native_ones(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 
 Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
-	if(!value_is_vector(&val, NULL)){
+	double *coeffs;
+	size_t num_coeffs;
+	if(!as_real_vector(a, &val, &coeffs, &num_coeffs)){
 		runtime_error(e, "poly: Expected a 1-dimensional array of coefficients");
 		return make_nan();
 	}
 	int err;
-	Polynomial p = poly_new(a, val.value.tensor.data.re, val.value.tensor.count);
+	Polynomial p = poly_new(a, coeffs, num_coeffs);
 	poly_update_degree(&p);
 	return make_poly(p);
 }
@@ -4799,10 +4830,10 @@ Value native_poles(Arena *a, Environment *e, char* script, size_t argc, Value *a
 
 // Checks the (G, t) arguments shared by impulse() and step().
 // t must be an array of non-decreasing times.
-static int check_response_args(Environment *e, const char *name, Value *argv){
+static int check_response_args(Arena *a, Environment *e, const char *name, Value *argv){
 	double *ts;
 	size_t  n;
-	if(argv[0].valueType != VALUE_TRANSFER_FUNCTION || !as_real_vector(&argv[1], &ts, &n)){
+	if(argv[0].valueType != VALUE_TRANSFER_FUNCTION || !as_real_vector(a, &argv[1], &ts, &n)){
 		runtime_error(e, "%s expects a transfer function and an array of times. Example: %s(1/(s+1), linspace(0, 10, 200))", name, name);
 		return 0;
 	}
@@ -4816,21 +4847,34 @@ static int check_response_args(Environment *e, const char *name, Value *argv){
 }
 
 Value native_impulse(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
-	if(!check_response_args(e, "impulse", argv)) return make_nan();
+	if(!check_response_args(a, e, "impulse", argv)) return make_nan();
 
-	Tensor ts = argv[1].value.tensor;
-	double *y = impulse_response(a, e, argv[0].value.tf, ts.data.re, ts.count);
+	double *ts;
+	size_t n;
+
+	if(!as_real_vector(a, &argv[1], &ts, &n)){
+		runtime_error(e, "impulse: expected a real vector");
+		return make_nan();
+	}
+
+	double *y = impulse_response(a, e, argv[0].value.tf, ts, n);
 	if(!y) return make_nan();
-	return make_real_vector(y, ts.count);
+	return make_real_vector(y, n);
 }
 
 Value native_step(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
-	if(!check_response_args(e, "step", argv)) return make_nan();
+	if(!check_response_args(a, e, "step", argv)) return make_nan();
+	double *ts;
+	size_t n;
 
-	Tensor ts = argv[1].value.tensor;
-	double *y = step_response(a, e, argv[0].value.tf, ts.data.re, ts.count);
+	if(!as_real_vector(a, &argv[1], &ts, &n)){
+		runtime_error(e, "impulse: expected a real vector");
+		return make_nan();
+	}
+
+	double *y = step_response(a, e, argv[0].value.tf, ts, n);
 	if(!y) return make_nan();
-	return make_real_vector(y, ts.count);
+	return make_real_vector(y, n);
 }
 
 Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
