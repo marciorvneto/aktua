@@ -1,16 +1,3 @@
-/*
- * Aktua website
- *
- * The look borrows from engineering computation pads: pale green paper,
- * a fine grid, graphite text and blue ballpoint ink for links. The grid
- * only appears behind program output, where it reads like graph paper.
- */
-
-/*
- * Program output uses one bundled font for text, box drawing and braille,
- * so the plot lines up with its axes on every system. It is a subset of
- * DejaVu Sans Mono; see fonts/LICENSE-DejaVu.txt.
- */
 @font-face {
   font-family: "Aktua Plot";
   src: url("fonts/dejavu-sans-mono-plot.woff2") format("woff2");
@@ -19,7 +6,7 @@
 
 :root {
   --paper:          #eef3ea;
-  --sheet:          #f8faf6;  /* code blocks sit on a lighter sheet */
+  --sheet:          #f8faf6;
   --grid:           #d3e2cc;
   --graphite:       #2a2f2b;
   --graphite-light: #5b655d;
@@ -30,7 +17,6 @@
   --font-plot: "Aktua Plot", ui-monospace, monospace;
 
   --measure: 42rem;
-  --gap:     1.5rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -44,8 +30,6 @@
   }
 }
 
-/* ---------- Base ---------- */
-
 *,
 *::before,
 *::after {
@@ -53,7 +37,7 @@
 }
 
 html {
-  font-size: 106.25%;  /* 17px */
+  font-size: 106.25%;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -88,8 +72,6 @@ a:focus-visible {
   outline-offset: 3px;
   border-radius: 2px;
 }
-
-/* ---------- Type ---------- */
 
 h1 {
   margin: 0 0 0.75rem;
@@ -129,8 +111,6 @@ code {
   font-size: 0.9em;
 }
 
-/* ---------- Layout ---------- */
-
 nav {
   display: flex;
   flex-wrap: wrap;
@@ -149,12 +129,10 @@ footer {
   font-size: 0.9rem;
 }
 
-/* ---------- Code and program output ---------- */
-
 pre {
   margin: 0 0 1.25rem;
   padding: 1rem 1.25rem;
-  overflow-x: auto;  /* long lines scroll inside the block, not the page */
+  overflow-x: auto;
   font-size: 0.85rem;
   line-height: 1.5;
 }
@@ -171,7 +149,7 @@ pre.code {
 
 pre.output {
   font-family: var(--font-plot);
-  line-height: 1.15;  /* tight enough for braille dots to join into lines */
+  line-height: 1.15;
   background-color: var(--paper);
   background-image:
     linear-gradient(var(--grid) 1px, transparent 1px),
@@ -183,8 +161,6 @@ pre.output {
 pre.output samp {
   font-family: inherit;
 }
-
-/* ---------- Small screens ---------- */
 
 @media (max-width: 36rem) {
   body {
