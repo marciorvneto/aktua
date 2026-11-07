@@ -1,0 +1,204 @@
+/*
+ * Aktua website
+ *
+ * The look borrows from engineering computation pads: pale green paper,
+ * a fine grid, graphite text and blue ballpoint ink for links. The grid
+ * only appears behind program output, where it reads like graph paper.
+ */
+
+/*
+ * Program output uses one bundled font for text, box drawing and braille,
+ * so the plot lines up with its axes on every system. It is a subset of
+ * DejaVu Sans Mono; see fonts/LICENSE-DejaVu.txt.
+ */
+@font-face {
+  font-family: "Aktua Plot";
+  src: url("fonts/dejavu-sans-mono-plot.woff2") format("woff2");
+  font-display: swap;
+}
+
+:root {
+  --paper:          #eef3ea;
+  --sheet:          #f8faf6;  /* code blocks sit on a lighter sheet */
+  --grid:           #d3e2cc;
+  --graphite:       #2a2f2b;
+  --graphite-light: #5b655d;
+  --ink:            #1f4fa0;
+
+  --font-text: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --font-code: "Atkinson Hyperlegible Mono", ui-monospace, Menlo, Consolas, monospace;
+  --font-plot: "Aktua Plot", ui-monospace, monospace;
+
+  --measure: 42rem;
+  --gap:     1.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:          #171d19;
+    --sheet:          #1d2520;
+    --grid:           #26332b;
+    --graphite:       #dde5de;
+    --graphite-light: #98a69b;
+    --ink:            #8fb3f5;
+  }
+}
+
+/* ---------- Base ---------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 106.25%;  /* 17px */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 4rem 1rem 3rem;
+  background: var(--paper);
+  color: var(--graphite);
+  font-family: var(--font-text);
+  line-height: 1.55;
+}
+
+header,
+main,
+footer {
+  max-width: var(--measure);
+  margin: 0 auto;
+}
+
+a {
+  color: var(--ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+a:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* ---------- Type ---------- */
+
+h1 {
+  margin: 0 0 0.75rem;
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+p,
+ul {
+  margin: 0 0 1rem;
+}
+
+ul {
+  padding-left: 1.25rem;
+}
+
+li + li {
+  margin-top: 0.25rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  max-width: 36rem;
+}
+
+code {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+}
+
+/* ---------- Layout ---------- */
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+
+main > section {
+  margin-top: 3.5rem;
+}
+
+footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--grid);
+  color: var(--graphite-light);
+  font-size: 0.9rem;
+}
+
+/* ---------- Code and program output ---------- */
+
+pre {
+  margin: 0 0 1.25rem;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;  /* long lines scroll inside the block, not the page */
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+pre code,
+pre samp {
+  font-size: inherit;
+}
+
+pre.code {
+  background: var(--sheet);
+  border: 1px solid var(--grid);
+}
+
+pre.output {
+  font-family: var(--font-plot);
+  line-height: 1.15;  /* tight enough for braille dots to join into lines */
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 1.25rem 1.25rem;
+  border: 1px solid var(--grid);
+}
+
+pre.output samp {
+  font-family: inherit;
+}
+
+/* ---------- Small screens ---------- */
+
+@media (max-width: 36rem) {
+  body {
+    padding-top: 2.5rem;
+  }
+
+  h1 {
+    font-size: 2.5rem;
+  }
+
+  pre {
+    margin-left: -1rem;
+    margin-right: -1rem;
+    border-left: 0;
+    border-right: 0;
+  }
+}
