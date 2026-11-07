@@ -1,4 +1,4 @@
-import("test.tc")
+import("test.akt")
 
 // ---------- Indexing (modulo bug: index 0 read past the end) ----------
 

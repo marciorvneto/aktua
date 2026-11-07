@@ -1,5 +1,5 @@
-import("test.tc")
-import("base.tc")
+import("test.akt")
+import("base.akt")
 
 // There is no array equality operator yet, so compare element by element
 fn assert_arr_eq(actual, expected) {

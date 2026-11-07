@@ -1,13 +1,13 @@
-.PHONY: tctl stdlib clean test syntax
+.PHONY: aktua stdlib clean test syntax
 
-tctl: build/tctl stdlib
+aktua: build/aktua stdlib
 
-build/tctl: main.c | build
-	gcc -ggdb main.c -lm -o build/tctl
+build/aktua: main.c | build
+	gcc -ggdb main.c -lm -o build/aktua
 
-test: tctl
-	@for f in test/*.tc examples/*.tc; \
-		do ./build/tctl $$f > /dev/null || { echo "FAILED: $$f"; exit 1; }; \
+test: aktua
+	@for f in test/*.akt examples/*.akt; \
+		do ./build/aktua $$f > /dev/null || { echo "FAILED: $$f"; exit 1; }; \
 		done; \
 		echo "All tests passed"
 
@@ -21,6 +21,6 @@ stdlib: | build
 clean:
 	rm -rf build
 
-syntax: build/tctl
-	@names=$$(./build/tctl --builtins | tr '\n' ' ' | sed 's/ $$//'); \
-	sed -i "s/^\(  syntax keyword tinyctrlBuiltin\).*/\1 $$names/" editors/nvim/syntax/tinyctrl.lua
+syntax: build/aktua
+	@names=$$(./build/aktua --builtins | tr '\n' ' ' | sed 's/ $$//'); \
+	sed -i "s/^\(  syntax keyword aktuaBuiltin\).*/\1 $$names/" editors/nvim/syntax/aktua.lua

@@ -1,5 +1,5 @@
-import("test.tc")
-import("base.tc")
+import("test.akt")
+import("base.akt")
 
 // Simulated responses compared with closed-form solutions
 

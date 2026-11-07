@@ -1,4 +1,4 @@
-  import("test.tc")
+  import("test.akt")
   let j = complex(0, 1)
   let z = 3 + 4 * j
 
