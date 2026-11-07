@@ -427,11 +427,6 @@ int function_repr(Arena *a, size_t num_args, const char *id, char* buf){
   return printed;
 }
 
-typedef struct {
-	double* nums;
-	size_t  size;
-} Array;
-
 typedef struct Value Value;
 typedef struct {
 	Value*  items;
@@ -1241,7 +1236,6 @@ typedef enum {
 	VALUE_FUNCTION,
 
 	// Things to think about
-	VALUE_ARRAY,
 	VALUE_TUPLE,
 	VALUE_TENSOR,
 	VALUE_TYPE_COUNT
@@ -1269,7 +1263,6 @@ struct Value {
 		double complex   complex_number;
 		char             *str;
 		char             *id;
-		Array            array;
 		Tensor           tensor;
 		Tuple            tuple;
     Function         fun;
@@ -1557,6 +1550,8 @@ AST *parse_row_tail(Arena *pa, AST *parent, Parser *parser){
 	size_t save = parser->next;
 
 	if(parser_eat(TOK_COMMA, parser) == NULL) return NULL;
+	// Trailing comma, as in [1, 2, 3,]: keep the comma consumed, end the row
+	if(!parser_done(parser) && parser_peek(parser)->type == TOK_RBRACKET) return NULL;
 	AST *expr = parse_expression(pa, parent, parser);
 	if(!expr){
 		parser->next = save;
@@ -1575,9 +1570,8 @@ AST *parse_row(Arena *pa, AST *parent, Parser *parser){
 	AST *expr   = parse_expression(pa, parent, parser);
 	if(!expr) return NULL;
 
-	size_t save            = parser->next;
-	AST *tail              = parse_row_tail(pa, parent, parser);
-	if(!tail) parser->next = save;
+	// parse_row_tail restores the position itself when it fails
+	AST *tail = parse_row_tail(pa, parent, parser);
 
 	row->as.row.first = expr;
 	expr->next        = tail;
@@ -2491,13 +2485,6 @@ Value make_complex(double complex num){
 	};
 	return v;
 }
-Value make_array(Array arr){
-	Value v = {
-		.valueType   = VALUE_ARRAY,
-		.value.array = arr
-	};
-	return v;
-}
 
 Value make_tensor(Tensor tens){
 	Value t = {
@@ -2517,14 +2504,6 @@ Value make_function(Function fun){
 
 Value value_clone(Arena *a, Value *v);
 
-Array clone_array(Arena *a, Array *old){
-  Array arr;
-  arr.size = old->size;
-  arr.nums = arena_alloc(a, arr.size * sizeof(double));
-  if(arr.nums == NULL){ arr.size = 0; return arr; }
-  memcpy(arr.nums, old->nums, arr.size * sizeof(double));
-  return arr;
-}
 
 Tensor clone_tensor(Arena *a, Tensor *old){
   Tensor tens;
@@ -2605,11 +2584,6 @@ Value value_clone(Arena *a, Value *v){
     case VALUE_STRING: 
       {
         copy.value.str = clone_string(a, v->value.str);
-        break;
-      }
-    case VALUE_ARRAY: 
-      {
-        copy.value.array = clone_array(a, &v->value.array);
         break;
       }
     case VALUE_TENSOR: 
@@ -2704,12 +2678,14 @@ Polynomial poly_from_num(Arena *a, double n){
 	return poly;
 }
 
-Array scale_array(Arena *a, Array *arr, double x){
-  Array arr_new = clone_array(a, arr);
-	for(size_t i = 0; i < arr_new.size; i++){
-		arr_new.nums[i] *= x;
+Tensor scale_tensor(Arena *a, Tensor *t, double x){
+	Tensor tens_new = clone_tensor(a, t);
+	if(tens_new.dtype == DTYPE_REAL){
+		for(size_t i = 0; i < tens_new.count; i++) tens_new.data.re[i] *= x;
+	}else{
+		for(size_t i = 0; i < tens_new.count; i++) tens_new.data.cx[i] *= x;
 	}
-	return arr_new;
+	return tens_new;
 }
 
 Polynomial scale_poly(Arena *a, Polynomial *p, double x){
@@ -3240,8 +3216,8 @@ Value unop_num_plus(Arena *a, Value *arg){
 Value unop_complex_plus(Arena *a, Value *arg){
 	return make_complex(arg->value.complex_number);
 }
-Value unop_arr_plus(Arena *a, Value *arg){
-	return make_array(arg->value.array);
+Value unop_tens_plus(Arena *a, Value *arg){
+	return make_tensor(arg->value.tensor);
 }
 Value unop_poly_plus(Arena *a, Value *arg){
 	return make_poly(arg->value.poly);
@@ -3256,9 +3232,9 @@ Value unop_num_minus(Arena *a, Value *arg){
 Value unop_complex_minus(Arena *a, Value *arg){
 	return make_complex(-1.0 * arg->value.complex_number);
 }
-Value unop_arr_minus(Arena *a, Value *arg){
-  Array arr = scale_array(a, &arg->value.array, -1.0);
-	return make_array(arr);
+Value unop_tens_minus(Arena *a, Value *arg){
+  Tensor tens = scale_tensor(a, &arg->value.tensor, -1.0);
+	return make_tensor(tens);
 }
 Value unop_poly_minus(Arena *a, Value *arg){
 	return make_poly(scale_poly(a, &arg->value.poly, -1.0));
@@ -3273,7 +3249,7 @@ static const UnaryFn unop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT] = {
 	[OP_PLUS] = {
 		[VALUE_NUMBER]            = unop_num_plus,
 		[VALUE_COMPLEX]           = unop_complex_plus,
-		[VALUE_ARRAY]             = unop_arr_plus,
+		[VALUE_TENSOR]            = unop_tens_plus,
 		[VALUE_POLYNOMIAL]        = unop_poly_plus,
     [VALUE_TRANSFER_FUNCTION] = unop_tf_plus,
 		[VALUE_NAN]               = unop_with_nan,
@@ -3283,7 +3259,7 @@ static const UnaryFn unop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT] = {
 	[OP_MINUS] = {
 		[VALUE_NUMBER]            = unop_num_minus,
 		[VALUE_COMPLEX]           = unop_complex_minus,
-		[VALUE_ARRAY]             = unop_arr_minus,
+		[VALUE_TENSOR]            = unop_tens_minus,
 		[VALUE_POLYNOMIAL]        = unop_poly_minus,
     [VALUE_TRANSFER_FUNCTION] = unop_tf_minus,
 		[VALUE_NAN]               = unop_with_nan,
@@ -3738,38 +3714,40 @@ Value eq_str_str(Arena *a, Environment *e, Value *left, Value *right){
 
 //------------ Broadcasting --------------
 
-#define BROADCAST_OP(name, sym, expr) \
-  static double scalar_##name(double x, double y) {return (expr); } \
+#define BROADCAST_OP(name, sym, re_expr, cx_expr) \
+    static double         re_##name(double x, double y) { return (re_expr); } \
+    static double complex cx_##name(double complex x, double complex y) { return (cx_expr); } \
   Value broadcast_##name(Arena *a, Environment *e, Value *l, Value *r) { \
-    return broadcast(a, e, sym, l, r, scalar_##name); \
+    return broadcast(a, e, sym, l, r, re_##name, cx_##name); \
   }
 
-typedef double (*ScalarOp)(double, double); 
+typedef double         (*ScalarOpRe)(double, double);
+typedef double complex (*ScalarOpCx)(double complex, double complex);
 
-typedef struct {
-  double *data;
-  size_t size;
-  size_t stride;
-} Operand;
+typedef Tensor Operand;
 
 int as_operand(Value *v, Operand *out){
+	*out = (Operand){0};
   switch (v->valueType) {
     case VALUE_NUMBER: 
       {
-        *out = (Operand) { 
-          .size   = 1,
-          .stride = 0,
-          .data   = &v->value.number
-        };
+				out->dtype   = DTYPE_REAL;
+				out->data.re = &v->value.number;
+				out->ndim    = 0;
+				out->count   = 1;
         return 1;
       }
-    case VALUE_ARRAY: 
+    case VALUE_COMPLEX: 
       {
-        *out = (Operand) { 
-          .size   = v->value.array.size,
-          .stride = 1,
-          .data   = v->value.array.nums
-        };
+				out->dtype   = DTYPE_COMPLEX;
+				out->data.cx = &v->value.complex_number;
+				out->ndim    = 0;
+				out->count   = 1;
+        return 1;
+      }
+    case VALUE_TENSOR: 
+      {
+				*out = v->value.tensor;
         return 1;
       }
     default: return 0;
@@ -3777,46 +3755,101 @@ int as_operand(Value *v, Operand *out){
   return 0;
 }
 
-Value broadcast(Arena *a, Environment *e, const char *sym, Value *l, Value *r, ScalarOp op){
+// Broadcasting here follows the Numpy convention
+// A:           (4,3,3)
+// B:           (3,1)
+// stride(A):   (9,3,1)
+// stride(B):   (1,1)
+// ------ Right-align and pad with ones ----
+// A:           (4,3,3)
+// B:           (1,3,1)
+// ------ Right-align and pad with ones ----
+// Out:         (4,3,3)
+// ------ Pick strides based on Out ----
+// stride(A):   (9,3,1)
+// stride(B):   (0,1,0)
+
+int broadcast_shape(Operand *x, Operand *y, size_t *nd_out, size_t *sizes_out){
+	size_t nd = x->ndim > y->ndim ? x->ndim : y->ndim;
+	for(size_t i = 0; i < nd; i++)	{
+		size_t xs = i < x->ndim ? x->sizes[x->ndim - 1 - i] : 1;
+		size_t ys = i < y->ndim ? y->sizes[y->ndim - 1 - i] : 1;
+		if(xs != ys && xs != 1 && ys != 1) return 1; // Incompatible
+		sizes_out[nd - 1 - i] = (xs == 1) ? ys : xs;
+	}
+	*nd_out = nd;
+	return 0;
+}
+
+void broadcast_view(Operand *v, size_t nd, const size_t *sizes){
+	size_t pad = nd - v->ndim;
+	size_t strides[MAX_DIMS];
+	for(size_t d = 0; d < nd; d++){
+		if(d < pad){
+			strides[d] = 0;
+		}else{
+			size_t src = d - pad;
+			// If the original size was 1, we stretch it (0), else, we stride as usual
+			strides[d] = (v->sizes[src] == 1) ? 0 : v->strides[src];
+		}
+	}
+	v->ndim = nd;
+	for(size_t d = 0; d < nd; d++){
+		v->strides[d] = strides[d];
+		v->sizes[d]   = sizes[d];
+	}
+}
+
+
+Value broadcast(Arena *a, Environment *e, const char *sym, Value *l, Value *r, ScalarOpRe reop, ScalarOpCx cxop){
   Operand x, y;
   if(!as_operand(l, &x) || !as_operand(r, &y)){
     runtime_error(e, "%s: unsupported operand types", sym);
     return make_nan();
   }
-  if(x.stride && y.stride && x.size != y.size){
-    // Two arrays whose sizes are unequal
-    runtime_error(e, "%s: arrays have different lengths (%zu and %zu)", sym, x.size, y.size);
+	size_t nd_out;
+	size_t sizes_out[MAX_DIMS];
+	if(broadcast_shape(&x, &y, &nd_out, sizes_out) != 0){
+    runtime_error(e, "%s: incompatible broadcast shapes", sym);
     return make_nan();
-  }
-  // Could be a number and an array or two arrays
+	}
 
-  //  Possibilities for n:
-  //
-  //  x/y      array    number
-  //  --------------------------
-  //  array   x.size    x.size
-  //  number  y.size    1
+	broadcast_view(&x, nd_out, sizes_out);
+	broadcast_view(&y, nd_out, sizes_out);
 
-  size_t n = x.stride ? x.size : y.size;
+	DType dtype = DTYPE_REAL;
+	if(x.dtype == DTYPE_COMPLEX || y.dtype == DTYPE_COMPLEX) dtype = DTYPE_COMPLEX;
 
-  Array out = {.size = n, .nums = arena_alloc(a, n * sizeof(double)) };
-  if(out.nums == NULL && n > 0){
-    runtime_error(e, "%s: out of memory for %zu elements", sym, n);
+	Tensor out;
+	if(tensor_init(a, &out, nd_out, sizes_out, dtype) != 0){
+    runtime_error(e, "%s: could not allocate result", sym);
     return make_nan();
-  }
+	}
 
-  for(size_t i = 0; i < n; i++){
-    out.nums[i] = op(x.data[i * x.stride], y.data[i * y.stride]);
-  }
-
-  return make_array(out);
+	size_t indices[MAX_DIMS];
+	for(size_t i = 0; i < out.count; i++){
+		tensor_unravel_index(&out, indices, i);
+		if(dtype == DTYPE_REAL){
+			out.data.re[i] = reop(
+				x.data.re[tensor_get_offset(&x, indices)],
+				y.data.re[tensor_get_offset(&y, indices)]
+			);
+		}else{
+			out.data.cx[i] = cxop(
+				tensor_get_cx(&x, tensor_get_offset(&x, indices)),
+				tensor_get_cx(&y, tensor_get_offset(&y, indices))
+			);
+		}
+	}
+	
+	return make_tensor(out);
 }
 
-BROADCAST_OP(add, "+", x + y)
-BROADCAST_OP(sub, "-", x - y)
-BROADCAST_OP(mul, "*", x * y) 
-BROADCAST_OP(div, "/", x / y)
-BROADCAST_OP(pow, "^", pow(x, y))
+BROADCAST_OP(add, "+", x + y   ,  x + y)
+BROADCAST_OP(sub, "-", x - y   ,  x - y)
+BROADCAST_OP(mul, "*", x * y   ,  x * y)
+BROADCAST_OP(div, "/", x / y   ,  x / y)
+BROADCAST_OP(pow, "^", pow(x,y),  cpow(x, y))
 
 
 static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE_TYPE_COUNT] = {
@@ -3824,7 +3857,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER]              = {
 			[VALUE_NUMBER]            = add_scalar_scalar,
 			[VALUE_COMPLEX]           = add_scalar_scalar,
-			[VALUE_ARRAY]             = broadcast_add,
+			[VALUE_TENSOR]            = broadcast_add,
 			[VALUE_POLYNOMIAL]        = add_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = add_num_tf,
 			[VALUE_STRING]            = cat_num_str,
@@ -3833,36 +3866,37 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_COMPLEX]              = {
 			[VALUE_NUMBER]            = add_scalar_scalar,
 			[VALUE_COMPLEX]           = add_scalar_scalar,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]            = broadcast_add,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_STRING]            = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
-		[VALUE_ARRAY] = {
+		[VALUE_TENSOR] = {
 			[VALUE_NUMBER]            = broadcast_add,
-			[VALUE_ARRAY]             = broadcast_add,
+			[VALUE_COMPLEX]           = broadcast_add,
+			[VALUE_TENSOR]            = broadcast_add,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_POLYNOMIAL] = {
 			[VALUE_NUMBER]            = add_num_poly,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]            = op_with_nan,
 			[VALUE_POLYNOMIAL]        = add_poly_poly,
 			[VALUE_TRANSFER_FUNCTION] = add_tf_poly,
 			[VALUE_NAN]               = op_with_nan,
 		},
     [VALUE_TRANSFER_FUNCTION] = {
 			[VALUE_NUMBER]            = add_num_tf,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = add_tf_poly,
 			[VALUE_TRANSFER_FUNCTION] = add_tf_tf,
 			[VALUE_NAN]               = op_with_nan,
     },
 		[VALUE_STRING] = {
 			[VALUE_NUMBER]            = cat_str_num,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_STRING]            = cat_str_str,    
@@ -3871,7 +3905,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
 			[VALUE_COMPLEX]           = op_with_nan,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]            = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -3882,7 +3916,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]            = sub_scalar_scalar,
 			[VALUE_COMPLEX]           = sub_scalar_scalar,
-			[VALUE_ARRAY]             = broadcast_sub,
+			[VALUE_TENSOR]            = broadcast_sub,
 			[VALUE_POLYNOMIAL]        = sub_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = sub_num_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -3890,29 +3924,30 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_COMPLEX]              = {
 			[VALUE_NUMBER]            = sub_scalar_scalar,
 			[VALUE_COMPLEX]           = sub_scalar_scalar,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]            = broadcast_sub,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_STRING]            = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
-		[VALUE_ARRAY] = {
+		[VALUE_TENSOR] = {
 			[VALUE_NUMBER]            = broadcast_sub,
-			[VALUE_ARRAY]             = broadcast_sub,
+			[VALUE_COMPLEX]           = broadcast_sub,
+			[VALUE_TENSOR]             = broadcast_sub,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_POLYNOMIAL] = {
 			[VALUE_NUMBER]            = sub_poly_num,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = sub_poly_poly,
 			[VALUE_TRANSFER_FUNCTION] = sub_poly_tf,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_TRANSFER_FUNCTION] = {
 			[VALUE_NUMBER]            = sub_tf_num,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = sub_tf_poly,
 			[VALUE_TRANSFER_FUNCTION] = sub_tf_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -3920,7 +3955,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
 			[VALUE_COMPLEX]           = op_with_nan,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -3931,7 +3966,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]            = mul_scalar_scalar,
 			[VALUE_COMPLEX]           = mul_scalar_scalar,
-			[VALUE_ARRAY]             = broadcast_mul,
+			[VALUE_TENSOR]            = broadcast_mul,
 			[VALUE_POLYNOMIAL]        = mul_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = mul_num_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -3939,28 +3974,29 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_COMPLEX] = {
 			[VALUE_NUMBER]            = mul_scalar_scalar,
 			[VALUE_COMPLEX]           = mul_scalar_scalar,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]            = broadcast_mul,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
-		[VALUE_ARRAY] = {
+		[VALUE_TENSOR] = {
 			[VALUE_NUMBER]            = broadcast_mul,
-			[VALUE_ARRAY]             = broadcast_mul,
+			[VALUE_COMPLEX]           = broadcast_mul,
+			[VALUE_TENSOR]            = broadcast_mul,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_POLYNOMIAL] = {
 			[VALUE_NUMBER]            = mul_num_poly,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = mul_poly_poly,
 			[VALUE_TRANSFER_FUNCTION] = mul_tf_poly,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_TRANSFER_FUNCTION] = {
 			[VALUE_NUMBER]            = mul_num_tf,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = mul_tf_poly,
 			[VALUE_TRANSFER_FUNCTION] = mul_tf_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -3968,7 +4004,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
 			[VALUE_COMPLEX]           = op_with_nan,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -3979,7 +4015,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]            = div_scalar_scalar,
 			[VALUE_COMPLEX]           = div_scalar_scalar,
-			[VALUE_ARRAY]             = broadcast_div,
+			[VALUE_TENSOR]            = broadcast_div,
       [VALUE_POLYNOMIAL]        = ordered_div_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = div_num_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -3987,28 +4023,29 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_COMPLEX] = {
 			[VALUE_NUMBER]            = div_scalar_scalar,
 			[VALUE_COMPLEX]           = div_scalar_scalar,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]            = broadcast_div,
       [VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
-		[VALUE_ARRAY] = {
+		[VALUE_TENSOR] = {
 			[VALUE_NUMBER]            = broadcast_div,
-			[VALUE_ARRAY]             = broadcast_div,
+			[VALUE_COMPLEX]           = broadcast_div,
+			[VALUE_TENSOR]            = broadcast_div,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_POLYNOMIAL] = {
 			[VALUE_NUMBER]            = ordered_div_poly_num,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
       [VALUE_POLYNOMIAL]        = div_poly_poly,
 			[VALUE_TRANSFER_FUNCTION] = div_poly_tf,
 			[VALUE_NAN]               = op_with_nan,
     },
 		[VALUE_TRANSFER_FUNCTION] = {
 			[VALUE_NUMBER]            = div_tf_num,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
       [VALUE_POLYNOMIAL]        = div_tf_poly,
 			[VALUE_TRANSFER_FUNCTION] = div_tf_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -4016,7 +4053,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
 			[VALUE_COMPLEX]           = op_with_nan,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -4027,24 +4064,24 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]  = pow_scalar_scalar,
 			[VALUE_COMPLEX] = pow_scalar_scalar,
-			[VALUE_ARRAY]   = broadcast_pow,
+			[VALUE_TENSOR]  = broadcast_pow,
 			[VALUE_NAN]     = op_with_nan,
 		},
 		[VALUE_COMPLEX] = {
 			[VALUE_NUMBER]  = pow_scalar_scalar,
 			[VALUE_COMPLEX] = pow_scalar_scalar,
-			[VALUE_ARRAY]   = op_with_nan,
+			[VALUE_TENSOR]  = broadcast_pow,
 			[VALUE_NAN]     = op_with_nan,
 		},
-		[VALUE_ARRAY] = {
+		[VALUE_TENSOR] = {
 			[VALUE_NUMBER]  = broadcast_pow,
 			[VALUE_COMPLEX] = broadcast_pow,
-			[VALUE_ARRAY]   = broadcast_pow,
+			[VALUE_TENSOR]  = broadcast_pow,
 			[VALUE_NAN]     = op_with_nan,
 		},
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
-			[VALUE_ARRAY]             = op_with_nan,
+			[VALUE_TENSOR]            = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -4151,6 +4188,29 @@ Value native_import(Arena *a, Environment *e, char* script, size_t argc, Value *
 
 
 
+// Views a Value as a 1-D real tensor. Returns 0 if it isn't one.
+int as_real_vector(Value *v, double **data, size_t *n){
+	if(v->valueType != VALUE_TENSOR)          return 0;
+	Tensor *t = &v->value.tensor;
+	if(t->ndim != 1 || t->dtype != DTYPE_REAL) return 0;
+	if(t->count > 1 && t->strides[0] != 1)     return 0;
+	*data = t->data.re;
+	*n    = t->count;
+	return 1;
+}
+
+// Wraps an existing buffer of n doubles as a 1-D real tensor (no copy).
+Value make_real_vector(double *data, size_t n){
+	Tensor t = {0};
+	t.dtype      = DTYPE_REAL;
+	t.data.re    = data;
+	t.ndim       = 1;
+	t.count      = n;
+	t.sizes[0]   = n;
+	t.strides[0] = 1;
+	return make_tensor(t);
+}
+
 typedef double         (*RealFn)       (double);
 typedef double complex (*ComplexFn)    (double complex);
 typedef double         (*RealComplexFn)(double complex);
@@ -4165,18 +4225,36 @@ Value lift_unary(Arena *a, Environment *e, const char *name, Value v, RealFn rf,
          if(rcf) return make_num(rcf(v.value.complex_number));
          break;
        }
-    case VALUE_ARRAY:
+    case VALUE_TENSOR:
        {
-          Array new_array = clone_array(a, &v.value.array);
-          if(new_array.nums == NULL && v.value.array.size > 0){
-            runtime_error(e, "%s: out of memory for %zu elements", name, v.value.array.size);
+          // Elementwise: the result keeps the input's sizes and strides, so
+          // looping over the flat buffer is fine even for transposed views.
+          Tensor *src = &v.value.tensor;
+          DType out_dtype;
+          if(src->dtype == DTYPE_REAL) out_dtype = DTYPE_REAL;
+          else if(cf)                  out_dtype = DTYPE_COMPLEX;
+          else if(rcf)                 out_dtype = DTYPE_REAL;
+          else break;
+
+          Tensor out = *src;
+          out.dtype  = out_dtype;
+          size_t elsize = out_dtype == DTYPE_REAL ? sizeof(double) : sizeof(double complex);
+          void *buf = arena_alloc(a, src->count * elsize);
+          if(buf == NULL){
+            runtime_error(e, "%s: out of memory for %zu elements", name, src->count);
             return make_nan();
           }
-          for(size_t i = 0; i < v.value.array.size; i++){
-            new_array.nums[i] = rf(new_array.nums[i]);
+          if(out_dtype == DTYPE_REAL) out.data.re = buf;
+          else                        out.data.cx = buf;
+
+          for(size_t i = 0; i < src->count; i++){
+            if(src->dtype == DTYPE_REAL) out.data.re[i] = rf(src->data.re[i]);
+            else if(cf)                  out.data.cx[i] = cf(src->data.cx[i]);
+            else                         out.data.re[i] = rcf(src->data.cx[i]);
           }
-          return make_array(new_array);
+          return make_tensor(out);
        }
+    default: break;
   }
   runtime_error(e, "%s: unsupported argument type", name);
   return make_nan();
@@ -4236,18 +4314,21 @@ Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *a
 	int n    = to - from;
 	int nele = abs(n);
 
-	Array arr = {
-		.size = nele,
-		.nums = arena_alloc(a, nele * sizeof(double))
-	};
+	Tensor t;
+	size_t sizes[MAX_DIMS] = {0};
+	sizes[0] = nele;
+	if(tensor_init(a, &t, 1, sizes, DTYPE_REAL) != 0){
+		runtime_error(e, "range: not enough memory for %d elements", nele);
+		return make_nan();
+	}
 
 	int step = (from < to) - (from > to);
 
 	for(int i = 0; i < nele; i++) {
-		arr.nums[i] = from + (i * step);
+		t.data.re[i] = from + (i * step);
 	}
 
-	return make_array(arr);
+	return make_tensor(t);
 }
 
 Value native_linspace(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){    
@@ -4280,43 +4361,32 @@ Value native_linspace(Arena *a, Environment *e, char* script, size_t argc, Value
 	int n_points = ceil(steps_val.value.number);
 	double dx    = (to - from) / (n_points - 1.0);
 
-  if(n_points == 0) {
-    Array arr = {
-      .size = 0,
-      .nums = arena_alloc(a, 0 * sizeof(double)),
-    };
-		return make_array(arr);
-  }
-  if(n_points == 1) {
-    Array arr = {
-      .size = 1,
-      .nums = arena_alloc(a, 1 * sizeof(double)),
-    };
-    arr.nums[0] = from;
-		return make_array(arr);
-  }
-
-	Array arr = {
-		.size = n_points,
-		.nums = arena_alloc(a, n_points * sizeof(double))
-	};
-  if(arr.nums == NULL){
+	Tensor t;
+	size_t sizes[MAX_DIMS];
+	sizes[0] = n_points;
+	if(tensor_init(a, &t, 1, sizes, DTYPE_REAL) != 0){
     runtime_error(e, "Not enough memory for %d points", n_points); 
     return make_nan(); 
-  }
+	}
+
+	if(n_points == 0) return make_tensor(t);
+	if(n_points == 1) {
+		t.data.re[0] = from;
+		return make_tensor(t);
+	}
 
 	for(int i = 0; i < n_points; i++) {
-		arr.nums[i] = from + (i * dx);
+		t.data.re[i] = from + (i * dx);
 	}
-  arr.nums[n_points - 1] = to;
+  t.data.re[n_points - 1] = to;
 
-	return make_array(arr);
+	return make_tensor(t);
 }
 
 Value native_len(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
   if(
-      val.valueType != VALUE_ARRAY &&
+      val.valueType != VALUE_TENSOR &&
       val.valueType != VALUE_TUPLE
     )
   {
@@ -4324,35 +4394,58 @@ Value native_len(Arena *a, Environment *e, char* script, size_t argc, Value *arg
     return make_nan();
   }
 
-  if(val.valueType == VALUE_ARRAY) return make_num(val.value.array.size);
+  if(val.valueType == VALUE_TENSOR) return make_num(val.value.tensor.count);
   if(val.valueType == VALUE_TUPLE) return make_num(val.value.tuple.size);
   return make_num(0);
 }
 
 Value native_push(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  Value arr = argv[0];
-  Value val = argv[1];
+  Value tens = argv[0];
+  Value val  = argv[1];
   if(
-      arr.valueType != VALUE_ARRAY ||
-      val.valueType != VALUE_NUMBER
+      tens.valueType != VALUE_TENSOR ||
+      (val.valueType != VALUE_NUMBER && val.valueType != VALUE_COMPLEX)
     )
   {
     runtime_error(e, "push requires an array and a number");
     return make_nan();
   }
-
-	size_t n = arr.value.array.size;
-	Array new_arr = {
-		.size = n + 1,
-		.nums = arena_alloc(a, (n + 1) * sizeof(double)),
-	};
-
-	for(size_t i = 0; i < arr.value.array.size; i++){
-		new_arr.nums[i] = arr.value.array.nums[i];
+	if(tens.value.tensor.ndim != 1){
+    runtime_error(e, "push requires a 1D array");
+    return make_nan();
 	}
-	new_arr.nums[n] = val.value.number;
 
-  return make_array(new_arr);
+	Tensor new_t;
+	Tensor old_t           = tens.value.tensor;
+	size_t sizes[MAX_DIMS] = {0};
+	size_t len             = old_t.count + 1;
+	sizes[0]               = len;
+
+	DType dtype = (val.valueType == VALUE_COMPLEX || old_t.dtype == DTYPE_COMPLEX)
+									? DTYPE_COMPLEX 
+									: DTYPE_REAL;
+
+	if(tensor_init(a, &new_t, old_t.ndim, sizes, dtype) != 0){
+    runtime_error(e, "push: not enough memory");
+    return make_nan();
+	}
+
+	for(size_t i = 0; i < old_t.count; i++){
+		if(dtype == DTYPE_REAL){
+			new_t.data.re[i] = old_t.data.re[i];
+		}else{
+			new_t.data.cx[i] = tensor_get_cx(&old_t, i);
+		}
+	}
+	if(dtype == DTYPE_REAL){
+		new_t.data.re[old_t.count] = val.value.number;
+	}else{
+		new_t.data.cx[old_t.count] = val.valueType == VALUE_COMPLEX
+		                             ? val.value.complex_number
+		                             : val.value.number;
+	}
+
+  return make_tensor(new_t);
 }
 
 // ------------- Plotting ------------
@@ -4361,20 +4454,28 @@ Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	*silent = 1;
 	Value x_val = argv[0];
 	Value y_val = argv[1];
-	if(x_val.valueType != VALUE_ARRAY || y_val.valueType != VALUE_ARRAY){
+	if(x_val.valueType != VALUE_TENSOR || y_val.valueType != VALUE_TENSOR){
 		runtime_error(e, "plot requires two arrays");
 		return make_nan();
 	}
-	if(x_val.value.array.size != y_val.value.array.size){
+	if(x_val.value.tensor.ndim != 1 || y_val.value.tensor.ndim != 1){
+		runtime_error(e, "plot requires two 1D arrays");
+		return make_nan();
+	}
+	if(x_val.value.tensor.count != y_val.value.tensor.count){
 		runtime_error(e, "plot: arrays have different lengths (%zu and %zu)",
-				x_val.value.array.size, y_val.value.array.size);
+				x_val.value.tensor.count, y_val.value.tensor.count);
+		return make_nan();
+	}
+	if(x_val.value.tensor.dtype != DTYPE_REAL || y_val.value.tensor.dtype != DTYPE_REAL){
+		runtime_error(e, "plot: complex values are not supported");
 		return make_nan();
 	}
 
 	PlotSeries series = {
-		.x_data     = x_val.value.array.nums,
-		.y_data     = y_val.value.array.nums,
-		.num_points = x_val.value.array.size,
+		.x_data     = x_val.value.tensor.data.re,
+		.y_data     = y_val.value.tensor.data.re,
+		.num_points = x_val.value.tensor.count,
 	};
 	PlotData data = { .series = &series, .num_series = 1 };
 
@@ -4390,6 +4491,14 @@ Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 
 // ------------- Arrays and Tensors ------------
 
+bool value_is_vector(Value *v, size_t *of_size){
+	if(v->valueType != VALUE_TENSOR)              return false;
+	if(v->value.tensor.ndim  != 1)                return false;
+	if(v->value.tensor.dtype != DTYPE_REAL)       return false;
+	if(of_size != NULL) return v->value.tensor.count == *of_size;
+	return true;
+}
+
 typedef double (*ReducerFn)(double acc, double x);
 double reducer_max(double acc, double x) { return x > acc ? x : acc; }
 double reducer_min(double acc, double x) { return x < acc ? x : acc; }
@@ -4398,18 +4507,19 @@ double reducer_prod(double acc, double x) { return x * acc; }
 
 Value reduce(Environment *e, const char* name, ReducerFn reducer, Value val, double init, bool emtpy_ok){
   if(val.valueType == VALUE_NUMBER) return make_num(val.value.number);
-  if(val.valueType != VALUE_ARRAY){
-    runtime_error(e, "max expects an array");
+  if(val.valueType != VALUE_TENSOR || val.value.tensor.dtype != DTYPE_REAL){
+    runtime_error(e, "%s expects a real array", name);
     return make_nan();
   }
-  size_t size = val.value.array.size;
+  // Order doesn't matter for these reducers, so the flat buffer works for any shape
+  size_t size = val.value.tensor.count;
   if(size == 0 && !emtpy_ok){
     runtime_error(e, "%s: array can't be empty.", name);
     return make_nan();
   }
   double acc = init;
   for(size_t i = 0; i < size; i++){
-    double v = val.value.array.nums[i];
+    double v = val.value.tensor.data.re[i];
     if(isnan(v)) return make_num(NAN);
     acc = reducer(acc, v);
   }
@@ -4432,8 +4542,8 @@ Value native_##name(Arena *a, Environment *e, char* script, size_t argc, Value *
 
 Value native_mean(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
   Value total = reduce(e, "mean", reducer_sum, argv[0], 0.0, false);
-  if(total.valueType != VALUE_NUMBER || argv[0].valueType != VALUE_ARRAY) return total;
-  return make_num(total.value.number / argv[0].value.array.size);
+  if(total.valueType != VALUE_NUMBER || argv[0].valueType != VALUE_TENSOR) return total;
+  return make_num(total.value.number / argv[0].value.tensor.count);
 }       
 
 Value native_eye(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
@@ -4474,8 +4584,8 @@ Value native_zeros(Arena *a, Environment *e, char* script, size_t argc, Value *a
 		runtime_error(e, "zeros: expected a 1-dimensional array");
 		return make_nan();
 	}
-	if(sizes_tensor.ndim > MAX_DIMS){
-		runtime_error(e, "zeros: accepts at most %zu dimensions", MAX_DIMS);
+	if(sizes_tensor.count == 0 || sizes_tensor.count > MAX_DIMS || sizes_tensor.dtype != DTYPE_REAL){
+		runtime_error(e, "zeros: expected between 1 and %d real sizes", MAX_DIMS);
 		return make_nan();
 	}
 	size_t sizes[MAX_DIMS] = {0};
@@ -4483,11 +4593,37 @@ Value native_zeros(Arena *a, Environment *e, char* script, size_t argc, Value *a
 
 	Tensor t;
 	if(tensor_init(a, &t, sizes_tensor.count, sizes, DTYPE_REAL) != 0){
-		runtime_error(e, "eye: not enough memory to allocate matrix");
+		runtime_error(e, "zeros: not enough memory to allocate matrix");
 		return make_nan();
 	}
+	for(size_t i = 0; i < t.count; i++) t.data.re[i] = 0.0;
+  return make_tensor(t);
+}
 
-	memset(t.data.re, 0, t.count * sizeof(double));
+Value native_ones(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+  Value sizes_val = argv[0];
+	if(sizes_val.valueType != VALUE_TENSOR){
+		runtime_error(e, "ones: argument must be an array");
+		return make_nan();
+	}
+	Tensor sizes_tensor = sizes_val.value.tensor;
+	if(sizes_tensor.ndim != 1){
+		runtime_error(e, "ones: expected a 1-dimensional array");
+		return make_nan();
+	}
+	if(sizes_tensor.count == 0 || sizes_tensor.count > MAX_DIMS || sizes_tensor.dtype != DTYPE_REAL){
+		runtime_error(e, "ones: expected between 1 and %d real sizes", MAX_DIMS);
+		return make_nan();
+	}
+	size_t sizes[MAX_DIMS] = {0};
+	for(size_t i = 0; i < sizes_tensor.count; i++) sizes[i] = floor(sizes_tensor.data.re[i]);
+
+	Tensor t;
+	if(tensor_init(a, &t, sizes_tensor.count, sizes, DTYPE_REAL) != 0){
+		runtime_error(e, "ones: not enough memory to allocate matrix");
+		return make_nan();
+	}
+	for(size_t i = 0; i < t.count; i++) t.data.re[i] = 1.0;
   return make_tensor(t);
 }
 
@@ -4495,14 +4631,14 @@ Value native_zeros(Arena *a, Environment *e, char* script, size_t argc, Value *a
 
 Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
-  if(val.valueType == VALUE_ARRAY){
-    int err;
-    Polynomial p = poly_new(a, val.value.array.nums, val.value.array.size);
-    poly_update_degree(&p);
-    return make_poly(p);
-  }
-	runtime_error(e, "Unsupported operation");
-  return make_nan();
+	if(!value_is_vector(&val, NULL)){
+		runtime_error(e, "poly: Expected a 1-dimensional array of coefficients");
+		return make_nan();
+	}
+	int err;
+	Polynomial p = poly_new(a, val.value.tensor.data.re, val.value.tensor.count);
+	poly_update_degree(&p);
+	return make_poly(p);
 }
 Value native_polymod(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value first = argv[0];
@@ -4565,14 +4701,15 @@ Value native_poles(Arena *a, Environment *e, char* script, size_t argc, Value *a
 // Checks the (G, t) arguments shared by impulse() and step().
 // t must be an array of non-decreasing times.
 static int check_response_args(Environment *e, const char *name, Value *argv){
-	if(argv[0].valueType != VALUE_TRANSFER_FUNCTION || argv[1].valueType != VALUE_ARRAY){
+	double *ts;
+	size_t  n;
+	if(argv[0].valueType != VALUE_TRANSFER_FUNCTION || !as_real_vector(&argv[1], &ts, &n)){
 		runtime_error(e, "%s expects a transfer function and an array of times. Example: %s(1/(s+1), linspace(0, 10, 200))", name, name);
 		return 0;
 	}
-	Array ts = argv[1].value.array;
-	for(size_t i = 1; i < ts.size; i++){
-		if(!(ts.nums[i] >= ts.nums[i - 1])){
-			runtime_error(e, "%s: times must be non-decreasing (t[%zu] = %g comes after %g)", name, i, ts.nums[i], ts.nums[i - 1]);
+	for(size_t i = 1; i < n; i++){
+		if(!(ts[i] >= ts[i - 1])){
+			runtime_error(e, "%s: times must be non-decreasing (t[%zu] = %g comes after %g)", name, i, ts[i], ts[i - 1]);
 			return 0;
 		}
 	}
@@ -4582,23 +4719,19 @@ static int check_response_args(Environment *e, const char *name, Value *argv){
 Value native_impulse(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
 	if(!check_response_args(e, "impulse", argv)) return make_nan();
 
-	Array ts  = argv[1].value.array;
-	double *y = impulse_response(a, e, argv[0].value.tf, ts.nums, ts.size);
+	Tensor ts = argv[1].value.tensor;
+	double *y = impulse_response(a, e, argv[0].value.tf, ts.data.re, ts.count);
 	if(!y) return make_nan();
-
-	Array out = { .size = ts.size, .nums = y };
-	return make_array(out);
+	return make_real_vector(y, ts.count);
 }
 
 Value native_step(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
 	if(!check_response_args(e, "step", argv)) return make_nan();
 
-	Array ts  = argv[1].value.array;
-	double *y = step_response(a, e, argv[0].value.tf, ts.nums, ts.size);
+	Tensor ts = argv[1].value.tensor;
+	double *y = step_response(a, e, argv[0].value.tf, ts.data.re, ts.count);
 	if(!y) return make_nan();
-
-	Array out = { .size = ts.size, .nums = y };
-	return make_array(out);
+	return make_real_vector(y, ts.count);
 }
 
 Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
@@ -4633,6 +4766,7 @@ typedef struct {
         N(mean,     1)          \
         N(eye,      1)          \
         N(zeros,    1)          \
+        N(ones,     1)          \
         N(plot,     2)          \
         N(poly,     1)          \
         N(polymod,  2)          \
@@ -4955,17 +5089,6 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
         printf("%s\n", value->value.str);
 				break;
 			}
-		case VALUE_ARRAY:
-			{
-        char buf[32];
-				printf("[");
-				for(size_t i = 0; i < value->value.array.size; i++){
-          format_number(buf, sizeof(buf), value->value.array.nums[i], DISPLAY_SIG);
-          printf("%s%s", buf, i + 1 < value->value.array.size ? ", " : "");
-				}
-				printf("]\n");
-				break;
-			}
 		case VALUE_TENSOR:
 			{
         write_tensor(stdout, &value->value.tensor);
@@ -5202,7 +5325,7 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 
 	if(
 			!(
-					var->value->valueType == VALUE_ARRAY ||
+					var->value->valueType == VALUE_TENSOR ||
 					var->value->valueType == VALUE_TUPLE 
 			)
 		)
@@ -5211,13 +5334,20 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 		return make_nan();
 	}
 
-	if(var->value->valueType == VALUE_ARRAY){
-		int size = (int)var->value->value.array.size;
-		if(idx >= size){
+	if(var->value->valueType == VALUE_TENSOR){
+		Tensor *t = &var->value->value.tensor;
+		if(t->ndim != 1){
+			runtime_error(e, "Only 1-D tensors can be indexed for now: %s", name);
+			return make_nan();
+		}
+		int size = (int)t->count;
+		if(idx >= size || size == 0){
 			runtime_error(e, "Index out of bounds: %s", name);
 			return make_nan();
 		}
-		return make_num(var->value->value.array.nums[modulo(idx, size)]);
+		size_t off = (size_t)modulo(idx, size) * t->strides[0];
+		if(t->dtype == DTYPE_COMPLEX) return make_complex(t->data.cx[off]);
+		return make_num(t->data.re[off]);
 	}
 
 	if(var->value->valueType == VALUE_TUPLE){
@@ -5236,6 +5366,14 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 Value eval_array(Arena *ta, Environment *e, char *script_path, AST *array, int *silent){
 	size_t num_rows = 0;
 	for(AST *row = array->as.array.first; row != NULL; row = row->next) num_rows++;
+
+	if(num_rows == 0){
+		// Empty literal []: a 1-D tensor with no elements
+		size_t sizes[MAX_DIMS] = {0};
+		Tensor t;
+		if(tensor_init(ta, &t, 1, sizes, DTYPE_REAL) != 0) return make_nan();
+		return make_tensor(t);
+	}
 
 	bool dtype_set = false;
 	DType dtype    = DTYPE_REAL;
@@ -5534,16 +5672,19 @@ ExecStatus eval_stmt(
   if(stmt->statement_type == STATEMENT_FOR){
 
     Value iterable = eval_expr(ta, e, script_path, stmt->as.for_stmt.expr, &silent);
-    if(iterable.valueType != VALUE_ARRAY){
-      runtime_error(e, "for: expected an array");
+    if(iterable.valueType != VALUE_TENSOR || iterable.value.tensor.ndim != 1){
+      runtime_error(e, "for: expected a 1-D array");
       return EXEC_ERROR;
     } 
+    Tensor *it = &iterable.value.tensor;
 
     char *id = stmt->as.for_stmt.id->as.literal.value.id;
-    for(size_t i = 0; i < iterable.value.array.size; i++){
+    for(size_t i = 0; i < it->count; i++){
       size_t scratch = arena_save(ta);   // iterable lives below this mark, so it survives
 
-      Value item = make_num(iterable.value.array.nums[i]);
+      size_t off = i * it->strides[0];
+      Value item = it->dtype == DTYPE_COMPLEX ? make_complex(it->data.cx[off])
+                                              : make_num(it->data.re[off]);
       env_set_variable(e, id, &item);
 
       Value body_result;
