@@ -482,6 +482,19 @@ int tensor_init(Arena *a, Tensor *t, size_t ndim, size_t *sizes, DType dtype){
   return 0;
 }
 
+// Allocates out with the same sizes AND strides of src, but a fresh
+// data buffer.
+int tensor_init_like(Arena *a, Tensor *out, Tensor *src, DType dtype){
+	size_t elsize = dtype == DTYPE_REAL ? sizeof(double) : sizeof(double complex);
+	void *buf     = arena_alloc(a, src->count * elsize);
+	if(buf == NULL) return 1;
+	*out          = *src;
+	out->dtype    = dtype;
+	if(dtype ==  DTYPE_REAL) out->data.re = buf;
+	else                     out->data.cx = buf;
+	return 0;
+}
+
 double complex tensor_get_cx(Tensor *t, size_t offset){
   return t->dtype == DTYPE_COMPLEX ? t->data.cx[offset] : t->data.re[offset];
 }
@@ -720,6 +733,7 @@ char *alloc_string(Arena *a, size_t len){
 	X(TOK_LCURLY)       \
 	X(TOK_RCURLY)       \
 	X(TOK_COMMA)        \
+	X(TOK_DOT)          \
 	X(TOK_EQ)           \
 	X(TOK_DBL_EQ)       \
 	X(TOK_LT)           \
@@ -1122,6 +1136,11 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 			tokens[(*num_tokens)++] = tok;
 			continue;
 		};
+		if((symbol_len = tokenizer_is_symbol(pos, "."))) {
+			Token tok = tokenizer_make_symbol(a, TOK_DOT, &tokenizer, symbol_len);
+			tokens[(*num_tokens)++] = tok;
+			continue;
+		};
 		if((symbol_len = tokenizer_is_symbol(pos, ";"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_SEMI, &tokenizer, symbol_len);
 			tokens[(*num_tokens)++] = tok;
@@ -1160,6 +1179,7 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 	      X(AST_TUPLE)          \
 	      X(AST_UNARY_OP)       \
 	      X(AST_BINARY_OP)      \
+	      X(AST_POSTFIX_OP)     \
 	      X(AST_FN_CALL)        \
 	      X(AST_ARGS_LIST)      \
 	      X(AST_NODE_TYPE_COUNT)
@@ -1177,7 +1197,7 @@ typedef enum {
 	      X(OP_MUL)            \
 	      X(OP_DIV)            \
 	      X(OP_POW)            \
-	      X(OP_MMUL)           \
+	      X(OP_TMUL)           \
 				X(OP_DBL_EQ)         \
 				X(OP_GEQ)            \
 				X(OP_LEQ)            \
@@ -1210,7 +1230,7 @@ OpType op_from_tok(TokenType type){
 	  case TOK_MUL:     return OP_MUL;
 	  case TOK_DIV:     return OP_DIV;
 	  case TOK_CARET:   return OP_POW;
-	  case TOK_AT:      return OP_MMUL;
+	  case TOK_AT:      return OP_TMUL;
 	  case TOK_DBL_EQ:  return OP_DBL_EQ;
 	  case TOK_GEQ:     return OP_GEQ;
 	  case TOK_LEQ:     return OP_LEQ;
@@ -1329,8 +1349,6 @@ struct AST {
 			AST    *first;
 		} tuple;
 
-
-
 		struct   {
 			char   *fn_name;
 			size_t num_arguments;
@@ -1352,6 +1370,11 @@ struct AST {
 			OpType op;
 			AST    *arg;
 		} unop;
+
+		struct {
+			AST  *target;
+			char *op;
+		} postfix_op;
 	} as;
 };
 
@@ -1524,6 +1547,18 @@ AST *ast_make_binop(Arena *pa, OpType op){
 	return binop;
 }
 
+AST *ast_make_postfix(Arena *pa,  char *op){
+	AST *posfix_op                   = ast_alloc(pa, AST_POSTFIX_OP);
+	posfix_op->statement_type        = STATEMENT_EXPR;
+	posfix_op->as.postfix_op.target  = NULL;
+	size_t len                       = strlen(op);
+	posfix_op->as.postfix_op.op      = arena_alloc(pa, len + 1);
+	strcpy(posfix_op->as.postfix_op.op, op);
+	posfix_op->as.postfix_op.op[len] = '\0';
+	return posfix_op;
+}
+
+
 AST *ast_make_statement(Arena *pa, StatementType type){
 	AST *stmt            = ast_alloc(pa, AST_STATEMENT);
 	stmt->statement_type = type;
@@ -1542,6 +1577,7 @@ AST *parse_expression(Arena *pa, AST *parent, Parser *parser); // Forward declar
 AST *parse_term(Arena *pa, AST *parent, Parser *parser);
 AST *parse_unary(Arena *pa, AST *parent, Parser *parser);
 AST *parse_expo(Arena *pa, AST *parent, Parser *parser);
+AST *parse_postfix(Arena *pa, AST *parent, Parser *parser);
 AST *parse_primary(Arena *pa, AST *parent, Parser *parser);
 AST *parse_array(Arena *pa, AST *parent, Parser *parser);
 AST *parse_statement_list(Arena *pa, AST *program_node, Parser *parser);
@@ -1838,19 +1874,35 @@ AST *parse_unary(Arena *pa, AST *parent, Parser *parser){
 }
 
 AST *parse_expo(Arena *pa, AST *parent, Parser *parser){
-	AST *primary = parse_primary(pa, parent, parser);
-	if(!primary) return NULL;
+	AST *postfix = parse_postfix(pa, parent, parser);
+	if(!postfix) return NULL;
 	if(!parser_done(parser) && parser_peek(parser)->type == TOK_CARET){
 		Token *op_tok         = parser_eat(parser_peek(parser)->type, parser);
 		if(!op_tok) return NULL;
 		AST   *binop          = ast_make_binop(pa, op_from_tok(op_tok->type));
 		AST   *right          = parse_unary(pa, parent, parser);
 		if(!right)  return NULL;
-		binop->as.binop.left  = primary;
+		binop->as.binop.left  = postfix;
 		binop->as.binop.right = right;
 		return binop;
 	}
-	return primary;
+	return postfix;
+}
+
+AST *parse_postfix_tail(Arena *pa, AST *parent, Parser *parser, AST *target){
+	if(parser_done(parser) || parser_peek(parser)->type != TOK_DOT) return target;
+	parser_eat(TOK_DOT, parser);
+	AST *id = parse_id(pa, parent, parser);
+	if(id == NULL) return NULL;
+	AST *postfix = ast_make_postfix(pa, id->as.literal.value.id);
+	postfix->as.postfix_op.target = target;
+	return parse_postfix_tail(pa, parent, parser, postfix);
+}
+
+AST *parse_postfix(Arena *pa, AST *parent, Parser *parser){
+	AST *primary = parse_primary(pa, parent, parser);
+	if(!primary) return NULL;
+	return parse_postfix_tail(pa, parent, parser, primary);
 }
 
 AST *parse_additive(Arena *pa, AST *parent, Parser *parser){
@@ -2291,6 +2343,15 @@ void ast_print(AST *ast, int level){
 				ast_print(ast->as.binop.right, level + 2);
 				break;
 			}
+		case AST_POSTFIX_OP:
+			{
+				char opBuf[128];
+				printf("%sPOSTFIX[%s]:\n", buf, ast->as.postfix_op.op);
+				fill_indent(level + 1, buf);
+				printf("%sTARGET:\n", buf);
+				ast_print(ast->as.postfix_op.target, level + 2);
+				break;
+			}
 	}
 }
 
@@ -2506,22 +2567,20 @@ Value value_clone(Arena *a, Value *v);
 
 
 Tensor clone_tensor(Arena *a, Tensor *old){
-  Tensor tens;
-	tens.ndim  = old->ndim;
-	tens.dtype = old->dtype;
-	tens.count = old->count;
-	for(size_t i = 0; i < old->ndim; i++) {
-		tens.sizes[i]   = old->sizes[i];
-		tens.strides[i] = old->strides[i];
+  Tensor t = {0};
+	if(tensor_init_like(a, &t, old, old->dtype) != 0){
+		t.data.re = NULL;
+		t.data.cx = NULL;
+		t.count   = 0;
+		t.ndim    = 0;
+		return t;
 	}
-	if(old->dtype == DTYPE_REAL) {
-		tens.data.re = arena_alloc(a, old->count * sizeof(double));
-		memcpy(tens.data.re, old->data.re, old->count * sizeof(double));
+	if(old->dtype == DTYPE_REAL){
+		memcpy(t.data.re, old->data.re, old->count * sizeof(double));
 	}else{
-		tens.data.cx = arena_alloc(a, old->count * sizeof(double complex));
-		memcpy(tens.data.cx, old->data.cx, old->count * sizeof(double complex));
+		memcpy(t.data.cx, old->data.cx, old->count * sizeof(double complex));
 	}
-  return tens;
+  return t;
 }
 
 
@@ -3201,7 +3260,7 @@ double *impulse_response(Arena *a, Environment *e, TransferFunction tf, const do
 //============================
 
 typedef Value (*NativeValueDispatch)(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent);
-typedef Value (*UnaryValueDispatch)(Arena *a, Value *caller, Value *value);
+typedef Value (*UnaryValueDispatch)(Arena *a, Environment *e, Value *caller, Value *value);
 
 //============================
 //
@@ -3281,7 +3340,6 @@ static const UnaryFn unop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT] = {
 
 
 typedef Value (*BinaryFn)(Arena *a, Environment *e, Value *left, Value *right);
-
 
 
 Value op_with_nan(Arena *a, Environment *e, Value *left, Value *right){
@@ -3716,6 +3774,36 @@ Value eq_str_str(Arena *a, Environment *e, Value *left, Value *right){
 		return make_num(strcmp(left->value.str, right->value.str) == 0);
 }
 
+//------------ Tensors --------------
+
+Value mul_tensor_tensor(Arena *a, Environment *e, Value *left, Value *right){
+	Tensor x = left->value.tensor;
+	Tensor y = right->value.tensor;
+
+	if(x.sizes[x.ndim - 1] != y.sizes[0]){
+		runtime_error(e, "@: inner dimensions don't match (%zu and %zu)",
+				x.sizes[x.ndim - 1], y.sizes[0]);
+		return make_nan();
+	}
+
+	// vector @ vector contracts to 0 dimensions: return a scalar
+	if(x.ndim == 1 && y.ndim == 1){
+		double complex dot;
+		if(tensor_dot(a, &x, &y, &dot) != 0){
+			runtime_error(e, "@: could not compute dot product");
+			return make_nan();
+		}
+		if(x.dtype == DTYPE_REAL && y.dtype == DTYPE_REAL) return make_num(creal(dot));
+		return make_complex(dot);
+	}
+
+	Tensor out;
+	if(tensor_contract(a, &x, &y, &out) != 0){
+		runtime_error(e, "@: result would have more than %d dimensions, or not enough memory", MAX_DIMS);
+		return make_nan();
+	}
+	return make_tensor(out);
+}
 
 //------------ Broadcasting --------------
 
@@ -4009,7 +4097,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
 			[VALUE_COMPLEX]           = op_with_nan,
-			[VALUE_TENSOR]             = op_with_nan,
+			[VALUE_TENSOR]            = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
@@ -4043,14 +4131,14 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		},
 		[VALUE_POLYNOMIAL] = {
 			[VALUE_NUMBER]            = ordered_div_poly_num,
-			[VALUE_TENSOR]             = op_with_nan,
+			[VALUE_TENSOR]            = op_with_nan,
       [VALUE_POLYNOMIAL]        = div_poly_poly,
 			[VALUE_TRANSFER_FUNCTION] = div_poly_tf,
 			[VALUE_NAN]               = op_with_nan,
     },
 		[VALUE_TRANSFER_FUNCTION] = {
 			[VALUE_NUMBER]            = div_tf_num,
-			[VALUE_TENSOR]             = op_with_nan,
+			[VALUE_TENSOR]            = op_with_nan,
       [VALUE_POLYNOMIAL]        = div_tf_poly,
 			[VALUE_TRANSFER_FUNCTION] = div_tf_tf,
 			[VALUE_NAN]               = op_with_nan,
@@ -4058,13 +4146,17 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
 			[VALUE_COMPLEX]           = op_with_nan,
-			[VALUE_TENSOR]             = op_with_nan,
+			[VALUE_TENSOR]            = op_with_nan,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = op_with_nan,
 		} 
 	},
-
+	[OP_TMUL] = {
+		[VALUE_TENSOR] = {
+			[VALUE_TENSOR] = mul_tensor_tensor,
+		}
+	},
 	[OP_POW] = {
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]  = pow_scalar_scalar,
@@ -4791,16 +4883,82 @@ static const NativeFn natives[] = { NATIVE_LIST };
 #undef R
 
 
+//==============================
+//
+//   Postfix operations
+//
+//==============================
+
+typedef Value (*PostfixFn)(Arena *a, Environment *e, Value *target);
+typedef struct {
+	PostfixFn  fn;
+	const char *name;
+} PostfixFnInfo;
+
+Value postfix_shape(Arena *a, Environment *e, Value *target){
+	if(target->valueType != VALUE_TENSOR){
+		runtime_error(e, "shape: expected a tensor");
+		return make_nan();
+	}
+	size_t ndim   = target->value.tensor.ndim;
+	double *sizes = arena_alloc(a, ndim * sizeof(double));
+	for(size_t i  = 0; i < ndim; i++) sizes[i] = target->value.tensor.sizes[i];
+	Value shape   = make_real_vector(sizes, ndim);
+	return shape;
+}
+
+Value postfix_T(Arena *a, Environment *e, Value *target){
+	if(target->valueType != VALUE_TENSOR){
+		runtime_error(e, "T: expected a tensor");
+		return make_nan();
+	}
+	size_t ndim   = target->value.tensor.ndim;
+	if(ndim == 1){
+		Tensor col     = target->value.tensor;
+		col.ndim       = 2;
+		col.sizes[1]   = 1;
+		col.strides[1] = 0;
+		return make_tensor(col);
+	}
+	if(ndim != 2){
+		runtime_error(e, "T: expected 2 dimensions");
+		return make_nan();
+	}
+	Tensor new_t = clone_tensor(a, &target->value.tensor);
+	tensor_swap_axes(&new_t, 0, 1);
+	return make_tensor(new_t);
+}
+
+
+
+#define POSTFIX_FN_LIST \
+	N(shape)              \
+	N(T)
+
+#define N(x) { postfix_##x, #x },
+const PostfixFnInfo postfix_fn_list[] = {
+		POSTFIX_FN_LIST
+};
+#undef N
+
+
+//==============================
+//
+//   Expression  evaluation
+//
+//==============================
+
+
 Value resolve_variable(Arena *a, Environment *e, Value *literal){
-    if(literal->valueType == VALUE_STRING){
-      return *literal;
-    }
-		Variable *var = env_find_variable(e, literal->value.str);
-		if(!var) {
-			runtime_error(e, "Undefined variable %s", literal->value.str);
-			return make_nan();
-		}
-		return *var->value;
+	if(literal->valueType == VALUE_STRING){
+		return *literal;
+	}
+	Variable *var = env_find_variable(e, literal->value.str);
+	if(!var) {
+		runtime_error(e, "Undefined variable %s", literal->value.str);
+		return make_nan();
+	}
+	return *var->value;
 }
 
 // Evaluation
@@ -5228,19 +5386,22 @@ int import_script(Arena *ta, Environment *e, char* importer, char *path){
 }
 
 
-Value unary_callable_poly_num(Arena *a, Value *caller, Value *arg){
+Value unary_callable_poly_num(Arena *a, Environment *e, Value *caller, Value *arg){
   return make_num(poly_horner(caller->value.poly, arg->value.number));
 }
-Value unary_callable_poly_complex(Arena *a, Value *caller, Value *arg){
+Value unary_callable_poly_complex(Arena *a, Environment *e, Value *caller, Value *arg){
 	double complex x = as_complex(arg);
   return make_complex(poly_horner_cx(caller->value.poly, x));
 }
-Value unary_callable_poly_tensor(Arena *a, Value *caller, Value *arg){
+Value unary_callable_poly_tensor(Arena *a, Environment *e, Value *caller, Value *arg){
 	Tensor t    = arg->value.tensor;
 	DType dtype = t.dtype;
 	
 	Tensor tout;
-	tensor_init(a, &tout, t.ndim, t.sizes, dtype);
+	if(tensor_init_like(a, &tout, &t, t.dtype) != 0){
+		runtime_error(e, "Failed to initialize tensor");
+		return make_nan();
+	}
 
 	for(size_t i = 0; i < tout.count; i++){
 		if(dtype == DTYPE_REAL){
@@ -5253,25 +5414,28 @@ Value unary_callable_poly_tensor(Arena *a, Value *caller, Value *arg){
 	return make_tensor(tout);
 }
 
-Value unary_callable_tf_num(Arena *a, Value *caller, Value *arg){
+Value unary_callable_tf_num(Arena *a, Environment *e, Value *caller, Value *arg){
   double num_val = poly_horner(caller->value.tf.num, arg->value.number);
   double den_val = poly_horner(caller->value.tf.den, arg->value.number);
   return make_num(num_val/den_val);
 }
 
-Value unary_callable_tf_complex(Arena *a, Value *caller, Value *arg){
+Value unary_callable_tf_complex(Arena *a, Environment *e, Value *caller, Value *arg){
 	double complex x = as_complex(arg);
   double complex num_val = poly_horner_cx(caller->value.tf.num, x);
   double complex den_val = poly_horner_cx(caller->value.tf.den, x);
   return make_complex(num_val/den_val);
 }
 
-Value unary_callable_tf_tensor(Arena *a, Value *caller, Value *arg){
+Value unary_callable_tf_tensor(Arena *a, Environment *e, Value *caller, Value *arg){
 	Tensor t    = arg->value.tensor;
 	DType dtype = t.dtype;
 	
 	Tensor tout;
-	tensor_init(a, &tout, t.ndim, t.sizes, dtype);
+	if(tensor_init_like(a, &tout, &t, t.dtype) != 0){
+		runtime_error(e, "Failed to initialize tensor");
+		return  make_nan();
+	}
 
 	for(size_t i = 0; i < tout.count; i++){
 		if(dtype == DTYPE_REAL){
@@ -5320,6 +5484,24 @@ void initialize_native_fns(Environment *e){
   }
 }
 
+Value eval_postfix(Arena *ta, Environment *e, char *script_path, AST *postfix, int *silent){
+	AST *target = postfix->as.postfix_op.target;
+	char *name  = postfix->as.postfix_op.op;
+
+	Value val = eval_expr(ta, e, script_path, target, silent);
+	if(val.valueType == VALUE_NAN) return val;
+
+	for(size_t i = 0; i < LEN(postfix_fn_list); i++){
+		if(strcmp(name, postfix_fn_list[i].name) == 0){
+			Value out = postfix_fn_list[i].fn(ta, e, &val);
+			return out;
+		}
+	}
+
+	runtime_error(e, "Undefined postfix operator %s", name);
+	return make_nan();
+}
+
 Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int *silent){
 
   char *name  = fn->as.fn_call.fn_name;
@@ -5356,7 +5538,7 @@ Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int 
         return make_nan();
       }
 
-      return dispatch(ta, var->value, &val);
+      return dispatch(ta, e, var->value, &val);
        
     }
 
@@ -5587,6 +5769,11 @@ Value eval_expr(Arena *ta, Environment *e, char *script_path, AST *expr, int *si
 		case AST_FN_CALL:
 			{
 				value = eval_func_call(ta, e, script_path, expr, silent);
+				break;
+			}
+		case AST_POSTFIX_OP:
+			{
+				value = eval_postfix(ta, e, script_path, expr, silent);
 				break;
 			}
 		case AST_INDEXING:

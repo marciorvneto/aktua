@@ -6,10 +6,6 @@ fn subtraction(x, y) {
   x - y
 }
 
-fn log10(x) {
-	log(x)/log(10)
-}
-
 fn fourthpower(x) {
     sqr(sqr(x))
 }

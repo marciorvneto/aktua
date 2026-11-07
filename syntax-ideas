@@ -60,8 +60,13 @@ UNARY           = "+" UNARY
                 | "-" UNARY
                 | EXPO
 
-EXPO            = PRIMARY ^ UNARY
-                | PRIMARY
+EXPO            = POSTFIX ^ UNARY
+                | POSTFIX
+
+POSTFIX         = PRIMARY POSTFIX_TAIL
+
+POSTFIX_TAIL    = "." id POSTFIX_TAIL
+                | eps
 
 PRIMARY         = number
                 | id "(" ARGS_LIST ")"
