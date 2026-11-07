@@ -97,6 +97,19 @@ $ ./build/aktua examples/leaky_tank.akt
 
 Aktua is under active development. Expect bugs, missing features, and breaking changes.
 
+## Citing
+
+If you use Aktua in your work, please cite it. GitHub's "Cite this repository" button, in the sidebar, gives the citation in APA and BibTeX formats, generated from [`CITATION.cff`](CITATION.cff). In BibTeX:
+
+```bibtex
+@software{viannaneto_aktua_2026,
+  author = {Vianna Neto, M{\'a}rcio Ribeiro},
+  title  = {Aktua: a small programming language for control systems},
+  year   = {2026},
+  url    = {https://github.com/marciorvneto/aktua}
+}
+```
+
 ## License
 
-Aktua is licensed under the [MIT License](LICENSE).
+Aktua is licensed under the [MIT License](LICENSE.md).
