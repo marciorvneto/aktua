@@ -2831,14 +2831,14 @@ int poly_divmod(Arena *arena, Polynomial a, Polynomial b, Polynomial *q_out, Pol
 	return 0;
 }
 
-double poly_horner(Polynomial p, double x){
+double complex  poly_horner_cx(Polynomial p, double complex x){
 
   // P(x) = a0 + a1*x + a2*x^2 + ... + an*x^n
   // P(x) = a0 + x * (a1 + x * (a2 + x * (a3) ))
 
   if(p.deg == 0) return p.coeffs[0];
 
-  double val = p.coeffs[p.deg];
+  double complex val = p.coeffs[p.deg];
   for (int i = (int)p.deg - 1; i >= 0; i--) {
     val = val * x + p.coeffs[i];
   }
@@ -2846,6 +2846,11 @@ double poly_horner(Polynomial p, double x){
   return val;
 
 }
+
+double poly_horner(Polynomial p, double x){
+	return creal(poly_horner_cx(p, x));
+}
+
 
 void poly_horner_with_derivative(
     Polynomial p,
@@ -4264,36 +4269,38 @@ Value lift_unary(Arena *a, Environment *e, const char *name, Value v, RealFn rf,
 //------------ Math --------------
 
 // These functions are here simply for compatibility purposes
-double real_identity(double x)                  { return x; }
-double real_zero(double x)                      { return 0.0; }
-double real_arg(double x)                       { return atan2(0.0, x); }
-double real_sqr(double x)                       { return x * x; }
-double complex complex_sqr(double complex x)    { return x * x; }
+double real_identity(double x)                 { return x; }
+double real_zero(double x)                     { return 0.0; }
+double real_arg(double x)                      { return atan2(0.0, x); }
+double real_sqr(double x)                      { return x * x; }
+double complex complex_sqr(double complex x)   { return x * x; }
+double complex complex_log10(double complex x) { return clog(x) / clog(10); }
 
-#define UNARY_NATIVE_MATHS_LIST \
-      M(abs,   fabs,          NULL,        cabs)             \
-      M(real,  real_identity, NULL,        creal)            \
-      M(imag,  real_zero,     NULL,        cimag)            \
-      M(arg,   real_arg,      NULL,        carg)             \
-      M(log,   log,           clog,        NULL)             \
-      M(exp,   exp,           cexp,        NULL)             \
-      M(sin,   sin,           csin,        NULL)             \
-      M(cos,   cos,           ccos,        NULL)             \
-      M(tan,   tan,           ctan,        NULL)             \
-      M(asin,  asin,          casin,       NULL)             \
-      M(acos,  acos,          cacos,       NULL)             \
-      M(atan,  atan,          catan,       NULL)             \
-      M(sinh,  sinh,          csinh,       NULL)             \
-      M(cosh,  cosh,          ccosh,       NULL)             \
-      M(tanh,  tanh,          ctanh,       NULL)             \
-      M(asinh, asinh,         casinh,      NULL)             \
-      M(acosh, acosh,         cacosh,      NULL)             \
-      M(atanh, atanh,         catanh,      NULL)             \
-      M(floor, floor,         NULL,        NULL)             \
-      M(ceil,  ceil,          NULL,        NULL)             \
-      M(round, round,         NULL,        NULL)             \
-      M(sqr,   real_sqr,      complex_sqr, NULL)             \
-      M(sqrt,  sqrt,          csqrt,       NULL)
+#define UNARY_NATIVE_MATHS_LIST                     \
+      M(abs,   fabs,          NULL,          cabs)  \
+      M(real,  real_identity, NULL,          creal) \
+      M(imag,  real_zero,     NULL,          cimag) \
+      M(arg,   real_arg,      NULL,          carg)  \
+      M(log,   log,           clog,          NULL)  \
+      M(log10, log10,         complex_log10, NULL)  \
+      M(exp,   exp,           cexp,          NULL)  \
+      M(sin,   sin,           csin,          NULL)  \
+      M(cos,   cos,           ccos,          NULL)  \
+      M(tan,   tan,           ctan,          NULL)  \
+      M(asin,  asin,          casin,         NULL)  \
+      M(acos,  acos,          cacos,         NULL)  \
+      M(atan,  atan,          catan,         NULL)  \
+      M(sinh,  sinh,          csinh,         NULL)  \
+      M(cosh,  cosh,          ccosh,         NULL)  \
+      M(tanh,  tanh,          ctanh,         NULL)  \
+      M(asinh, asinh,         casinh,        NULL)  \
+      M(acosh, acosh,         cacosh,        NULL)  \
+      M(atanh, atanh,         catanh,        NULL)  \
+      M(floor, floor,         NULL,          NULL)  \
+      M(ceil,  ceil,          NULL,          NULL)  \
+      M(round, round,         NULL,          NULL)  \
+      M(sqr,   real_sqr,      complex_sqr,   NULL)  \
+      M(sqrt,  sqrt,          csqrt,         NULL)
 
 #define M(name, rf, cf, rcf) \
   Value native_##name(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){  \
@@ -5224,20 +5231,75 @@ int import_script(Arena *ta, Environment *e, char* importer, char *path){
 Value unary_callable_poly_num(Arena *a, Value *caller, Value *arg){
   return make_num(poly_horner(caller->value.poly, arg->value.number));
 }
+Value unary_callable_poly_complex(Arena *a, Value *caller, Value *arg){
+	double complex x = as_complex(arg);
+  return make_complex(poly_horner_cx(caller->value.poly, x));
+}
+Value unary_callable_poly_tensor(Arena *a, Value *caller, Value *arg){
+	Tensor t    = arg->value.tensor;
+	DType dtype = t.dtype;
+	
+	Tensor tout;
+	tensor_init(a, &tout, t.ndim, t.sizes, dtype);
+
+	for(size_t i = 0; i < tout.count; i++){
+		if(dtype == DTYPE_REAL){
+			tout.data.re[i] = poly_horner(caller->value.poly, t.data.re[i]);
+		}else{
+			tout.data.cx[i] = poly_horner_cx(caller->value.poly, t.data.cx[i]);
+		}
+	}
+
+	return make_tensor(tout);
+}
 
 Value unary_callable_tf_num(Arena *a, Value *caller, Value *arg){
   double num_val = poly_horner(caller->value.tf.num, arg->value.number);
   double den_val = poly_horner(caller->value.tf.den, arg->value.number);
-  if(ISZERO(den_val)) return make_nan();
   return make_num(num_val/den_val);
+}
+
+Value unary_callable_tf_complex(Arena *a, Value *caller, Value *arg){
+	double complex x = as_complex(arg);
+  double complex num_val = poly_horner_cx(caller->value.tf.num, x);
+  double complex den_val = poly_horner_cx(caller->value.tf.den, x);
+  return make_complex(num_val/den_val);
+}
+
+Value unary_callable_tf_tensor(Arena *a, Value *caller, Value *arg){
+	Tensor t    = arg->value.tensor;
+	DType dtype = t.dtype;
+	
+	Tensor tout;
+	tensor_init(a, &tout, t.ndim, t.sizes, dtype);
+
+	for(size_t i = 0; i < tout.count; i++){
+		if(dtype == DTYPE_REAL){
+			double x           = t.data.re[i];
+			double num         = poly_horner(caller->value.tf.num, x);
+			double den         = poly_horner(caller->value.tf.den, x);
+			tout.data.re[i]    = num / den;
+		} else {
+			double complex x   = t.data.cx[i];
+			double complex num = poly_horner_cx(caller->value.tf.num, x);
+			double complex den = poly_horner_cx(caller->value.tf.den, x);
+			tout.data.cx[i]    = num / den;
+		}
+	}
+
+	return make_tensor(tout);
 }
 
 UnaryValueDispatch callable_values_dispatch[VALUE_TYPE_COUNT][VALUE_TYPE_COUNT] = {
   [VALUE_POLYNOMIAL] = {
-    [VALUE_NUMBER] = unary_callable_poly_num,
+    [VALUE_NUMBER]  = unary_callable_poly_num,
+    [VALUE_COMPLEX] = unary_callable_poly_complex,
+    [VALUE_TENSOR]  = unary_callable_poly_tensor,
   },
   [VALUE_TRANSFER_FUNCTION] = {
-    [VALUE_NUMBER] = unary_callable_tf_num,
+    [VALUE_NUMBER]  = unary_callable_tf_num,
+    [VALUE_COMPLEX] = unary_callable_tf_complex,
+    [VALUE_TENSOR]  = unary_callable_tf_tensor,
   },
 };
 

@@ -18,7 +18,7 @@ vim.cmd([[
   syntax match aktuaFunction /\v<[A-Za-z_][A-Za-z0-9_]*\ze\s*\(/
 
   " Native functions implemented in C (native_fn_names in main.c)
-  syntax keyword aktuaBuiltin assert ls print import complex abs real imag arg log exp sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh floor ceil round sqr sqrt max min sum prod range linspace len push mean plot poly polymod polydiv polygcd poles impulse step
+  syntax keyword aktuaBuiltin assert ls print import complex abs real imag arg log log10 exp sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh floor ceil round sqr sqrt max min sum prod range linspace len push mean eye zeros ones plot poly polymod polydiv polygcd poles impulse step
 
   syntax region aktuaString start=/"/ skip=/\\./ end=/"/
 
