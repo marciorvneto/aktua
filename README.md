@@ -10,7 +10,7 @@ You can use it interactively through a REPL or execute scripts from the command 
 
 Level control of a leaky tank with a PI controller ([`examples/leaky_tank.tc`](examples/leaky_tank.tc)):
 
-```text
+```rust
 // Level control of a leaky tank with a PI controller.
 // See tank_level_control.tc for where these numbers come from.
 // By: Marcio R. V. Neto, 2026
