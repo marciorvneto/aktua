@@ -11,7 +11,7 @@ authors:
   - given-names: "Márcio R. V."
     family-names: "Neto"
     # orcid: "https://orcid.org/0000-0000-0000-0000"
-repository-code: "https://github.com/marciorvneto/tiny-ctrl"
+repository-code: "https://github.com/marciorvneto/aktua"
 url: "https://aktua.dev"
 license: MIT
 keywords:
