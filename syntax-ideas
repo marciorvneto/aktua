@@ -1,27 +1,27 @@
 PROGRAM         = STATEMENTS_LIST
-			          | eof
+                | eof
 
 STATEMENTS_LIST = STATEMENT STATEMENTS_LIST
-								| eps
+                | eps
 
 STATEMENT       = ASSIGNMENT   STMT_END
-				        | RETURN_STMT  STMT_END
-				        | FOR_STMT     STMT_END
-				        | FUNCTION_DEF STMT_END
-				        | IF_STATEMENT STMT_END
-				        | EXPRESSION   STMT_END
+                | RETURN_STMT  STMT_END
+                | FOR_STMT     STMT_END
+                | FUNCTION_DEF STMT_END
+                | IF_STATEMENT STMT_END
+                | EXPRESSION   STMT_END
 
 FOR_STMT        = "for" id "in" EXPRESSION BLOCK
 
 RETURN_STMT     = "return" EXPRESSION
-				        | "return"
+                | "return"
 
 STMT_END        = "\n"
                 | eof
                 | &"}"
 
 ASSIGNMENT      = "let" id "=" EXPRESSION
-				        | id "=" EXPRESSION
+                | id "=" EXPRESSION
 
 IF_STATEMENT    = "if" EXPRESSION BLOCK ELIF_LIST ELSE_OPT
 
@@ -34,8 +34,8 @@ ELSE_OPT        = "else" BLOCK
 FUNCTION_DEF    = "fn" id "(" PARAMS ")" BLOCK
 
 PARAMS          = id
-				        | PARAMS, id
-				        | eps
+                | PARAMS, id
+                | eps
 
 BLOCK           = "{" STATEMENTS_LIST "}"
 
@@ -43,40 +43,51 @@ EXPRESSION      = ADDITIVE COMPOP ADDITIVE
                 | ADDITIVE
 
 COMPOP          = ==
-  					    | <=
-  					    | >=
-  					    | > 
-  					    | < 
+                | <=
+                | >=
+                | > 
+                | < 
 
 ADDITIVE        = TERM + ADDITIVE
-  					    | TERM + ADDITIVE
-  					    | TERM
+                | TERM + ADDITIVE
+                | TERM
 
 TERM            = UNARY * TERM
-  					    | UNARY / TERM
-  					    | UNARY
+                | UNARY / TERM
+                | UNARY
 
 UNARY           = "+" UNARY
-  					    | "-" UNARY
-  					    | EXPO
+                | "-" UNARY
+                | EXPO
 
 EXPO            = PRIMARY ^ UNARY
-  					    | PRIMARY
+                | PRIMARY
 
 PRIMARY         = number
-  					    | id "(" ARGS_LIST ")"
-  					    | INDEXING
-  					    | id
-  					    | '"' + char* + '"'
-  					    | "[" ARGS_LIST "]"
-  					    | TUPLE
-  					    | "(" EXPRESSION ")"
+                | id "(" ARGS_LIST ")"
+                | INDEXING
+                | id
+                | '"' + char* + '"'
+                | ARRAY
+                | TUPLE
+                | "(" EXPRESSION ")"
+
+ARRAY           = "[" "]"
+                | "[" ROW ARRAY_TAIL "]"
+
+ARRAY_TAIL      = ";" ROW ARRAY_TAIL
+                | eps
+
+ROW             = EXPRESSION ROW_TAIL
+
+ROW_TAIL        = "," EXPRESSION ROW_TAIL
+                | eps
 
 INDEXING        = id "[" EXPRESSION "]"
 
 ARGS_LIST       = EXPRESSION
-				        | ARGS_LIST, EXPRESSION
-				        | eps
+                | ARGS_LIST, EXPRESSION
+                | eps
 
 TUPLE           = "(" EXPRESSION "," TUPLE_TAIL ")"
 

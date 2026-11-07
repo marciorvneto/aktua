@@ -712,31 +712,32 @@ char *alloc_string(Arena *a, size_t len){
 // that carry value information
 
 #define TOK_TYPE_LIST \
-	V(TOK_KEYWORD) \
-	V(TOK_ID) \
-	V(TOK_NL) \
-	V(TOK_EOF) \
-	V(TOK_STRING) \
-	V(TOK_NUMBER) \
-	X(TOK_LPAREN) \
-	X(TOK_RPAREN) \
-	X(TOK_LBRACKET) \
-	X(TOK_RBRACKET) \
-	X(TOK_LCURLY) \
-	X(TOK_RCURLY) \
-	X(TOK_COMMA) \
-	X(TOK_EQ) \
-	X(TOK_DBL_EQ) \
-	X(TOK_LT) \
-	X(TOK_GT) \
-	X(TOK_LEQ) \
-	X(TOK_GEQ) \
-	V(TOK_PLUS) \
-	V(TOK_MINUS) \
-	V(TOK_MUL) \
-	V(TOK_DIV) \
-	V(TOK_CARET) \
-	V(TOK_AT) \
+	V(TOK_KEYWORD)      \
+	V(TOK_ID)           \
+	V(TOK_NL)           \
+	V(TOK_EOF)          \
+	V(TOK_STRING)       \
+	V(TOK_NUMBER)       \
+	X(TOK_LPAREN)       \
+	X(TOK_RPAREN)       \
+	X(TOK_LBRACKET)     \
+	X(TOK_RBRACKET)     \
+	X(TOK_LCURLY)       \
+	X(TOK_RCURLY)       \
+	X(TOK_COMMA)        \
+	X(TOK_EQ)           \
+	X(TOK_DBL_EQ)       \
+	X(TOK_LT)           \
+	X(TOK_GT)           \
+	X(TOK_LEQ)          \
+	X(TOK_GEQ)          \
+	V(TOK_PLUS)         \
+	V(TOK_MINUS)        \
+	V(TOK_MUL)          \
+	V(TOK_DIV)          \
+	V(TOK_CARET)        \
+	V(TOK_AT)           \
+	V(TOK_SEMI)         \
 	X(TOK_TYPE_COUNT)
 
 typedef enum {
@@ -942,20 +943,22 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 	tokenizer.size   = n;
 
 	*num_tokens      = 0;
-	// printf("Tokenizing: %s\n", line);
+	int depth        = 0;
 
 	while(tokenizer.offset < tokenizer.size){
 		const char *pos = tokenizer.source + tokenizer.offset;
 
-    if(pos[0] == '\n'){
-        Token token = {
-          .type = TOK_NL,
-          .value = "\\n",
-        };
-        tokens[(*num_tokens)++] = token;
-        tokenizer.offset++;
-        continue;
-    }
+		if(pos[0] == '\n'){
+			if(depth == 0){
+				Token token = {
+					.type = TOK_NL,
+					.value = "\\n",
+				};
+				tokens[(*num_tokens)++] = token;
+			}
+			tokenizer.offset++;
+			continue;
+		}
 
 		if(pos[0] == '/' && pos[1] == '/'){
       while(tokenizer.offset < tokenizer.size && tokenizer.source[tokenizer.offset] != '\n') {
@@ -1088,21 +1091,25 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 		if((symbol_len = tokenizer_is_symbol(pos, "("))) {
 			Token tok = tokenizer_make_symbol(a, TOK_LPAREN, &tokenizer, symbol_len);
 			tokens[(*num_tokens)++] = tok;
+			depth++;
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, ")"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_RPAREN, &tokenizer, symbol_len);
 			tokens[(*num_tokens)++] = tok;
+			depth--;
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "["))) {
 			Token tok = tokenizer_make_symbol(a, TOK_LBRACKET, &tokenizer, symbol_len);
 			tokens[(*num_tokens)++] = tok;
+			depth++;
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "]"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_RBRACKET, &tokenizer, symbol_len);
 			tokens[(*num_tokens)++] = tok;
+			depth--;
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "{"))) {
@@ -1117,6 +1124,11 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, ","))) {
 			Token tok = tokenizer_make_symbol(a, TOK_COMMA, &tokenizer, symbol_len);
+			tokens[(*num_tokens)++] = tok;
+			continue;
+		};
+		if((symbol_len = tokenizer_is_symbol(pos, ";"))) {
+			Token tok = tokenizer_make_symbol(a, TOK_SEMI, &tokenizer, symbol_len);
 			tokens[(*num_tokens)++] = tok;
 			continue;
 		};
@@ -1141,19 +1153,20 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 
 // X-Macros are convenient here :)
 
-#define AST_NODES_LIST           \
-	      X(AST_PROGRAM)           \
-	      X(AST_STATEMENT_LIST)    \
-	      X(AST_STATEMENT)         \
+#define AST_NODES_LIST        \
+	      X(AST_PROGRAM)        \
+	      X(AST_STATEMENT_LIST) \
+	      X(AST_STATEMENT)      \
 	      X(AST_LITERAL)        \
-	      X(AST_ID)        \
-	      X(AST_INDEXING)        \
-	      X(AST_ARRAY)        \
-	      X(AST_TUPLE)        \
-	      X(AST_UNARY_OP)        \
-	      X(AST_BINARY_OP)        \
+	      X(AST_ID)             \
+	      X(AST_INDEXING)       \
+	      X(AST_ARRAY)          \
+	      X(AST_ROW)            \
+	      X(AST_TUPLE)          \
+	      X(AST_UNARY_OP)       \
+	      X(AST_BINARY_OP)      \
 	      X(AST_FN_CALL)        \
-	      X(AST_ARGS_LIST)         \
+	      X(AST_ARGS_LIST)      \
 	      X(AST_NODE_TYPE_COUNT)
 				
 typedef enum {
@@ -1316,6 +1329,11 @@ struct AST {
 		struct   {
 			size_t size;
 			AST    *first;
+		} row;
+
+		struct   {
+			size_t size;
+			AST    *first;
 		} tuple;
 
 
@@ -1469,6 +1487,14 @@ AST *ast_make_array(Arena *pa){
 	return array;
 }
 
+AST *ast_make_row(Arena *pa){
+	AST *row = ast_alloc(pa, AST_ROW);
+	row->statement_type = STATEMENT_EXPR;
+	row->as.row.first = NULL;
+	row->as.row.size  = 0;
+	return row;
+}
+
 AST *ast_make_tuple(Arena *pa){
 	AST *tuple = ast_alloc(pa, AST_TUPLE);
 	tuple->statement_type = STATEMENT_EXPR;
@@ -1527,6 +1553,55 @@ AST *parse_primary(Arena *pa, AST *parent, Parser *parser);
 AST *parse_array(Arena *pa, AST *parent, Parser *parser);
 AST *parse_statement_list(Arena *pa, AST *program_node, Parser *parser);
 
+AST *parse_row_tail(Arena *pa, AST *parent, Parser *parser){
+	size_t save = parser->next;
+
+	if(parser_eat(TOK_COMMA, parser) == NULL) return NULL;
+	AST *expr = parse_expression(pa, parent, parser);
+	if(!expr){
+		parser->next = save;
+		return NULL;
+	}
+
+	AST *tail = parse_row_tail(pa, parent, parser);
+	if(tail) expr->next = tail;
+
+	return expr;
+}
+
+AST *parse_row(Arena *pa, AST *parent, Parser *parser){
+	size_t save = parser->next;
+	AST *row    = ast_make_row(pa);
+
+	AST *expr   = parse_expression(pa, parent, parser);
+	if(!expr) return NULL;
+
+	AST *tail   = parse_row_tail(pa, parent, parser);
+	if(!tail) parser->next = save;
+
+	row->as.row.first = expr;
+	expr->next        = tail;
+
+	return row;
+}
+
+AST *parse_array_tail(Arena *pa, AST *parent, Parser *parser){
+	size_t save = parser->next;
+	if(parser_eat(TOK_SEMI, parser) == NULL) return NULL;
+
+	AST *row = parse_row(pa, parent, parser);
+	if(!row){
+		parser->next = save;
+		return NULL;
+	}
+
+	save = parser->next;
+	AST *tail = parse_array_tail(pa, parent, parser);
+	if(!tail) parser->next = save;
+
+	row->next = tail;
+	return row;
+}
 
 AST *parse_array(Arena *pa, AST *parent, Parser *parser){
 	if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
@@ -1536,28 +1611,46 @@ AST *parse_array(Arena *pa, AST *parent, Parser *parser){
 		return array;
 	}
 
-	AST *head = parse_expression(pa, parent, parser);
-	if(!head) return NULL;
-	if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
+	AST *row = parse_row(pa, parent, parser);
+	if(row == NULL) return NULL;
 
-	array->as.array.first = head;
-	AST *tail             = head;
-
-	size_t size = 1;
-
-	while(!parser_done(parser) && parser_peek(parser)->type != TOK_RBRACKET){
-		AST *expr   = parse_expression(pa, parent, parser);
-		if(!expr) return NULL;
-		if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
-		tail->next  = expr;
-		tail        = expr;
-		size       += 1;
-	}
+	AST *tail = parse_array_tail(pa, parent, parser);
+	array->as.array.first = row;
+	row->next             = tail;
 
 	if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
-	array->as.array.size = size;
 	return array;
 }
+// AST *parse_array(Arena *pa, AST *parent, Parser *parser){
+// 	if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
+// 	AST *array = ast_make_array(pa);
+// 	if(!parser_done(parser) && parser_peek(parser)->type == TOK_RBRACKET){
+// 		if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
+// 		return array;
+// 	}
+
+// 	AST *head = parse_expression(pa, parent, parser);
+// 	if(!head) return NULL;
+// 	if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
+
+// 	array->as.array.first = head;
+// 	AST *tail             = head;
+
+// 	size_t size = 1;
+
+// 	while(!parser_done(parser) && parser_peek(parser)->type != TOK_RBRACKET){
+// 		AST *expr   = parse_expression(pa, parent, parser);
+// 		if(!expr) return NULL;
+// 		if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
+// 		tail->next  = expr;
+// 		tail        = expr;
+// 		size       += 1;
+// 	}
+
+// 	if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
+// 	array->as.array.size = size;
+// 	return array;
+// }
 
 AST *parse_fn_call(Arena *pa, AST *parent, Parser *parser){
     Token *name = parser_eat(TOK_ID, parser);
@@ -2120,6 +2213,32 @@ void ast_print(AST *ast, int level){
 				ast_print(ast->as.statement.expr, level + 2);
 				break;
 			}
+		case AST_ARRAY:
+			{
+				printf("%sARRAY:\n", buf);
+        for(
+            AST* node = ast->as.array.first;
+            node != NULL;
+            node = node->next
+          )
+        {
+					ast_print(node, level + 1);
+        }
+				break;
+			}
+		case AST_ROW:
+			{
+				printf("%sROW:\n", buf);
+        for(
+            AST* node = ast->as.row.first;
+            node != NULL;
+            node = node->next
+          )
+        {
+					ast_print(node, level + 1);
+        }
+				break;
+			}
 		case AST_ID:
 			{
         printf("%sID: %s\n", buf, ast->as.literal.value.id);
@@ -2380,6 +2499,14 @@ Value make_array(Array arr){
 	return v;
 }
 
+Value make_tensor(Tensor tens){
+	Value t = {
+		.valueType    = VALUE_TENSOR,
+		.value.tensor = tens
+	};
+	return t;
+}
+
 Value make_function(Function fun){
 	Value v = {
 		.valueType = VALUE_FUNCTION,
@@ -2398,6 +2525,26 @@ Array clone_array(Arena *a, Array *old){
   memcpy(arr.nums, old->nums, arr.size * sizeof(double));
   return arr;
 }
+
+Tensor clone_tensor(Arena *a, Tensor *old){
+  Tensor tens;
+	tens.ndim  = old->ndim;
+	tens.dtype = old->dtype;
+	tens.count = old->count;
+	for(size_t i = 0; i < old->ndim; i++) {
+		tens.sizes[i]   = old->sizes[i];
+		tens.strides[i] = old->strides[i];
+	}
+	if(old->dtype == DTYPE_REAL) {
+		tens.data.re = arena_alloc(a, old->count * sizeof(double));
+		memcpy(tens.data.re, old->data.re, old->count * sizeof(double));
+	}else{
+		tens.data.cx = arena_alloc(a, old->count * sizeof(double complex));
+		memcpy(tens.data.cx, old->data.cx, old->count * sizeof(double complex));
+	}
+  return tens;
+}
+
 
 Tuple clone_tuple(Arena *a, Tuple *src){
   Tuple dst;
@@ -2463,6 +2610,11 @@ Value value_clone(Arena *a, Value *v){
     case VALUE_ARRAY: 
       {
         copy.value.array = clone_array(a, &v->value.array);
+        break;
+      }
+    case VALUE_TENSOR: 
+      {
+        copy.value.tensor = clone_tensor(a, &v->value.tensor);
         break;
       }
     case VALUE_TUPLE: 
@@ -4760,6 +4912,7 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
 		case VALUE_TENSOR:
 			{
         write_tensor(stdout, &value->value.tensor);
+        putchar('\n');
 				break;
 			}
 		case VALUE_TUPLE:
@@ -5023,6 +5176,95 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 
 }
 
+Value eval_array(Arena *ta, Environment *e, char *script_path, AST *array, int *silent){
+	size_t num_rows = 0;
+	for(AST *row = array->as.array.first; row != NULL; row = row->next) num_rows++;
+
+	bool dtype_set = false;
+	DType dtype    = DTYPE_REAL;
+
+	if(num_rows == 1){
+		// This is a vector
+		size_t num_els = 0;
+		AST *row       = array->as.array.first;
+		for(AST *expr  = row->as.row.first; expr != NULL; expr = expr->next) num_els++;
+
+		size_t sizes[MAX_DIMS] = {0};
+		sizes[0]               = num_els;
+
+		Tensor t;
+		tensor_init(ta, &t, 1, sizes, dtype);
+
+		Value *values = arena_alloc(ta, num_els * sizeof(Value));
+		size_t idx = 0;
+		for(AST *expr  = row->as.row.first; expr != NULL; expr = expr->next) {
+			values[idx] = eval_expr(ta, e, script_path, expr, silent);
+			if(values[idx].valueType != VALUE_NUMBER && values[idx].valueType != VALUE_COMPLEX){
+				runtime_error(e, "Arrays can only be built of numeric values");
+				return make_nan();
+			}
+			if(values[idx].valueType == VALUE_COMPLEX) dtype = DTYPE_COMPLEX;
+			idx++;
+		}
+		size_t indices[MAX_DIMS] = {0};
+		for(size_t i = 0; i < num_els; i++){
+			indices[0] = i;
+			size_t offset = tensor_get_offset(&t, indices);
+			if(dtype == DTYPE_REAL) t.data.re[offset] = values[i].value.number;
+			else                    t.data.cx[offset] = values[i].value.complex_number;
+		}
+		t.dtype = dtype;
+
+		return make_tensor(t);
+	}
+
+	// This is a matrix
+	// Important: we assume that the number of columns is given by the number
+	// of elements in the first row
+
+	size_t num_cols = 0;
+	AST *first_row  = array->as.array.first;
+	for(AST *expr   = first_row->as.row.first; expr != NULL; expr = expr->next) num_cols++;
+
+	size_t sizes[MAX_DIMS] = {0};
+	sizes[0]               = num_rows;
+	sizes[1]               = num_cols;
+
+	Tensor t;
+	tensor_init(ta, &t, 2, sizes, dtype);
+
+	Value *values = arena_alloc(ta, t.count * sizeof(Value));
+
+	size_t i = 0;
+	size_t j = 0;
+	size_t indices[MAX_DIMS] = {0};
+	for(AST *row = array->as.array.first; row != NULL; row = row->next){
+		j = 0;
+		for(AST *expr = row->as.row.first; expr != NULL; expr = expr->next){
+			indices[0] = i;
+			indices[1] = j;
+			size_t idx = tensor_get_offset(&t, indices);
+			values[idx] = eval_expr(ta, e, script_path, expr, silent);
+			if(values[idx].valueType != VALUE_NUMBER && values[idx].valueType != VALUE_COMPLEX){
+				runtime_error(e, "Arrays can only be built of numeric values");
+				return make_nan();
+			}
+			if(values[idx].valueType == VALUE_COMPLEX) dtype = DTYPE_COMPLEX;
+			j++;
+		}
+		i++;
+	}
+
+	for(size_t idx = 0; idx < t.count; idx++){
+		tensor_unravel_index(&t, indices, idx);
+		if(dtype == DTYPE_REAL) t.data.re[idx] = values[idx].value.number;
+		else                    t.data.cx[idx] = values[idx].value.complex_number;
+	}
+	t.dtype = dtype;
+
+	return make_tensor(t);
+}
+
 
 Value eval_expr(Arena *ta, Environment *e, char *script_path, AST *expr, int *silent){
 	Value value = {0};
@@ -5045,17 +5287,18 @@ Value eval_expr(Arena *ta, Environment *e, char *script_path, AST *expr, int *si
 			}
 		case AST_ARRAY:
 			{
-				value.valueType        = VALUE_ARRAY;
-				value.value.array.size = expr->as.array.size;
-				value.value.array.nums = arena_alloc(ta, expr->as.array.size * sizeof(double));
-				AST *item              = expr->as.array.first;
-				size_t i               = 0;
-				while(item != NULL){
-					Value item_value = eval_expr(ta, e, script_path, item, silent);
-					// TODO: check if it really is a number
-					value.value.array.nums[i++] = item_value.value.number;
-					item                        = item->next;
-				}
+				value = eval_array(ta, e, script_path, expr, silent);
+				// value.valueType        = VALUE_ARRAY;
+				// value.value.array.size = expr->as.array.size;
+				// value.value.array.nums = arena_alloc(ta, expr->as.array.size * sizeof(double));
+				// AST *item              = expr->as.array.first;
+				// size_t i               = 0;
+				// while(item != NULL){
+				// 	Value item_value = eval_expr(ta, e, script_path, item, silent);
+				// 	// TODO: check if it really is a number
+				// 	value.value.array.nums[i++] = item_value.value.number;
+				// 	item                        = item->next;
+				// }
 				break;
 			}
 		case AST_TUPLE:
