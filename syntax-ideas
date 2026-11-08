@@ -79,6 +79,7 @@ POSTFIX_TAIL    = "." id POSTFIX_TAIL
 
 PRIMARY         = number
                 | id "(" ARGS_LIST ")"
+                | id "(" ")"
                 | INDEXING
                 | id
                 | '"' + char* + '"'
@@ -101,7 +102,7 @@ INDEXING        = id "[" ARGS_LIST "]"
 
 ARGS_LIST       = EXPRESSION ARGS_LIST_TAIL
 
-ARGS_LIST_TAIL  = "," EXPRESSION
+ARGS_LIST_TAIL  = "," EXPRESSION ARGS_LIST_TAIL
                 | eps
 
 TUPLE           = "(" EXPRESSION "," TUPLE_TAIL ")"
