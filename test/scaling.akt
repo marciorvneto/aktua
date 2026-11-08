@@ -1,0 +1,57 @@
+import("test.akt")
+
+// Transfer functions must not depend on the units their coefficients are in.
+
+let s = poly([0, 1])
+
+fn assert_rel(actual, expected, tol) {
+  assert(abs(actual / expected - 1) < tol, "expected " + expected + ", got " + actual)
+}
+
+// ---------- Scale invariance of simplification ----------
+
+let G1 = (s + 0.3) / ((s + 0.1) * (s + 0.7))
+let Gs = (1e-9 * (s + 0.3)) / (1e-9 * (s + 0.1) * (s + 0.7))
+let Gb = (1e6  * (s + 0.3)) / (1e6  * (s + 0.1) * (s + 0.7))
+
+for x in [0, 0.5, 2, 10] {
+  assert_rel(Gs(x), G1(x), 1e-12)
+  assert_rel(Gb(x), G1(x), 1e-12)
+}
+
+// Common factors still cancel at any scale: (s + 0.1) appears on both sides
+let Cs = (1e-9 * (s + 0.1) * (s + 0.3)) / (1e-9 * (s + 0.1) * (s + 0.7))
+let C1 = (s + 0.3) / (s + 0.7)
+for x in [0, 0.5, 2, 10] {
+  assert_rel(Cs(x), C1(x), 1e-12)
+}
+assert_eq(len(poles(Cs)), 1)
+
+// ---------- Tiny coefficients are not zero ----------
+
+let Tiny = 1 / (1e-9 * s)
+assert_rel(Tiny(20), 5e7, 1e-12)
+assert_rel(Tiny(1e-3), 1e12, 1e-12)
+
+let Tinier = 1 / (1e-15 * s + 1e-15)
+assert_rel(Tinier(0), 1e15, 1e-12)
+assert_rel(Tinier(1), 5e14, 1e-12)
+
+// ---------- Simplifying must not change the gain ----------
+
+let G2 = 2 / (s + 1)
+assert_rel(G2(0), 2, 1e-12)
+assert_rel(G2(1), 1, 1e-12)
+
+let Z = 0 / (s + 1)
+assert_eq(Z(0), 0)
+assert_eq(Z(3), 0)
+
+// ---------- polygcd must not modify its arguments ----------
+
+let p = poly([2, 4])
+let q = poly([3, 6])
+let g = polygcd(p, q)
+assert_rel(p(1), 6, 1e-12)
+assert_rel(q(1), 9, 1e-12)
+assert_rel(g(0), 0.5, 1e-12)

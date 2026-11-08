@@ -14,10 +14,7 @@
 #define DISPLAY_SIG 6
 
 #define LEN(x) sizeof((x))/sizeof((x)[0])
-#define EPSILON 1e-8
 #define POLY_CANCEL_TOL (64 * DBL_EPSILON)
-#define CLOSE(x,y) fabs((x)-(y)) < EPSILON
-#define ISZERO(x) CLOSE((x), 0)
 #define ALIGNMENT 16 	// Might change that in the future
 #define ALIGN_ALLOC(offset, align) ((offset + ((align) - 1)) & (~((align) - 1))) // Alignment trick
 #define ENV_INITIAL_VARS 64
@@ -2822,14 +2819,8 @@ int modulo(int a, int b){
 }
 
 int poly_is_zero(Polynomial *p){
-  double max = -1;
-  for(size_t i = 0; i < p->num_coeffs; i++){
-    max = MAX(max, fabs(p->coeffs[i]));
-  }
-  if(max < EPSILON){
-    return 1;
-  }
-  return 0;
+  for(size_t i = 0; i < p->num_coeffs; i++) if(p->coeffs[i] != 0) return 0;
+  return 1;
 }
 
 
@@ -3049,10 +3040,18 @@ cleanup:
 }
 
 
+Polynomial poly_scaled_to_one(Arena *arena, Polynomial *p){
+	double max = 0.0;
+	for(size_t i = 0; i < p->num_coeffs; i++) max = MAX(max, fabs(p->coeffs[i]));
+	if(max == 0.0) return clone_poly(arena, p);
+	return scale_poly(arena, p, 1.0 / max);
+}
 
 
 Polynomial poly_gcd(Arena *arena, Polynomial a, Polynomial b){
 	// Euclid'a gcd algorithm for polynomials
+	a = poly_scaled_to_one(arena, &a);
+	b = poly_scaled_to_one(arena, &b);
 	poly_update_degree(&a);
 	poly_update_degree(&b);
 	Polynomial q;
