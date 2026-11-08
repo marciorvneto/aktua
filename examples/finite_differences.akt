@@ -1,14 +1,77 @@
+// -----------------------------------------------------
+//
+//  FINITE DIFFERENCES
+//  By: Marcio R. V. Neto, 2026
+//
+//  Differentiating a sampled signal with a matrix.
+//  If y holds the samples of y(t), then D @ y holds
+//  the samples of an approximation of dy/dt. We build
+//  D out of diagonals with diag() and check it on
+//  y = sin(t), whose derivative is cos(t).
+//
+// -----------------------------------------------------
+
 let N    = 200
 let t    = linspace(0, 10, N)
 let dt   = t[1] - t[0]
 
 let ysin = sin(t)
 
+print("Grid: " + N + " points, dt = " + dt)
+
+// --- What the matrix looks like ----------------------
+//
+// The forward difference (y[i+1] - y[i]) / dt has
+// -1 on the main diagonal and +1 just above it.
+// A small 5x5 version, without the 1/dt factor:
+
+print("")
+print("Forward difference stencil (5x5):")
+print(-eye(5) + diag(ones([4]), 1))
+
+// --- Forward difference ------------------------------
+
 let D = 1/dt * (-eye(N) + diag(ones([N-1]), 1))
 
+print("")
 print("Number of elements in the matrix: " + len(D))
 
 let ycos_approx = D @ ysin
 
+// The last row has no y[i+1] to use, so it only holds
+// -y[N-1]/dt. That shows up as the spike at t = 10 in
+// the plot, so we leave that point out of the error.
+
+let err_fwd = 0
+for i in range(0, N-1) {
+  err_fwd = max([err_fwd, abs(ycos_approx[i] - cos(t[i]))])
+}
+print("Forward difference, max error:  " + err_fwd)
+
+// --- Centered difference -----------------------------
+//
+// (y[i+1] - y[i-1]) / (2 dt) puts +1 above the main
+// diagonal and -1 below it (diagonal index -1). Its
+// error shrinks like dt^2 instead of dt. Here both
+// the first and the last rows are incomplete.
+
+let Dc = 1/(2*dt) * (diag(ones([N-1]), 1) - diag(ones([N-1]), -1))
+let ycos_centered = Dc @ ysin
+
+let err_ctr = 0
+for i in range(1, N-1) {
+  err_ctr = max([err_ctr, abs(ycos_centered[i] - cos(t[i]))])
+}
+print("Centered difference, max error: " + err_ctr)
+
+// --- Plots -------------------------------------------
+
+print("")
+print("y = sin(t):")
 plot(t, ysin)
+
+print("dy/dt, forward difference:")
 plot(t, ycos_approx)
+
+print("dy/dt, centered difference:")
+plot(t, ycos_centered)
