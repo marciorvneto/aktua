@@ -947,15 +947,16 @@ int tokenizer_eat_string(Arena *a, Tokenizer *tokenizer, Token *out){
 	return 0;
 }
 
-#define KEYWORDS_LIST  \
-        X(let)         \
-        X(fn)          \
-        X(if)          \
-        X(else)        \
-        X(elif)        \
-        X(return)      \
-        X(for)         \
-        X(in)          \
+#define KEYWORDS_LIST \
+        X(let)        \
+        X(fn)         \
+        X(if)         \
+        X(else)       \
+        X(elif)       \
+        X(return)     \
+        X(for)        \
+        X(while)      \
+        X(in)         \
         V(KEYWORDS_COUNT)
 
 typedef enum {
@@ -1324,6 +1325,7 @@ typedef enum {
 	STATEMENT_FUNCTION_DEF,
 	STATEMENT_IF,
 	STATEMENT_FOR,
+	STATEMENT_WHILE,
 	STATEMENT_RETURN,
 	STATEMENT_EXPR,
 } StatementType;
@@ -1374,6 +1376,11 @@ struct AST {
 			AST    *expr;
 			AST    *block;
 		} for_stmt;
+
+		struct {
+			AST    *expr;
+			AST    *block;
+		} while_stmt;
 
 		struct {
 			AST *condition;
@@ -2073,6 +2080,22 @@ AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
   return stmt;
 }
 
+AST *parse_while_stmt(Arena *pa, AST *parent, Parser *parser){
+  if(parser_keyword_eat("while", parser) == NULL) return NULL;
+
+  AST *stmt   = ast_make_statement(pa, STATEMENT_WHILE);
+  AST *expr   = parse_expression(pa, stmt, parser);
+  if(!expr) return NULL;
+
+  AST *block  = parse_block(pa, stmt, parser);
+  if(!block)  return NULL;
+
+  stmt->as.while_stmt.expr  = expr;
+  stmt->as.while_stmt.block = block;
+
+  if(!parser_eat_stmt_end(parser)) return NULL;
+  return stmt;
+}
 AST *parse_for_stmt(Arena *pa, AST *parent, Parser *parser){
   if(parser_keyword_eat("for", parser) == NULL) return NULL;
 
@@ -2208,6 +2231,7 @@ AST *parse_statement(Arena *pa, AST *parent, Parser *parser){
   if(
       (parser->next = save, (stmt = parse_assignment(pa, parent, parser)))  ||
       (parser->next = save, (stmt = parse_return_stmt(pa, parent, parser))) ||
+      (parser->next = save, (stmt = parse_while_stmt(pa, parent, parser)))  ||
       (parser->next = save, (stmt = parse_for_stmt(pa, parent, parser)))    ||
       (parser->next = save, (stmt = parse_if_stmt(pa, parent, parser)))     ||
       (parser->next = save, (stmt = parse_fn_def(pa, parent, parser)))      ||
@@ -6143,6 +6167,11 @@ ExecStatus eval_block(
 ) {
     Value result = make_num(0);
 
+    // Variables declared in this block end with it. They are always the last
+    // ones in e->vars, so forgetting them is just restoring the count. Values
+    // are copied out, and their storage is untouched, so results stay valid.
+    size_t mark = e->num_vars;
+
     for (AST *stmt = block->as.statement_list.first; stmt != NULL; stmt = stmt->next) {
 
         if (stmt->statement_type == STATEMENT_EXPR) {
@@ -6150,7 +6179,10 @@ ExecStatus eval_block(
             result = eval_expr( ta, e, script_path, stmt, &silent);
         } else {
             int err = eval_stmt(ta, ast, e, script_path, stmt, result_out);
-            if (err != 0) return err;
+            if (err != 0) {
+                e->num_vars = mark;
+                return err;
+            }
 
             result = make_num(0);
         }
@@ -6159,6 +6191,7 @@ ExecStatus eval_block(
     if (result_out)
         *result_out = result;
 
+    e->num_vars = mark;
     return 0;
 }
 
@@ -6290,6 +6323,33 @@ ExecStatus eval_stmt(
     }   
     return EXEC_OK;
   }
+
+	if(stmt->statement_type == STATEMENT_WHILE){
+		while(1){
+			size_t scratch = arena_save(ta);
+
+			Value cond = eval_expr(ta, e, script_path, stmt->as.while_stmt.expr, &silent);
+			if(cond.valueType != VALUE_NUMBER){
+				runtime_error(e, "while: expected a numeric condition");
+				return EXEC_ERROR;
+			}
+			if(cond.value.number == 0.0){
+				arena_restore(ta, scratch);
+				return EXEC_OK; 
+			}       
+
+			Value body_result;
+			ExecStatus status = eval_block(ta, ast, e, script_path, stmt->as.while_stmt.block,
+					&body_result);
+			if(status == EXEC_RETURN){
+				if(result_out) *result_out = body_result;   // don't restore: it may point into ta!
+					return EXEC_RETURN;
+			}
+			if(status != EXEC_OK) return status;
+
+			arena_restore(ta, scratch);
+		}               
+	}      
 
   if(stmt->statement_type == STATEMENT_RETURN){
 		if(!result_out) return EXEC_RETURN;

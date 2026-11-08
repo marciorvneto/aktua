@@ -80,3 +80,22 @@ let in1 = 3
 let for2 = 4
 let fn3 = 5
 assert(in1 + for2 + fn3 == 12, "keyword followed by a digit is an identifier")
+
+// A let in the body is a fresh variable on every pass, and ends with the loop
+let sum_sq = 0
+for i in [1, 2, 3] {
+  let sq = i * i
+  sum_sq = sum_sq + sq
+}
+assert_eq(sum_sq, 14)
+
+fn doubled_sum(n) {
+  let acc = 0
+  for i in range(0, n) {
+    let twice = 2 * i
+    acc = acc + twice
+  }
+  acc
+}
+assert_eq(doubled_sum(4), 12)
+assert_eq(doubled_sum(4), 12)

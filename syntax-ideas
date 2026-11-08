@@ -6,6 +6,8 @@ STATEMENTS_LIST = STATEMENT STATEMENTS_LIST
 
 STATEMENT       = ASSIGNMENT     STMT_END
                 | RETURN_STMT    STMT_END
+                | BREAK_STMT     STMT_END
+                | CONTINUE_STMT  STMT_END
                 | FOR_STMT       STMT_END
                 | WHILE_STMT     STMT_END
                 | FUNCTION_DEF   STMT_END
@@ -18,6 +20,10 @@ WHILE_STMT      = "while" EXPRESSION BLOCK
 
 RETURN_STMT     = "return" EXPRESSION
                 | "return"
+
+BREAK_STMT      = "break"
+
+CONTINUE_STMT   = "continue"
 
 STMT_END        = "\n"
                 | eof

@@ -1,0 +1,64 @@
+import("test.akt")
+
+// Counting
+let i = 0
+let total = 0
+while i < 5 {
+  total = total + i
+  i = i + 1
+}
+assert_eq(i, 5)
+assert_eq(total, 10)
+
+// False from the start: the body never runs
+let ran = 0
+while 0 {
+  ran = 1
+}
+assert_eq(ran, 0)
+
+// The condition is checked again before every pass
+let n = 100
+let steps = 0
+while n > 1 {
+  n = n / 2
+  steps = steps + 1
+}
+assert_eq(steps, 7)
+
+// Nested, with a let in the outer body
+let a = 0
+let count = 0
+while a < 3 {
+  let b = 0
+  while b < 4 {
+    count = count + 1
+    b = b + 1
+  }
+  a = a + 1
+}
+assert_eq(count, 12)
+
+// return from inside a while leaves the function
+fn first_square_above(limit) {
+  let k = 0
+  while 1 {
+    if k * k > limit {
+      return k
+    }
+    k = k + 1
+  }
+}
+assert_eq(first_square_above(50), 8)
+
+// Iterating to convergence
+fn nr_sqrt(c) {
+  let x  = c
+  let dx = 1
+  while abs(dx) > 1e-12 {
+    dx = (x * x - c) / (2 * x)
+    x = x - dx
+  }
+  x
+}
+assert_close(nr_sqrt(2), sqrt(2), 1e-12)
