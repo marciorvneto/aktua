@@ -1,86 +1,58 @@
-fn derivative(f, x0, h) {
-  (f(x0 + h) - f(x0 - h))/(2*h)
+// Newton-Raphson, and a use for it: the phase margin of the leaky tank loop.
+// By: Marcio R. V. Neto, 2026
+
+// Centered difference
+fn derivative(f, x, h) {
+  (f(x + h) - f(x - h)) / (2 * h)
 }
 
-fn square(x) { x*x }
-
-fn to_solve(x) { square(x) - 5 }
-
-fn nr(f, x0, h) {
-  // Using centered derivatives for now
-
-  let tol  = 0.000001
-  let err  = f(x0)
-  let xold = x0
-  let xnew = x0
-
-  let f_prime = derivative(f, xold, h)
-  let delta   = f(xold)/f_prime
-  xnew        = xold - delta
-  xold        = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-  f_prime = derivative(f, xold, h)
-  delta   = f(xold)/f_prime
-  xnew    = xold - delta
-  xold    = xnew
-
-
-  xnew
+fn nr(f, x0) {
+  let x  = x0
+  let h  = 0
+  let dx = 0
+  for i in range(0, 50) {
+    h  = 1e-6 * (1 + abs(x))
+    dx = f(x) / derivative(f, x, h)
+    x  = x - dx
+    if abs(dx) < 1e-12 * (1 + abs(x)) {
+      return x
+    }
+  }
+  print("nr: did not converge")
+  x
 }
 
-print("d(x^2)/dx|x= 5   = " + derivative(square, 5, 0.00001))
-print("d(ln(x))/dx|x= 5 = " + derivative(log, 5, 0.00001))
-print("sqrt(5) through Newton-Raphson = " + nr(to_solve, 5, 0.00001))
-print(log)
-print(sqrt)
-print(square)
+fn to_solve(x) { x * x - 5 }
+
+print("sqrt(5) = " + nr(to_solve, 5))
+
+// Convergence is quadratic: the error is roughly squared at each step
+let x = 1
+for i in range(1, 6) {
+  x = x - (x * x - 2) / (2 * x)
+  print("sqrt(2), step " + i + ", error " + abs(x - sqrt(2)))
+}
+
+// Phase margin of the tank under P control.
+// Crossover is where |L(jw)| = 1. Solving in log(w) instead of w
+// makes the function almost linear, so nr only needs a few steps.
+
+let s  = poly([0, 1])
+let j  = complex(0, 1)
+let pi = 4 * atan(1)
+
+let K   = 0.2
+let tau = 100
+let kp  = 20
+let L   = kp * K / (tau * s + 1)
+
+fn log_gain(u) { log(abs(L(j * exp(u)))) }
+
+let wc = exp(nr(log_gain, 0))
+let pm = 180 + arg(L(j * wc)) * 180 / pi
+
+print("wc = " + wc + " rad/s, PM = " + pm + " deg")
+
+// First order, so we can check: wc = sqrt((K kp)^2 - 1) / tau
+let wc_exact = sqrt((K * kp) ^ 2 - 1) / tau
+print("exact: wc = " + wc_exact + " rad/s, PM = " + (180 - atan(tau * wc_exact) * 180 / pi) + " deg")
