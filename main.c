@@ -1421,7 +1421,7 @@ struct AST {
 
 		struct   {
 			char   *var_name;
-			AST    *index_expr;
+			AST    *first;
 		} indexing;
 
 		struct {
@@ -1552,9 +1552,9 @@ AST *ast_make_id(Arena *pa, size_t len){
 
 AST *ast_make_indexing(Arena *pa, size_t len){
 	AST *expr = ast_alloc(pa, AST_INDEXING);
-	expr->statement_type         = STATEMENT_EXPR;
-	expr->as.indexing.var_name   = arena_alloc(pa, len + 1);
-	expr->as.indexing.index_expr = NULL;
+	expr->statement_type       = STATEMENT_EXPR;
+	expr->as.indexing.var_name = arena_alloc(pa, len + 1);
+	expr->as.indexing.first    = NULL;
 	return expr;
 }
 
@@ -1803,6 +1803,22 @@ AST *parse_id(Arena *pa, AST *parent, Parser *parser) {
 		return id;
 }
 
+AST *parse_args_list(Arena *pa, AST *parent, Parser *parser);
+
+AST *parse_args_list_tail(Arena *pa, AST *parent, Parser *parser){
+	if(!parser_eat(TOK_COMMA, parser)) return NULL;
+	return parse_args_list(pa, parent, parser);
+}
+
+AST *parse_args_list(Arena *pa, AST *parent, Parser *parser){
+	AST *first = parse_expression(pa, parent, parser);
+	if(first == NULL) return NULL;
+	AST *tail   = parse_args_list_tail(pa, parent, parser);
+	first->next = tail;
+	return first;
+}
+
+
 AST *parse_indexing(Arena *pa, AST *parent, Parser *parser){
     Token *name = parser_eat(TOK_ID, parser);
     if(!name) return NULL;
@@ -1811,9 +1827,9 @@ AST *parse_indexing(Arena *pa, AST *parent, Parser *parser){
 
 		AST *indexing = ast_make_indexing(pa, strlen(var_name));
     strcpy(indexing->as.indexing.var_name, name->value);
-		AST *expr  = parse_expression(pa, parent, parser);
+		AST *expr  = parse_args_list(pa, parent, parser);
 		if(!expr) return NULL;
-		indexing->as.indexing.index_expr = expr;
+		indexing->as.indexing.first = expr;
 
 		if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
 		return indexing;
@@ -2398,7 +2414,13 @@ void ast_print(AST *ast, int level){
 				printf("%sINDEXING[%s]:\n",
 						buf,
 						ast->as.indexing.var_name);
-				ast_print(ast->as.indexing.index_expr, level + 1);
+				for(AST *node = ast->as.indexing.first;
+						node != NULL;
+						node = node->next
+						)
+				{
+					ast_print(node, level + 1);
+				}
 				break;
 			}
 		case AST_FN_CALL:
@@ -6007,17 +6029,28 @@ Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int 
 
 }
 
+// Resolves one index against a dimension of the given size; negatives count from the end
+static bool resolve_index(Environment *e, const char *name, Value v, size_t size, size_t *out){
+	if(v.valueType != VALUE_NUMBER){
+		runtime_error(e, "Indices must be numbers: %s", name);
+		return false;
+	}
+	double raw = v.value.number;
+	if(raw != floor(raw)){
+		runtime_error(e, "Indices must be integers: %s", name);
+		return false;
+	}
+	if(raw < -(double)size || raw >= (double)size){
+		runtime_error(e, "Index out of bounds: %s", name);
+		return false;
+	}
+	*out = (size_t)(raw < 0 ? raw + (double)size : raw);
+	return true;
+}
+
 Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing, int *silent){
 
-  char *name = indexing->as.indexing.var_name;
-	Value val = eval_expr(ta, e, script_path, indexing->as.indexing.index_expr, silent);
-	if(val.valueType != VALUE_NUMBER){
-		runtime_error(e, "Indices must be numbers.%s", name);
-		return make_nan();
-	}
-  int idx = (int)val.value.number;
-
-	// Check if it is an indexable variable
+	char *name = indexing->as.indexing.var_name;
 
 	Variable *var = env_find_variable(e, name);
 	if(!var){
@@ -6025,44 +6058,46 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 		return make_nan();
 	}
 
-	if(
-			!(
-					var->value->valueType == VALUE_TENSOR ||
-					var->value->valueType == VALUE_TUPLE 
-			)
-		)
-	{
-		runtime_error(e, "Can't index from variable %s", name);
-		return make_nan();
+	size_t errors = e->run_stats->runtime_errors;
+	size_t n = 0;
+	Value idx[MAX_DIMS];
+	for(AST *node = indexing->as.indexing.first; node != NULL; node = node->next){
+		if(n == MAX_DIMS){
+			runtime_error(e, "Too many indices: %s", name);
+			return make_nan();
+		}
+		idx[n++] = eval_expr(ta, e, script_path, node, silent);
+		if(e->run_stats->runtime_errors != errors) return make_nan();
 	}
 
 	if(var->value->valueType == VALUE_TENSOR){
 		Tensor *t = &var->value->value.tensor;
-		if(t->ndim != 1){
-			runtime_error(e, "Only 1-D tensors can be indexed for now: %s", name);
+		if(n != t->ndim){
+			runtime_error(e, "%s has %zu dimensions, got %zu indices", name, t->ndim, n);
 			return make_nan();
 		}
-		int size = (int)t->count;
-		if(idx >= size || size == 0){
-			runtime_error(e, "Index out of bounds: %s", name);
-			return make_nan();
+		size_t off = 0;
+		for(size_t k = 0; k < n; k++){
+			size_t i;
+			if(!resolve_index(e, name, idx[k], t->sizes[k], &i)) return make_nan();
+			off += i * t->strides[k];
 		}
-		size_t off = (size_t)modulo(idx, size) * t->strides[0];
 		if(t->dtype == DTYPE_COMPLEX) return make_complex(t->data.cx[off]);
 		return make_num(t->data.re[off]);
 	}
 
 	if(var->value->valueType == VALUE_TUPLE){
-		int size = (int)var->value->value.tuple.size;
-		if(idx >= size){
-			runtime_error(e, "Index out of bounds: %s", name);
+		if(n != 1){
+			runtime_error(e, "Tuples take a single index: %s", name);
 			return make_nan();
 		}
-		return var->value->value.tuple.items[modulo(idx, size)];
+		size_t i;
+		if(!resolve_index(e, name, idx[0], var->value->value.tuple.size, &i)) return make_nan();
+		return var->value->value.tuple.items[i];
 	}
 
+	runtime_error(e, "Can't index from variable %s", name);
 	return make_nan();
-
 }
 
 Value eval_array(Arena *ta, Environment *e, char *script_path, AST *array, int *silent){

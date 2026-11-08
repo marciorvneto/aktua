@@ -97,10 +97,11 @@ ROW             = EXPRESSION ROW_TAIL
 ROW_TAIL        = "," EXPRESSION ROW_TAIL
                 | eps
 
-INDEXING        = id "[" EXPRESSION "]"
+INDEXING        = id "[" ARGS_LIST "]"
 
-ARGS_LIST       = EXPRESSION
-                | ARGS_LIST, EXPRESSION
+ARGS_LIST       = EXPRESSION ARGS_LIST_TAIL
+
+ARGS_LIST_TAIL  = "," EXPRESSION
                 | eps
 
 TUPLE           = "(" EXPRESSION "," TUPLE_TAIL ")"
