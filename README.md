@@ -93,6 +93,38 @@ You can also execute scripts directly:
 $ ./build/aktua examples/leaky_tank.akt
 ```
 
+## Vectors and matrices
+
+Commas separate elements and semicolons separate rows:
+
+```rust
+let a = [1, 2, 3]            // a vector
+let b = [1; 2; 3]            // a column, 3x1
+let M = [1, 2, 3; 4, 5, 6]   // a matrix, 2x3
+```
+
+A few rules cover most of what you need:
+
+- `+`, `-`, `*`, `/` and `^` work element by element. Math functions such as `sqrt` and `sin` do too.
+- `@` is the matrix product: `M @ a` gives `[14, 32]`, and `a @ a` gives the dot product, `14`.
+- `.T` transposes. A vector reads as a row, so `a.T` is a column, the same as `b`.
+- `.shape` gives the sizes: `M.shape` is `[2, 3]`.
+- Shapes that don't match are stretched where a size is 1 ([broadcasting](https://numpy.org/doc/stable/user/basics.broadcasting.html)). `M + a` adds `a` to every row, and `a.T * a` is the outer product, a 3x3 matrix.
+- Functions that expect a vector, like `poly`, `plot` and `step`, accept rows and columns alike.
+
+Polynomials and transfer functions can be evaluated on whole vectors, including complex ones. For example, the magnitude of a frequency response:
+
+```text
+aktua> let s = poly([0, 1])
+aktua> let G = 1 / (s + 1)
+aktua> let j = complex(0, 1)
+aktua> abs(G(j * [0.1, 1, 10]))
+
+[ 0.995037,  0.707107, 0.0995037]
+```
+
+Note that `*` is always element by element; use `@` for the matrix product. `.T` does not conjugate complex entries.
+
 ## Status
 
 Aktua is under active development. Expect bugs, missing features, and breaking changes.

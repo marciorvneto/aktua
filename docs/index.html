@@ -88,11 +88,42 @@ aktua&gt; poles(1/p)
     </section>
 
     <section>
+      <h2>Vectors and matrices</h2>
+      <p>
+        Commas separate elements and semicolons separate rows.
+        Arithmetic works element by element, <code>@</code> is the matrix
+        product and <code>.T</code> transposes.
+      </p>
+
+<pre class="output"><samp>aktua&gt; let a = [1, 2, 3]
+aktua&gt; let M = [1, 2, 3; 4, 5, 6]
+aktua&gt; M @ a
+
+[14, 32]
+
+aktua&gt; a.T * a
+
+[[1, 2, 3],
+ [2, 4, 6],
+ [3, 6, 9]]</samp></pre>
+
+      <p>Transfer functions can be evaluated on whole vectors, so a frequency response is one line:</p>
+
+<pre class="output"><samp>aktua&gt; let s = poly([0, 1])
+aktua&gt; let G = 1 / (s + 1)
+aktua&gt; let j = complex(0, 1)
+aktua&gt; abs(G(j * [0.1, 1, 10]))
+
+[ 0.995037,  0.707107, 0.0995037]</samp></pre>
+    </section>
+
+    <section>
       <h2>What it has so far</h2>
       <ul>
         <li>Polynomials and transfer functions, with arithmetic between them</li>
         <li>Poles, and impulse and step responses of LTI systems</li>
         <li>Real and complex numbers, with the usual math functions</li>
+        <li>Vectors and matrices, with broadcasting, transposes and a matrix product</li>
         <li>Functions, loops, conditionals and imports</li>
         <li>Line plots drawn in the terminal with braille characters</li>
         <li>An interactive REPL, or scripts run from the command line</li>

@@ -4618,13 +4618,6 @@ Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 
 // ------------- Arrays and Tensors ------------
 
-bool value_is_vector(Value *v, size_t *of_size){
-	if(v->valueType != VALUE_TENSOR)              return false;
-	if(v->value.tensor.ndim  != 1)                return false;
-	if(v->value.tensor.dtype != DTYPE_REAL)       return false;
-	if(of_size != NULL) return v->value.tensor.count == *of_size;
-	return true;
-}
 
 typedef double (*ReducerFn)(double acc, double x);
 double reducer_max(double acc, double x) { return x > acc ? x : acc; }
@@ -4761,7 +4754,7 @@ Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	double *coeffs;
 	size_t num_coeffs;
 	if(!as_real_vector(a, &val, &coeffs, &num_coeffs)){
-		runtime_error(e, "poly: Expected a 1-dimensional array of coefficients");
+		runtime_error(e, "poly: Expected a 1-D-like array of coefficients");
 		return make_nan();
 	}
 	int err;
