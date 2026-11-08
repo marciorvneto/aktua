@@ -27,6 +27,8 @@
 #define ABERTH_TOL 1e-12
 #define ABERTH_MAX_ITER 1000
 
+#define ARGS_VARIADIC SIZE_MAX
+
 //============================== 
 //
 //    Arena
@@ -95,11 +97,29 @@ int format_number(char *buf, size_t n, double x, int sig){
 //
 //============================== 
 
+
+typedef enum {
+	PLOT_LINES,
+	PLOT_STAIRS,
+	PLOT_DOTS,
+	PLOT_STYLE_COUNT
+} PlotStyle;
+
+// Same order as PlotStyle, so a choice's index is its enum value.
+// Sized from the enum: a style without a string leaves a NULL that ends the list early.
+static const char *const PLOT_STYLES[PLOT_STYLE_COUNT + 1] = {
+	"lines",
+	"stairs",
+	"dots",
+	NULL
+};
+
 typedef struct {
   const double *x_data;
   const double *y_data;
   size_t        num_points;
   const char   *name;
+	PlotStyle     style;
 } PlotSeries;
 
 typedef struct {
@@ -382,8 +402,24 @@ void plot_braille(Arena *a, FILE *out, const PlotData *data,
 			if(!isfinite(x) || !isfinite(y)){ have_prev = false; continue; }
 			long px = to_px(x, &layout->x, 2 * cols);
 			long py = to_py(y, &layout->y, 4 * rows);
-			if(have_prev) canvas_line(&c, px_prev, py_prev, px, py);
-			else          canvas_set(&c, px, py);
+			if(ser->style == PLOT_DOTS){
+				// A lone braille dot is hard to see, so draw a 2x2 block
+				canvas_set(&c, px, py);     canvas_set(&c, px + 1, py);
+				canvas_set(&c, px, py + 1); canvas_set(&c, px + 1, py + 1);
+			}else if(have_prev){
+				switch(ser->style){
+					case PLOT_STAIRS:
+						canvas_line(&c, px_prev, py_prev, px, py_prev);   // hold
+						canvas_line(&c, px,      py_prev, px, py);        // then jump
+						break;
+					case PLOT_LINES:
+					default:
+						canvas_line(&c, px_prev, py_prev, px, py);
+						break;
+				}
+			}else{
+				canvas_set(&c, px, py);
+			}
 			px_prev = px; py_prev = py; have_prev = true;
 		}
 	}
@@ -407,7 +443,8 @@ struct AST;
 
 typedef struct {
   int         native_index;
-  size_t      num_arguments_native;
+  size_t      argc_min;
+  size_t      argc_max;
 } NativeFunctionData;
 
 typedef struct {
@@ -418,10 +455,20 @@ typedef struct {
   };
 } Function;
 
-int function_repr(Arena *a, size_t num_args, const char *id, char* buf){
-	int printed = sprintf(buf, "%s: fn(%zu)", id, num_args);
-	buf[printed] = '\0';
-  return printed;
+int function_repr(Arena *a, size_t argc_min, size_t argc_max, const char *id, char* buf){
+	if(argc_max == ARGS_VARIADIC){
+		int printed = sprintf(buf, "%s: fn(%zu+)", id, argc_min);
+		buf[printed] = '\0';
+		return printed;
+	}else if(argc_min == argc_max){
+		int printed = sprintf(buf, "%s: fn(%zu)", id, argc_min);
+		buf[printed] = '\0';
+		return printed;
+	}else{
+		int printed = sprintf(buf, "%s: fn(%zu-%zu)", id, argc_min, argc_max);
+		buf[printed] = '\0';
+		return printed;
+	}
 }
 
 typedef struct Value Value;
@@ -3365,6 +3412,59 @@ double *dt_response_at(Arena *a, Environment *e, TransferFunction tf, const doub
 typedef Value (*NativeValueDispatch)(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent);
 typedef Value (*UnaryValueDispatch)(Arena *a, Environment *e, Value *caller, Value *value);
 
+//============================
+//
+//   Helpers
+//
+//============================
+
+bool get_opt_string(Environment *e, const char *fn, size_t argc, Value *argv,
+                  size_t i, const char *name, const char *def, const char **out){
+	if(i >= argc) { *out = def; return true; }
+	if(argv[i].valueType != VALUE_STRING){
+		runtime_error(e, "%s: %s must be a string", fn, name);
+		return false;
+	}
+	*out = argv[i].value.str;
+	return true;
+}
+
+bool get_opt_number(Environment *e, const char *fn, size_t argc, Value *argv,
+                  size_t i, const char *name, double def, double *out){
+	if(i >= argc) { *out = def; return true; }
+	if(argv[i].valueType != VALUE_NUMBER){
+		runtime_error(e, "%s: %s must be a number", fn, name);
+		return false;
+	}
+	*out = argv[i].value.number;
+	return true;
+}
+
+bool get_opt_choice(Environment *e, const char *fn, size_t argc, Value *argv,
+                  size_t i, const char *name, const char *const *choices, size_t def_idx,
+									size_t *out){
+	const char *given;
+	if(!get_opt_string(e, fn, argc, argv, i, name, NULL, &given)) return false;
+	if(given == NULL) { *out = def_idx; return true; } 
+
+	for(size_t k = 0; choices[k] != NULL; k++){
+		if(strcmp(given, choices[k]) == 0){ *out = k; return true; }
+	}
+
+	// If not found, list the possible choices in the error msg
+
+	char list[256];
+	size_t len = 0;
+	list[0] = '\0';
+
+	for(size_t k = 0; choices[k] != NULL; k++){
+		buf_append(list, sizeof(list), &len, "%s\"%s\"", k ? ", " : "", choices[k]);
+	}
+
+	runtime_error(e, "%s: %s must be one of %s (got \"%s\")", fn, name, list, given);
+	return false;
+}
+
 
 //============================
 //
@@ -3667,7 +3767,7 @@ Value add_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = {
       .num = AD_BC.value.poly,
       .den = BD.value.poly,
-			.Ts  = tf1.Ts,
+			.Ts  = tf1.Ts	,
     };
 
     return make_transfer_function(tf_simplify(a, &tf));
@@ -3696,7 +3796,7 @@ Value sub_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = {
       .num = AD_BC.value.poly,
       .den = BD.value.poly,
-			.Ts  = tf1.Ts	,
+			.Ts  = tf1.Ts,
     };
 
     return make_transfer_function(tf_simplify(a, &tf));
@@ -4583,38 +4683,40 @@ Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *a
 Value native_linspace(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){    
 	Value from_val  = argv[0];
 	Value to_val    = argv[1];
-	Value steps_val = argv[2];
 	if(
       from_val.valueType  != VALUE_NUMBER   ||
-      to_val.valueType    != VALUE_NUMBER   ||
-      steps_val.valueType != VALUE_NUMBER
+      to_val.valueType    != VALUE_NUMBER
       ){
-		runtime_error(e, "Expected 3 real numbers. Example: linspace(0, 1, 100)");
+		runtime_error(e, "linspace: from and to must be numbers");
 		return make_nan();
 	}
-  if(!(steps_val.value.number <= 1e7)){
-		runtime_error(e, "Number of points is too high");
+
+	double steps_val;
+	if(!get_opt_number(e, "linspace", argc, argv, 2, "num_points", 50, &steps_val)) return make_nan();
+
+  if(!isfinite(steps_val) || steps_val != floor(steps_val)) {
+		runtime_error(e, "linspace: number of points must be a whole number (got %g)", steps_val);
 		return make_nan();
   }
-  if(steps_val.value.number < 0) {
-		runtime_error(e, "Number of points must be positive");
+  if(!(steps_val <= 1e7)){
+		runtime_error(e, "linspace: number of points is too high");
 		return make_nan();
   }
-  if(steps_val.value.number != floor(steps_val.value.number)) {
-		runtime_error(e, "Number of points must be an integer");
+  if(steps_val < 0) {
+		runtime_error(e, "linspace: number of points can't be negative");
 		return make_nan();
   }
 
 	double from  = from_val.value.number;
 	double to    = to_val.value.number;
-	int n_points = ceil(steps_val.value.number);
+	int n_points = ceil(steps_val);
 	double dx    = (to - from) / (n_points - 1.0);
 
 	Tensor t;
 	size_t sizes[MAX_DIMS];
 	sizes[0] = n_points;
 	if(tensor_init(a, &t, 1, sizes, DTYPE_REAL) != 0){
-    runtime_error(e, "Not enough memory for %d points", n_points); 
+    runtime_error(e, "linspace: not enough memory for %d points", n_points); 
     return make_nan(); 
 	}
 
@@ -4639,7 +4741,7 @@ Value native_len(Arena *a, Environment *e, char* script, size_t argc, Value *arg
       val.valueType != VALUE_TUPLE
     )
   {
-    runtime_error(e, "len requires an array or a tuple");
+    runtime_error(e, "len: expected an array or a tuple");
     return make_nan();
   }
 
@@ -4656,11 +4758,11 @@ Value native_push(Arena *a, Environment *e, char* script, size_t argc, Value *ar
       (val.valueType != VALUE_NUMBER && val.valueType != VALUE_COMPLEX)
     )
   {
-    runtime_error(e, "push requires an array and a number");
+    runtime_error(e, "push: expected an array and a number");
     return make_nan();
   }
 	if(tens.value.tensor.ndim != 1){
-    runtime_error(e, "push requires a 1D array");
+    runtime_error(e, "push: expected a 1D array");
     return make_nan();
 	}
 
@@ -4712,6 +4814,9 @@ Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 		return make_nan();
 	}
 
+	size_t style_idx;
+	if(!get_opt_choice(e, "plot", argc, argv, 2, "style", PLOT_STYLES, PLOT_LINES, &style_idx) ) return make_nan();
+
 	double *xs, *ys;
 	size_t  nx,  ny;
 	if(!as_real_vector(a, &x_val, &xs, &nx)){
@@ -4733,6 +4838,7 @@ Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 		.x_data     = xs,
 		.y_data     = ys,
 		.num_points = nx,
+		.style      = (PlotStyle)style_idx,
 	};
 	PlotData data = { .series = &series, .num_series = 1 };
 
@@ -5056,10 +5162,12 @@ Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value 
 	return make_complex(re.value.number + I * im.value.number);
 }
 
+
 typedef struct {
   const char          *name;
   NativeValueDispatch fn;
-  size_t              argc;
+  size_t              argc_min;
+  size_t              argc_max;
 } NativeFn;
 
 
@@ -5072,14 +5180,14 @@ typedef struct {
         UNARY_NATIVE_MATHS_LIST \
         NATIVE_REDUCER_LIST     \
         N(range,    2)          \
-        N(linspace, 3)          \
+        NV(linspace, 2, 3)      \
         N(len,      1)          \
         N(push,     2)          \
         N(mean,     1)          \
         N(eye,      1)          \
         N(zeros,    1)          \
         N(ones,     1)          \
-        N(plot,     2)          \
+        NV(plot,     2, 3)      \
         N(poly,     1)          \
         N(polymod,  2)          \
         N(polydiv,  2)          \
@@ -5088,7 +5196,8 @@ typedef struct {
         N(impulse,  2)          \
         N(step,     2)          \
         N(zvar,     1)
-#define N(name, argc) { #name, native_##name, argc },
+#define N(name, argc) { #name, native_##name, argc, argc },
+#define NV(name, argc_min, argc_max) { #name, native_##name, argc_min, argc_max },
 #define M(name, rf, cf, rcf) N(name, 1)
 #define R(name, reducer_fn, init, empty_ok) N(name, 1)
 static const NativeFn natives[] = { NATIVE_LIST };
@@ -5307,19 +5416,26 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 		return make_nan();
 	}
 
-  size_t num_args = 0;
   if(fun->value.fun.kind == FN_NATIVE){
-    num_args = fun->value.fun.native_data.num_arguments_native;
+    size_t argc_min = fun->value.fun.native_data.argc_min;
+    size_t argc_max = fun->value.fun.native_data.argc_max;
+		if((size_t)argc < argc_min || (size_t)argc > argc_max){
+			if(argc_max == ARGS_VARIADIC){
+				runtime_error(e, "%s expects at least %zu arguments, got %d", fn_name, argc_min, argc);
+			}else if(argc_min == argc_max){
+				runtime_error(e, "%s expects %zu arguments, got %d", fn_name, argc_min, argc);
+			}else{
+				runtime_error(e, "%s expects between %zu and %zu arguments, got %d", fn_name, argc_min, argc_max, argc);
+			}
+			return make_nan();
+		}
   }else{
-    num_args = fun->value.fun.definition->as.fn_def.num_args;
+    size_t num_args = fun->value.fun.definition->as.fn_def.num_args;
+		if((size_t)argc != num_args){
+			runtime_error(e, "%s expects %zu arguments, got %d", fn_name, num_args, argc);
+			return make_nan();
+		}
   }
-
-	size_t expected = num_args;
-
-	if ((size_t)argc != expected) {
-		runtime_error(e, "%s expects %zu arguments, got %d", fn_name, expected, argc);
-		return make_nan();
-	}
 
   if(fun->value.fun.kind == FN_NATIVE){
     int idx = fun->value.fun.native_data.native_index;
@@ -5496,13 +5612,15 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
         if(value->value.fun.kind == FN_NATIVE){
           function_repr(
               ta, 
-              value->value.fun.native_data.num_arguments_native,
+              value->value.fun.native_data.argc_min,
+              value->value.fun.native_data.argc_max,
               natives[value->value.fun.native_data.native_index].name,
               buf
           );
         }else{
           function_repr(
               ta, 
+              value->value.fun.definition->as.fn_def.num_args,
               value->value.fun.definition->as.fn_def.num_args,
               value->value.fun.definition->as.fn_def.id,
               buf
@@ -5686,8 +5804,9 @@ UnaryValueDispatch callable_values_dispatch[VALUE_TYPE_COUNT][VALUE_TYPE_COUNT] 
 void initialize_native_fns(Environment *e){
   for(size_t i = 0; i < LEN(natives); i++){
     NativeFunctionData data = {
-      .num_arguments_native = natives[i].argc,
-      .native_index         = i
+      .argc_min     = natives[i].argc_min,
+      .argc_max     = natives[i].argc_max,
+      .native_index = i
     };
     Function native_fn = {
       .kind        = FN_NATIVE,
