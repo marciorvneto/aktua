@@ -1,0 +1,65 @@
+import("test.akt")
+
+// Discrete-time transfer functions and their responses.
+// Every expected value here can be worked out by hand from the difference equation.
+
+let z = zvar(1)
+let t = linspace(0, 5, 6)
+
+fn assert_seq(actual, expected, msg) {
+  assert_eq(len(actual), len(expected))
+  for i in range(0, len(expected)) {
+    assert_close(actual[i], expected[i], 1e-12)
+  }
+}
+
+// ---------- Impulse responses ----------
+
+// y[k] = 0.5 y[k-1] + 0.5 u[k-1]
+assert_seq(impulse(0.5 / (z - 0.5), t), [0, 0.5, 0.25, 0.125, 0.0625, 0.03125], "first order")
+
+// Pure delay
+assert_seq(impulse(1 / z, t), [0, 1, 0, 0, 0, 0], "delay")
+
+// Integrator
+assert_seq(impulse(1 / (z - 1), t), [0, 1, 1, 1, 1, 1], "integrator")
+
+// Biproper: responds at k = 0
+assert_seq(impulse(z / (z - 0.5), t), [1, 0.5, 0.25, 0.125, 0.0625, 0.03125], "biproper")
+
+// Numerator shorter than the denominator by more than one
+assert_seq(impulse((z + 1) / (z * z - 0.25), t), [0, 1, 1, 0.25, 0.25, 0.0625], "second order")
+
+// ---------- Step responses ----------
+
+let Gd = 0.5 / (z - 0.5)
+assert_seq(step(Gd, t), [0, 0.5, 0.75, 0.875, 0.9375, 0.96875], "first order step")
+
+// Converges to the DC gain, Gd(1)
+let late = step(Gd, [60])
+assert_close(late[0], Gd(1), 1e-12)
+
+// A constant passes straight through
+assert_seq(step(3 + 0 * z, linspace(0, 3, 4)), [3, 3, 3, 3], "constant")
+
+// ---------- Sampling at the requested times ----------
+
+let z10 = zvar(0.1)
+let G10 = 0.5 / (z10 - 0.5)
+
+// 0.3 / 0.1 is 2.9999999999999996 in floating point; still sample 3
+assert_seq(step(G10, [0, 0.1, 0.2, 0.3]), [0, 0.5, 0.75, 0.875], "rounding")
+
+// Between samples the output holds the latest one
+assert_seq(step(G10, linspace(0, 0.3, 7)), [0, 0, 0.5, 0.5, 0.75, 0.75, 0.875], "hold")
+
+// At rest before t = 0
+let zh = zvar(0.5)
+assert_seq(step(0.5 / (zh - 0.5), linspace(-1, 1, 5)), [0, 0, 0, 0.5, 0.75], "negative times")
+
+// ---------- Domains ----------
+
+// Arithmetic keeps the sample time
+let G2 = G10 * G10 + 1
+assert_close(G2(1), 2, 1e-12)
+assert_seq(step(G2, [0, 0.1]), [1, 1], "product stays discrete")

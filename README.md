@@ -33,7 +33,7 @@ Output:
 ```text
      400
 -------------
-10000 x + 400
+10000 s + 400
 (
 -0.04
 )
@@ -84,7 +84,7 @@ aktua> 1/p
 
        1
 ---------------
-3 x^2 + 2 x + 1
+3 s^2 + 2 s + 1
 ```
 
 You can also execute scripts directly:

@@ -662,38 +662,50 @@ int poly_repr(Arena *a, Polynomial *p, char* buf, char* variable){
 typedef struct {
 	Polynomial num;
 	Polynomial den;
+	double     Ts;   // Sample time. Ts = 0 means CT, Ts > 0 means DT
 } TransferFunction;
 
-int transfer_function_repr(Arena *a, TransferFunction *tf, char* buf, char* variable){
+// Appends to buf without ever writing past size; *len stops at size - 1
+void buf_append(char *buf, size_t size, size_t *len, const char *fmt, ...){
+  if(*len >= size) return;
+  va_list args;
+  va_start(args, fmt);
+  int n = vsnprintf(buf + *len, size - *len, fmt, args);
+  va_end(args);
+  if(n < 0) return;
+  *len = MIN(*len + (size_t)n, size - 1);
+}
+
+int transfer_function_repr(Arena *a, TransferFunction *tf, char *buf, size_t size){
+  // The TF knows its own domain, so it picks the variable: s for CT, z for DT
+  char *variable = tf->Ts > 0 ? "z" : "s";
+
   char num_buf[1024];
   char den_buf[1024];
   int num_size = poly_repr(a, &tf->num, num_buf, variable);
   int den_size = poly_repr(a, &tf->den, den_buf, variable);
 
-  int max_size     = MAX(num_size, den_size);
-  int num_dashes   = max_size;
-  int padding_num  = (int)((max_size - num_size)/2);
-  int padding_den  = (int)((max_size - den_size)/2);
-  int apply_to_num = max_size == num_size ? 0 : 1;
-
-  char padding_buf[1024] = {0};
-  char dashes[1024]      = {0};
-  for(int i = 0; i < MAX(padding_num, padding_den); i++){
-    padding_buf[i] = ' ';
-  }
-  for(int i = 0; i < max_size; i++){
-    dashes[i] = '-';
-  }
-
   size_t printed = 0;
+  buf[0] = '\0';
 
-  printed += sprintf(buf + printed, "%s%s\n", apply_to_num ? padding_buf : "", num_buf);
-  printed += sprintf(buf + printed, "%s\n", dashes);
-  printed += sprintf(buf + printed, "%s%s", apply_to_num ? "" : padding_buf, den_buf);
+  bool den_is_one = tf->den.deg == 0 && tf->den.coeffs[0] == 1;
+  if(den_is_one){
+    // Nothing to divide by: print the numerator on one line
+    buf_append(buf, size, &printed, "%s", num_buf);
+  }else{
+    int max_size    = MAX(num_size, den_size);
+    int padding_num = (max_size - num_size) / 2;
+    int padding_den = (max_size - den_size) / 2;
 
-  buf[printed] = '\0';
+    // %*s pads with that many spaces
+    buf_append(buf, size, &printed, "%*s%s\n", padding_num, "", num_buf);
+    for(int i = 0; i < max_size; i++) buf_append(buf, size, &printed, "-");
+    buf_append(buf, size, &printed, "\n%*s%s", padding_den, "", den_buf);
+  }
+
+  if(tf->Ts > 0) buf_append(buf, size, &printed, "\nTs = %g", tf->Ts);
+
   return printed;
-
 }
 
 
@@ -2607,7 +2619,8 @@ TransferFunction clone_tf(Arena *a, TransferFunction *tf){
 	Polynomial den = clone_poly(a, &tf->den);
 	TransferFunction tf_new = {
 		.num = num,
-		.den = den
+		.den = den,
+		.Ts  = tf->Ts
 	};
   return tf_new;
 }
@@ -2757,6 +2770,7 @@ TransferFunction tf_invert(Arena *a, TransferFunction *tf){
 	TransferFunction tf_new = {
 		.num = clone_poly(a, &tf->den),
 		.den = clone_poly(a, &tf->num),
+		.Ts  = tf->Ts
 	};
 	return tf_new;
 }
@@ -3075,6 +3089,7 @@ TransferFunction tf_simplify(Arena *a, TransferFunction *tf){
 	TransferFunction new_tf = {
 		.num = clone_poly(a, &reduced_num),
 		.den = clone_poly(a, &reduced_den),
+		.Ts  = tf->Ts
 	};
 
 	return new_tf;
@@ -3086,6 +3101,7 @@ TransferFunction tf_normalize(Arena *a, TransferFunction *tf){
 	TransferFunction new_tf = {
 		.num = scale_poly(a, &tf->num, 1.0 / lead),
 		.den = scale_poly(a, &tf->den, 1.0 / lead),
+		.Ts  = tf->Ts
 	};
 
 	return new_tf;
@@ -3252,14 +3268,103 @@ double *impulse_response(Arena *a, Environment *e, TransferFunction tf, const do
 	return y;
 }
 
-//============================
+// ----------------- DT systems -----------------------
+
+double *dt_response(Arena *a, Environment *e, TransferFunction tf, const double *u, size_t
+		N){
+	// Assume our transfer function is of the form:
+	//
+	//         B0 + B1*z + B2*z^2 + ... + Bn*z^n
+	// TF =   ------------------------------------
+	//         A0 + A1*z + A2*z^2 + ... + An*z^n
+	//
+	// Normalizing for the An term:
+	//
+	//         b0 + b1*z + b2*z^2 + ... + bn*z^n
+	// TF =   ------------------------------------
+	//         a0 + a1*z + a2*z^2 + ... + 1*z^n
+	//
+	// Dividing the numerator and the denominator by z^n
+	//
+	//         b0*z^(-n) + b1*z^(-n + 1) + ... + bn
+	// TF =   ------------------------------------
+	//         a0*z^(-n) + a1*z^(-n + 1) + ... + 1
+	//
+	// Converting it to a FD equation:
+	//
+	// b0*u[k - n] + b1*u[k - n + 1] + ... + bn*u[k]
+	//                    =
+	// a0*y[k - n] + a1*y[k - n + 1] + ... + y[k]
+	//
+	// Or, isolating y[k]:
+	//
+	// y[k] = b0 * u[k - n] + ... + bn-1*u[k - 1] + bn*u[k]
+	//      -(a0 * y[k - n] + ... + an-1*y[k - 1]          )
+
+	TransferFunction norm = tf_normalize(a, &tf);
+	size_t deg            = norm.den.deg;
+
+	// y[k] would need u[k + 1], an input from the future
+	if(norm.num.deg > deg){
+		runtime_error(e, "discrete system is not causal (numerator degree %zu > denominator degree %zu)",
+				norm.num.deg, deg);
+		return NULL;
+	}
+
+	double *y = arena_alloc(a, N * sizeof(double));
+	if(!y) return NULL;
+
+	// Starts at k = 0: a biproper system responds to u[0] right away
+	for(size_t k = 0; k < N; k++){
+		double acc = 0;
+		for(size_t i = 0; i <= deg && i <= k; i++){
+			size_t c = deg - i;   // Coefficient for delay i
+			if(c < norm.num.num_coeffs) acc += norm.num.coeffs[c] * u[k - i]; // Missing = padded with 0
+			if(i > 0)                   acc -= norm.den.coeffs[c] * y[k - i];
+		}
+		y[k] = acc;
+	}
+
+	return y;
+}
+
+// Sample index for time t. The small nudge keeps 0.3 / 0.1 = 2.9999.. at 3
+static size_t dt_sample_index(double t, double Ts){
+	return (size_t)floor(t / Ts + 1e-9);
+}
+
+// Impulse or step response of a DT system, read at the requested times.
+double *dt_response_at(Arena *a, Environment *e, TransferFunction tf, const double *ts, size_t n, bool is_step){
+	double *out = arena_alloc(a, n * sizeof(double));
+	if(!out) return NULL;
+	if(n == 0) return out;
+
+	// Before t = 0 the system is at rest, so out stays 0 there
+	if(ts[n - 1] < 0) return out;
+
+	size_t Ns = dt_sample_index(ts[n - 1], tf.Ts) + 1;
+	double *u = arena_alloc(a, Ns * sizeof(double));
+	if(!u) return NULL;
+	u[0] = 1.0;
+	if(is_step) for(size_t k = 1; k < Ns; k++) u[k] = 1.0;
+
+	double *y = dt_response(a, e, tf, u, Ns);
+	if(!y) return NULL;
+
+	for(size_t j = 0; j < n; j++){
+		if(ts[j] >= 0) out[j] = y[dt_sample_index(ts[j], tf.Ts)];
+	}
+	return out;
+}
+//=============================================
 //
-//   Dispatcher types
+//   Dispatcher types and native functions
 //
-//============================
+//=============================================
 
 typedef Value (*NativeValueDispatch)(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent);
 typedef Value (*UnaryValueDispatch)(Arena *a, Environment *e, Value *caller, Value *value);
+
 
 //============================
 //
@@ -3495,9 +3600,11 @@ Value div_poly_poly(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial p1 = left->value.poly;
 		Polynomial p2 = right->value.poly;
 
-		TransferFunction tf;
-    tf.num = clone_poly(a, &p1);
-    tf.den = clone_poly(a, &p2);
+		TransferFunction tf  = {
+			.num = clone_poly(a, &p1),
+			.den = clone_poly(a, &p2),
+			.Ts  = 0
+		};
     
 		return make_transfer_function(tf_simplify(a, &tf));
 }
@@ -3530,9 +3637,17 @@ Value ordered_div_poly_num(Arena *a, Environment *e, Value *left, Value *right){
 
 // ------------- Transfer Functions --------------------
 
+bool tf_same_domain(Environment *e, const char *op, TransferFunction *a, TransferFunction *b){
+	if(a->Ts == b->Ts) return true;
+	runtime_error(e, "%s: can't combine systems with different sample times (%g and %g)",
+			          op,  a->Ts, b->Ts);
+	return false;
+}
+
 Value add_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf1 = left->value.tf;
     TransferFunction tf2 = right->value.tf;
+		if(!tf_same_domain(e, "+", &tf1, &tf2)) return make_nan();
 
     // A     C
     // -  +  -
@@ -3551,7 +3666,8 @@ Value add_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
 
     TransferFunction tf = {
       .num = AD_BC.value.poly,
-      .den = BD.value.poly
+      .den = BD.value.poly,
+			.Ts  = tf1.Ts,
     };
 
     return make_transfer_function(tf_simplify(a, &tf));
@@ -3560,6 +3676,7 @@ Value add_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
 Value sub_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf1 = left->value.tf;
     TransferFunction tf2 = right->value.tf;
+		if(!tf_same_domain(e, "-", &tf1, &tf2)) return make_nan();
 
     // A     C
     // -  -  -
@@ -3578,7 +3695,8 @@ Value sub_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
 
     TransferFunction tf = {
       .num = AD_BC.value.poly,
-      .den = BD.value.poly
+      .den = BD.value.poly,
+			.Ts  = tf1.Ts	,
     };
 
     return make_transfer_function(tf_simplify(a, &tf));
@@ -3587,6 +3705,7 @@ Value sub_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
 Value mul_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf1 = left->value.tf;
     TransferFunction tf2 = right->value.tf;
+		if(!tf_same_domain(e, "*", &tf1, &tf2)) return make_nan();
 
     // A     C
     // -  *  -
@@ -3602,7 +3721,8 @@ Value mul_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
 
     TransferFunction tf = {
       .num = AC.value.poly,
-      .den = BD.value.poly
+      .den = BD.value.poly,
+			.Ts  = tf1.Ts,
     };
 
     return make_transfer_function(tf_simplify(a, &tf));
@@ -3613,6 +3733,7 @@ Value mul_tf_poly(Arena *a, Environment *e, Value *left, Value *right){
     Polynomial poly     = left->valueType == VALUE_TRANSFER_FUNCTION ? right->value.poly : left->value.poly;
 
 		TransferFunction poly_tf = tf_from_poly(a, &poly);
+		poly_tf.Ts               = tf.Ts;
 		Value tf_val             = make_transfer_function(tf);
 		Value poly_tf_val        = make_transfer_function(poly_tf);
 
@@ -3624,6 +3745,7 @@ Value add_tf_poly(Arena *a, Environment *e, Value *left, Value *right){
     Polynomial poly     = left->valueType == VALUE_TRANSFER_FUNCTION ? right->value.poly : left->value.poly;
 
 		TransferFunction poly_tf = tf_from_poly(a, &poly);
+		poly_tf.Ts               = tf.Ts;
 		Value tf_val             = make_transfer_function(tf);
 		Value poly_tf_val        = make_transfer_function(poly_tf);
 
@@ -3635,6 +3757,7 @@ Value sub_tf_poly(Arena *a, Environment *e, Value *left, Value *right){
     Polynomial poly     = right->value.poly;
 
 		TransferFunction poly_tf = tf_from_poly(a, &poly);
+		poly_tf.Ts               = tf.Ts;
 		Value tf_val             = make_transfer_function(tf);
 		Value poly_tf_val        = make_transfer_function(poly_tf);
 
@@ -3646,6 +3769,7 @@ Value sub_poly_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = right->value.tf;
 
 		TransferFunction poly_tf = tf_from_poly(a, &poly);
+		poly_tf.Ts               = tf.Ts;
 		Value tf_val             = make_transfer_function(tf);
 		Value poly_tf_val        = make_transfer_function(poly_tf);
 
@@ -3657,6 +3781,7 @@ Value add_num_tf(Arena *a, Environment *e, Value *left, Value *right){
     double num          = left->valueType == VALUE_TRANSFER_FUNCTION ? right->value.number : left->value.number;
 
 		TransferFunction num_tf = tf_from_num(a, num);
+		num_tf.Ts               = tf.Ts;
 		Value tf_val            = make_transfer_function(tf);
 		Value num_tf_val        = make_transfer_function(num_tf);
 
@@ -3669,6 +3794,7 @@ Value sub_tf_num(Arena *a, Environment *e, Value *left, Value *right){
     double num          = right->value.number;
 
 		TransferFunction num_tf = tf_from_num(a, num);
+		num_tf.Ts               = tf.Ts;
 		Value tf_val            = make_transfer_function(tf);
 		Value num_tf_val        = make_transfer_function(num_tf);
 
@@ -3679,6 +3805,7 @@ Value sub_num_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf = right->value.tf;
 
 		TransferFunction num_tf = tf_from_num(a, num);
+		num_tf.Ts               = tf.Ts;
 		Value tf_val            = make_transfer_function(tf);
 		Value num_tf_val        = make_transfer_function(num_tf);
 
@@ -3713,6 +3840,7 @@ Value div_tf_num(Arena *a, Environment *e, Value *left, Value *right){
 Value div_tf_tf(Arena *a, Environment *e, Value *left, Value *right){
     TransferFunction tf1 = left->value.tf;
     TransferFunction tf2 = right->value.tf;
+		if(!tf_same_domain(e, "/", &tf1, &tf2)) return make_nan();
 
 		TransferFunction inv_tf2 = tf_invert(a, &tf2);
 
@@ -3728,8 +3856,9 @@ Value div_poly_tf(Arena *a, Environment *e, Value *left, Value *right){
 
 		TransferFunction tf_inv  = tf_invert(a, &tf);
 		TransferFunction tf_poly = tf_from_poly(a, &p);
+		tf_poly.Ts               = tf.Ts;
 		
-		Value tf_inv_val = make_transfer_function(tf_inv);
+		Value tf_inv_val  = make_transfer_function(tf_inv);
 		Value tf_poly_val = make_transfer_function(tf_poly);
 
 		return mul_tf_tf(a, e, &tf_inv_val, &tf_poly_val);
@@ -3740,6 +3869,7 @@ Value div_tf_poly(Arena *a, Environment *e, Value *left, Value *right){
 		Polynomial p        = right->value.poly;
 
 		TransferFunction tf_poly     = tf_from_poly(a, &p);
+		tf_poly.Ts                   = tf.Ts;
 		TransferFunction tf_poly_inv = tf_invert(a, &tf_poly);
 
 		Value tf_val                 = make_transfer_function(tf);
@@ -4849,7 +4979,16 @@ Value native_impulse(Arena *a, Environment *e, char* script, size_t argc, Value 
 		return make_nan();
 	}
 
-	double *y = impulse_response(a, e, argv[0].value.tf, ts, n);
+	TransferFunction tf = argv[0].value.tf;
+
+	// DT response
+	if(tf.Ts > 0){
+		double *y = dt_response_at(a, e, tf, ts, n, false);
+		if(!y) return make_nan();
+		return make_real_vector(y, n);
+	}
+
+	double *y = impulse_response(a, e, tf, ts, n);
 	if(!y) return make_nan();
 	return make_real_vector(y, n);
 }
@@ -4860,13 +4999,51 @@ Value native_step(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	size_t n;
 
 	if(!as_real_vector(a, &argv[1], &ts, &n)){
-		runtime_error(e, "impulse: expected a real vector");
+		runtime_error(e, "step: expected a real vector");
 		return make_nan();
 	}
 
-	double *y = step_response(a, e, argv[0].value.tf, ts, n);
+	TransferFunction tf = argv[0].value.tf;
+
+	// DT response
+	if(tf.Ts > 0){
+		double *y = dt_response_at(a, e, tf, ts, n, true);
+		if(!y) return make_nan();
+		return make_real_vector(y, n);
+	}
+
+
+	double *y = step_response(a, e, tf, ts, n);
 	if(!y) return make_nan();
 	return make_real_vector(y, n);
+}
+
+Value native_zvar(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+  Value ts_val = argv[0];
+	if(ts_val.valueType != VALUE_NUMBER){
+		runtime_error(e, "zvar: expected a sampling time");
+		return make_nan();
+	}
+
+	double Ts = ts_val.value.number;
+
+	if(Ts <= 0){
+		runtime_error(e, "zvar: sampling time must be > 0");
+		return make_nan();
+	}
+
+	double num_coeffs[]     = {0.0, 1.0};
+	size_t num_coeffs_count = 2;
+	double den_coeffs[]     = {1.0};
+	size_t den_coeffs_count = 1;
+	Polynomial pnum         = poly_new(a, num_coeffs, num_coeffs_count);
+	Polynomial pden         = poly_new(a, den_coeffs, den_coeffs_count);
+	TransferFunction ztf = {
+		.num = pnum,
+		.den = pden,
+		.Ts =  ts_val.value.number
+	};
+	return make_transfer_function(ztf);
 }
 
 Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
@@ -4909,7 +5086,8 @@ typedef struct {
         N(polygcd,  2)          \
         N(poles,    1)          \
         N(impulse,  2)          \
-        N(step,     2)
+        N(step,     2)          \
+        N(zvar,     1)
 #define N(name, argc) { #name, native_##name, argc },
 #define M(name, rf, cf, rcf) N(name, 1)
 #define R(name, reducer_fn, init, empty_ok) N(name, 1)
@@ -5336,7 +5514,7 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
 		case VALUE_TRANSFER_FUNCTION:
 			{
         char buf[1024];
-        transfer_function_repr(ta, &value->value.tf, buf, "x");
+        transfer_function_repr(ta, &value->value.tf, buf, sizeof(buf));
         printf("%s\n", buf);
 				break;
 			}
