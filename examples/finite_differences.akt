@@ -1,0 +1,14 @@
+let N    = 200
+let t    = linspace(0, 10, N)
+let dt   = t[1] - t[0]
+
+let ysin = sin(t)
+
+let D = 1/dt * (-eye(N) + diag(ones([N-1]), 1))
+
+print("Number of elements in the matrix: " + len(D))
+
+let ycos_approx = D @ ysin
+
+plot(t, ysin)
+plot(t, ycos_approx)

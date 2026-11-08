@@ -4962,6 +4962,97 @@ Value native_eye(Arena *a, Environment *e, char* script, size_t argc, Value *arg
   return make_tensor(t);
 }
 
+// diag(v, k = 0)  -> square matrix with the vector v on the k-th diagonal
+//                    (a scalar counts as a 1-element vector, as in MATLAB)
+// diag(M, k = 0)  -> the k-th diagonal of the matrix M, as a vector
+// k > 0 is above the main diagonal, k < 0 below it.
+Value native_diag(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+	Value x_val = argv[0];
+
+	double k_val;
+	if(!get_opt_number(e, "diag", argc, argv, 1, "index", 0, &k_val)) return make_nan();
+	if(!isfinite(k_val) || k_val != floor(k_val)){
+		runtime_error(e, "diag: index must be a whole number (got %g)", k_val);
+		return make_nan();
+	}
+	long k = (long)k_val;
+	size_t row_off = k < 0 ? (size_t)(-k) : 0;
+	size_t col_off = k > 0 ? (size_t)k    : 0;
+
+	// Extract a diagonal from a matrix
+	if(x_val.valueType == VALUE_TENSOR && x_val.value.tensor.ndim == 2){
+		Tensor m    = x_val.value.tensor;
+		size_t rows = m.sizes[0], cols = m.sizes[1];
+		size_t n    = 0;
+		if(row_off < rows && col_off < cols){
+			size_t r = rows - row_off, c = cols - col_off;
+			n = r < c ? r : c;
+		}
+		size_t sizes[MAX_DIMS] = {0};
+		sizes[0] = n;
+		Tensor t;
+		if(tensor_init(a, &t, 1, sizes, m.dtype) != 0){
+			runtime_error(e, "diag: not enough memory");
+			return make_nan();
+		}
+		size_t indices[MAX_DIMS] = {0};
+		for(size_t i = 0; i < n; i++){
+			indices[0] = i + row_off;
+			indices[1] = i + col_off;
+			size_t off = tensor_get_offset(&m, indices);
+			if(m.dtype == DTYPE_REAL) t.data.re[i] = m.data.re[off];
+			else                      t.data.cx[i] = m.data.cx[off];
+		}
+		return make_tensor(t);
+	}
+
+	// Build a matrix from a vector (scalars are 1-element vectors)
+	Tensor scalar;
+	Tensor *v;
+	if(x_val.valueType == VALUE_NUMBER || x_val.valueType == VALUE_COMPLEX){
+		size_t one[MAX_DIMS] = {1};
+		DType sdtype = x_val.valueType == VALUE_COMPLEX ? DTYPE_COMPLEX : DTYPE_REAL;
+		if(tensor_init(a, &scalar, 1, one, sdtype) != 0){
+			runtime_error(e, "diag: not enough memory");
+			return make_nan();
+		}
+		if(sdtype == DTYPE_REAL) scalar.data.re[0] = x_val.value.number;
+		else                     scalar.data.cx[0] = x_val.value.complex_number;
+		v = &scalar;
+	}else if(x_val.valueType == VALUE_TENSOR && x_val.value.tensor.ndim == 1){
+		v = &x_val.value.tensor;
+	}else{
+		runtime_error(e, "diag: expected a number, a vector or a matrix");
+		return make_nan();
+	}
+	size_t n    = v->count;
+	DType dtype = v->dtype;
+
+	size_t dim = n + row_off + col_off;
+	if(!((double)dim * dim <= 1e8)){
+		runtime_error(e, "diag: matrix is too large (%zux%zu)", dim, dim);
+		return make_nan();
+	}
+	size_t sizes[MAX_DIMS] = {0};
+	sizes[0] = dim;
+	sizes[1] = dim;
+	Tensor t;
+	if(tensor_init(a, &t, 2, sizes, dtype) != 0){
+		runtime_error(e, "diag: not enough memory to allocate matrix");
+		return make_nan();
+	}
+
+	size_t indices[MAX_DIMS] = {0};
+	for(size_t i = 0; i < n; i++){
+		indices[0] = i + row_off;
+		indices[1] = i + col_off;
+		size_t off = tensor_get_offset(&t, indices);
+		if(dtype == DTYPE_REAL) t.data.re[off] = v->data.re[i * v->strides[0]];
+		else                    t.data.cx[off] = v->data.cx[i * v->strides[0]];
+	}
+	return make_tensor(t);
+}
+
 Value native_zeros(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
   Value sizes_val = argv[0];
 	if(sizes_val.valueType != VALUE_TENSOR){
@@ -5218,6 +5309,7 @@ typedef struct {
         N(push,     2)          \
         N(mean,     1)          \
         N(eye,      1)          \
+        NV(diag,    1, 2)       \
         N(zeros,    1)          \
         N(ones,     1)          \
         NV(plot,     2, 3)      \
