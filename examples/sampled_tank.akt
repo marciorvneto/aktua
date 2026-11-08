@@ -1,0 +1,111 @@
+// -----------------------------------------------------
+//
+//  SAMPLED TANK
+//  By: Marcio R. V. Neto, 2026
+//
+//  The leaky tank from leaky_tank.akt, controlled by
+//  a PLC instead of an analog controller. The PLC only
+//  looks at the level every Ts seconds, and holds its
+//  output constant in between.
+//
+//  Level in m, flow in L/s, time in s.
+//
+// -----------------------------------------------------
+
+let s = poly([0, 1])
+
+let K   = 0.2                  // tank gain [m per L/s]
+let tau = 100                  // time constant [s]
+let H   = K / (tau * s + 1)
+
+// ---------- 1. What the PLC sees ----------
+//
+// zvar(Ts) gives the discrete variable z: multiplying by z means
+// "one sample later". For a first-order tank, the exact sampled
+// model is
+//
+//   Hd(z) = K (1 - a) / (z - a),   a = exp(-Ts / tau)
+//
+// The tank pole at s = -1/tau moves to z = exp(-Ts / tau).
+// In discrete time a system is stable when its poles are inside
+// the unit circle, |z| < 1.
+
+let Ts = 10
+let z  = zvar(Ts)
+let a  = exp(-Ts / tau)
+let Hd = K * (1 - a) / (z - a)
+
+print("The tank, sampled every " + Ts + " s:")
+print(Hd)
+print("Pole: " + a + ", inside the unit circle, so stable")
+
+let tk = Ts * linspace(0, 30, 31)
+print("Level after a 1 L/s inflow step, as the PLC sees it:")
+plot(tk, step(Hd, tk), "stairs")
+
+// ---------- 2. Approximating s ----------
+//
+// Exact sampling is easy for one pole but tedious in general.
+// The usual shortcut is to replace s with a function of z:
+//
+//   forward Euler:  s ~ (z - 1) / Ts
+//   Tustin:         s ~ (2 / Ts) (z - 1) / (z + 1)
+//
+// Since s is just a value here, that is a substitution:
+
+let s_euler  = (z - 1) / Ts
+let s_tustin = (2 / Ts) * (z - 1) / (z + 1)
+
+let H_euler  = K / (tau * s_euler + 1)
+let H_tustin = K / (tau * s_tustin + 1)
+
+print("Where the tank pole lands:")
+print("  exact:  " + a)
+print("  Euler:  " + (1 - Ts / tau))
+print("  Tustin: " + (1 - Ts / (2 * tau)) / (1 + Ts / (2 * tau)))
+
+// ---------- 3. Sampling too slowly ----------
+//
+// Forward Euler only keeps a pole inside the unit circle if the
+// sampling is fast enough, Ts < 2 tau. Tustin keeps every stable
+// system stable, whatever the sampling time.
+
+let Ts_slow = 250
+let z_slow  = zvar(Ts_slow)
+
+let H_euler_slow  = K / (tau * (z_slow - 1) / Ts_slow + 1)
+let H_tustin_slow = K / (tau * (2 / Ts_slow) * (z_slow - 1) / (z_slow + 1) + 1)
+
+print("Sampling every " + Ts_slow + " s, poles:")
+print("  Euler:  " + (1 - Ts_slow / tau) + ", outside the unit circle")
+print("  Tustin: " + (1 - Ts_slow / (2 * tau)) / (1 + Ts_slow / (2 * tau)))
+
+let t_slow = Ts_slow * linspace(0, 12, 13)
+print("Euler at Ts = " + Ts_slow + " s: a stable tank, an unstable model")
+plot(t_slow, step(H_euler_slow, t_slow), "stairs")
+
+// ---------- 4. A digital PI controller ----------
+//
+// The PI controller from leaky_tank.akt, C(s) = kp + ki / s.
+// On the PLC, the integral becomes a running sum of the error:
+//
+//   1/s ~ Ts z / (z - 1)
+
+let kp = 20
+let ki = 0.2
+
+let C  = kp + ki / s
+let Cd = kp + ki * Ts * z / (z - 1)
+
+let W  = C * H / (1 + C * H)
+let Wd = Cd * Hd / (1 + Cd * Hd)
+
+print("Closed loop with the digital PI:")
+print(Wd)
+print(poles(Wd))
+
+let t = linspace(0, 150, 151)
+print("Analog PI: level after a 1 m setpoint step")
+plot(t, step(W, t))
+print("Digital PI, Ts = " + Ts + " s: almost the same, one step at a time")
+plot(t, step(Wd, t), "stairs")

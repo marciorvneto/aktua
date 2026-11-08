@@ -4,14 +4,17 @@ PROGRAM         = STATEMENTS_LIST
 STATEMENTS_LIST = STATEMENT STATEMENTS_LIST
                 | eps
 
-STATEMENT       = ASSIGNMENT   STMT_END
-                | RETURN_STMT  STMT_END
-                | FOR_STMT     STMT_END
-                | FUNCTION_DEF STMT_END
-                | IF_STATEMENT STMT_END
-                | EXPRESSION   STMT_END
+STATEMENT       = ASSIGNMENT     STMT_END
+                | RETURN_STMT    STMT_END
+                | FOR_STMT       STMT_END
+                | WHILE_STMT     STMT_END
+                | FUNCTION_DEF   STMT_END
+                | IF_STATEMENT   STMT_END
+                | EXPRESSION     STMT_END
 
 FOR_STMT        = "for" id "in" EXPRESSION BLOCK
+
+WHILE_STMT      = "while" EXPRESSION BLOCK
 
 RETURN_STMT     = "return" EXPRESSION
                 | "return"

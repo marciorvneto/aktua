@@ -1,0 +1,66 @@
+import("test.akt")
+
+// Sampled continuous systems: the checks behind examples/sampled_tank.akt
+
+let s   = poly([0, 1])
+let K   = 0.2
+let tau = 100
+let H   = K / (tau * s + 1)
+
+// ---------- Exact (ZOH) sampling of a first-order plant ----------
+
+let Ts = 10
+let z  = zvar(Ts)
+let a  = exp(-Ts / tau)
+let Hd = K * (1 - a) / (z - a)
+
+// The pole maps through z = exp(s Ts)
+let pd = poles(Hd)
+assert_close(abs(pd[0] - a), 0, 1e-12)
+
+// Same DC gain: H(0) in continuous time, Hd(1) in discrete time
+assert_close(Hd(1), H(0), 1e-12)
+
+// At the sampling instants, the step responses agree
+let tk = Ts * linspace(0, 30, 31)
+let y_ct = step(H, tk)
+let y_dt = step(Hd, tk)
+for k in range(0, len(tk)) {
+  assert_close(y_dt[k], y_ct[k], 1e-6)
+}
+
+// ---------- Euler and Tustin by substitution ----------
+
+let H_euler  = K / (tau * (z - 1) / Ts + 1)
+let H_tustin = K / (tau * (2 / Ts) * (z - 1) / (z + 1) + 1)
+
+// Both keep the DC gain, because z = 1 maps to s = 0
+assert_close(H_euler(1), K, 1e-12)
+assert_close(H_tustin(1), K, 1e-12)
+
+let pe = poles(H_euler)
+let pt = poles(H_tustin)
+assert_close(abs(pe[0] - (1 - Ts / tau)), 0, 1e-12)
+assert_close(abs(pt[0] - (1 - Ts / (2 * tau)) / (1 + Ts / (2 * tau))), 0, 1e-12)
+
+// ---------- Slow sampling: Euler unstable, Tustin stable ----------
+
+let Ts_slow = 250
+let z_slow  = zvar(Ts_slow)
+let pe_slow = poles(K / (tau * (z_slow - 1) / Ts_slow + 1))
+let pt_slow = poles(K / (tau * (2 / Ts_slow) * (z_slow - 1) / (z_slow + 1) + 1))
+assert(abs(pe_slow[0]) > 1, "Euler is unstable at Ts = 250")
+assert(abs(pt_slow[0]) < 1, "Tustin is stable at Ts = 250")
+
+// ---------- Digital PI loop ----------
+
+let Cd = 20 + 0.2 * Ts * z / (z - 1)
+let Wd = Cd * Hd / (1 + Cd * Hd)
+
+// Simplifies to second order: the (z - 1)(z - a) factor shared by
+// numerator and denominator must cancel, even though its roots are close
+assert_eq(len(poles(Wd)), 2)
+
+// Integral action: no offset. Evaluating at z = 1 divides by D(1) ~ 0.04,
+// which amplifies the rounding left by the cancellation
+assert_close(Wd(1), 1, 1e-9)

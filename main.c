@@ -24,6 +24,7 @@
 #define MAX(x,y) ((x) > (y) ? (x) : (y))
 #define MIN(x,y) ((x) < (y) ? (x) : (y))
 
+#define GCD_TOL 1e-9
 #define ABERTH_TOL 1e-12
 #define ABERTH_MAX_ITER 1000
 
@@ -3109,6 +3110,12 @@ Polynomial poly_scaled_to_one(Arena *arena, Polynomial *p){
 }
 
 
+double poly_max_abs(const Polynomial *p){
+	double m = 0;
+	for(size_t i = 0; i < p->num_coeffs; i++) m = fmax(m, fabs(p->coeffs[i]));
+	return m;
+}
+
 Polynomial poly_gcd(Arena *arena, Polynomial a, Polynomial b){
 	// Euclid'a gcd algorithm for polynomials
 	a = poly_scaled_to_one(arena, &a);
@@ -3117,11 +3124,13 @@ Polynomial poly_gcd(Arena *arena, Polynomial a, Polynomial b){
 	poly_update_degree(&b);
 	Polynomial q;
 	Polynomial r;
-  while (!poly_is_zero(&b)) {
-    poly_divmod(arena, a, b, &q, &r);
-    a = b;
-    b = r;
-  }
+	double scale = MAX(poly_max_abs(&a), poly_max_abs(&b));   // 1 after the scaling above
+	while (!poly_is_zero(&b)) {
+		poly_divmod(arena, a, b, &q, &r);
+		a = b;
+		if(poly_max_abs(&r) <= GCD_TOL * scale) break;
+		b = r;
+	}
 	return poly_monic(arena, a);
 }
 
