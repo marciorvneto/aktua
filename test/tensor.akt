@@ -1,3 +1,5 @@
+import("test.akt")
+
 let v = [1,2,3,4]
 
 let M = [1,2,3,4;
@@ -14,3 +16,11 @@ print(M)
 print("")
 print(I)
 print("")
+
+// ------------------ Tensor assignment operations ------------------
+
+v[0] = 123 
+assert_close(v[0], 123, "One-index assignment failed")
+
+M[0,0] = 456 
+assert_close(M[0,0], 456, "Two-index assignment failed")

@@ -1364,6 +1364,7 @@ struct AST {
 		struct {
 			char          *dst;
 			AST           *expr;
+			AST           *tensor_indices;
 		} statement;
 
 		struct {
@@ -2067,19 +2068,32 @@ AST *parse_block(Arena *pa, AST *parent, Parser *parser){
   return list;
 }
 
-AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
-	size_t save    = parser->next;
-  Token *current = NULL;
-  AST   *stmt    = NULL;
-  if((current = parser_peek(parser)) && 
-      parser_keyword_eat("let", parser))
-  {
-    stmt = ast_make_statement(pa, STATEMENT_DECL_ASSIGN);
-  }else{
-		parser->next = save;
-    stmt = ast_make_statement(pa, STATEMENT_ASSIGN);
-  }
+AST *parse_tensor_idx_assignment(Arena *pa, AST *parent, Parser *parser, AST *stmt){
+  Token *id = NULL;
+  if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
+  if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
 
+	AST *indices = parse_args_list(pa, parent, parser);
+	if(!indices) return NULL;
+
+	stmt->as.statement.tensor_indices = indices;
+
+  if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
+
+  stmt->as.statement.dst  = arena_alloc(pa, strlen(id->value) + 1);
+  strcpy(stmt->as.statement.dst, id->value);
+
+  if((id = parser_eat(TOK_EQ, parser)) == NULL) return NULL;
+
+  AST *expr               = parse_expression(pa, stmt, parser);
+	if(!expr) return NULL;
+  stmt->as.statement.expr = expr;
+
+  if(!parser_eat_stmt_end(parser)) return NULL;
+  return stmt;
+}
+
+AST *parse_variable_assignment(Arena *pa, AST *parent, Parser *parser, AST *stmt){
   Token *id = NULL;
   if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
 
@@ -2094,6 +2108,28 @@ AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
 
   if(!parser_eat_stmt_end(parser)) return NULL;
   return stmt;
+}
+
+AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
+	size_t save    = parser->next;
+  Token *current = NULL;
+  AST   *stmt    = NULL;
+  if((current = parser_peek(parser)) && 
+      parser_keyword_eat("let", parser))
+  {
+    stmt = ast_make_statement(pa, STATEMENT_DECL_ASSIGN);
+	}else{
+		parser->next = save;
+		stmt = ast_make_statement(pa, STATEMENT_ASSIGN);
+		if(
+				(parser->next = save, parse_variable_assignment(pa, parent, parser, stmt)) ||
+				(parser->next = save, parse_tensor_idx_assignment(pa, parent, parser, stmt))
+			){
+			return stmt;
+		}
+	}
+
+	return parse_variable_assignment(pa, parent, parser, stmt);
 }
 
 AST *parse_while_stmt(Arena *pa, AST *parent, Parser *parser){
@@ -2352,6 +2388,15 @@ void ast_print(AST *ast, int level){
 				printf("%sSTMT:\n", buf);
 				fill_indent(level + 1, buf);
 				printf("%sSRC:  %s\n", buf, ast->as.statement.dst);
+				if(ast->as.statement.tensor_indices){
+					printf("%sINDICES:\n", buf);
+					for(AST *idx = ast->as.statement.tensor_indices;
+							idx != NULL;
+							idx = idx->next
+							){
+						ast_print(idx, level + 2);
+					}
+				}
 				printf("%sEXP:\n", buf);
 				ast_print(ast->as.statement.expr, level + 2);
 				break;
@@ -6667,7 +6712,7 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
   AST *ast     = arena_alloc(e->persistent, sizeof(AST));
   parse_code   = parse_source(e,  buffer, len, ast);
 
-  ast_print(ast, 0);
+  // ast_print(ast, 0);
 
   // Evaluation uses temporary memory
   SCRATCH_SCOPE(ta){
