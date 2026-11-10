@@ -5655,8 +5655,10 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 			arg          != NULL;
 			arg           = arg->next,
 			arg_def       = arg_def->next
-		 ){
-		env_set_variable(new_env, arg_def->as.literal.value.id, &evaluated[i]);
+		 )
+	{
+		Value owned = value_clone(env_storage(new_env), &evaluated[i]);
+		env_set_variable(new_env, arg_def->as.literal.value.id, &owned);
 		i++;
 	}
 
@@ -6367,6 +6369,106 @@ ExecStatus eval_block(
     return 0;
 }
 
+int eval_tensor_assignment(Arena *ta, Environment *e, char *script_path, AST *stmt, int *silent){
+	char *dst = stmt->as.statement.dst;
+	Variable *tensor = NULL;
+	if((tensor = env_find_local(e, dst)) == NULL){
+		runtime_error(e, "Variable %s has not been defined", dst);
+		return 1;
+	}
+	if(tensor->value->valueType != VALUE_TENSOR){
+		runtime_error(e, "Expected %s to be a tensor", dst);
+		return 1;
+	}
+	size_t offset      = 0;
+	size_t index_count = 0;
+	size_t current_idx = 0;
+	size_t count       = tensor->value->value.tensor.count;
+	size_t ndim        = tensor->value->value.tensor.ndim;
+	size_t *strides    = tensor->value->value.tensor.strides;
+	size_t *sizes      = tensor->value->value.tensor.sizes;
+	DType dtype        = tensor->value->value.tensor.dtype;
+
+	size_t save        = ta->offset;
+
+	for(
+			AST *index = stmt->as.statement.tensor_indices;
+			index != NULL;
+			index = index->next, index_count++
+		 )
+	{
+		if(index_count >= ndim){
+			runtime_error(e, "More indices given than %zu dimensions (given %zu).", ndim, index_count); return 1;
+			return 1;
+		}
+		Value idx_value = eval_expr(ta, e, script_path, index, silent);
+		if(idx_value.valueType != VALUE_NUMBER){
+			runtime_error(e, "Invalid expression in index %zu. Expected a number.", index_count);
+			return 1;
+		}
+		if(trunc(idx_value.value.number) != idx_value.value.number){
+			runtime_error(e, "Indices must be integers (given %g).", idx_value.value.number);
+			return 1;
+		}
+		if(idx_value.value.number >= sizes[index_count] || idx_value.value.number < 0){
+			runtime_error(e, "Index out of range for axis %zu of size %zu (given %g).", 
+					index_count, sizes[index_count], idx_value.value.number);
+			return 1;
+		}
+		offset += strides[index_count] * idx_value.value.number;
+	}
+  if(index_count != ndim){ 
+		runtime_error(e, "%s has %zu dimensions, got %zu indices", dst, ndim, index_count); 
+		return 1;
+	}
+
+	Value expr_value = eval_expr(ta, e, script_path, stmt->as.statement.expr, silent);
+	if(expr_value.valueType != VALUE_NUMBER && expr_value.valueType != VALUE_COMPLEX){
+		runtime_error(e, "Can only assign numbers to tensors.", index_count);
+		return 1;
+	}
+
+	DType final_dtype     = expr_value.valueType == VALUE_COMPLEX ? DTYPE_COMPLEX : dtype;
+
+	if(final_dtype != dtype && final_dtype == DTYPE_COMPLEX){
+		double complex *new_cx = arena_alloc(env_storage(e), count * sizeof(double complex));
+		for(size_t i = 0; i < count; i++) new_cx[i] = tensor->value->value.tensor.data.re[i];
+		tensor->value->value.tensor.data.cx = new_cx;
+	}
+
+	if(final_dtype == DTYPE_COMPLEX){
+		tensor->value->value.tensor.data.cx[offset] = 
+			expr_value.valueType == VALUE_NUMBER ? 
+			expr_value.value.number : 
+			expr_value.value.complex_number;
+	}else{
+		tensor->value->value.tensor.data.re[offset] = expr_value.value.number;
+	}
+
+	tensor->value->value.tensor.dtype = final_dtype;
+
+	ta->offset = save;
+
+	return 0;
+}
+
+int eval_variable_assignment(Arena *ta, Environment *e, char *script_path, AST *stmt, int *silent){
+	char *dst = stmt->as.statement.dst;
+	// Check if it has been defined before
+	if(env_find_local(e, dst) == NULL){
+		runtime_error(e, "Variable %s has not been defined", dst);
+		return 1;
+	}
+	//  TODO: Check if it's not null
+	SCRATCH_SCOPE(ta){
+		Value value = eval_expr(ta, e, script_path, stmt->as.statement.expr, silent);
+		Value saved = value_clone(env_storage(e), &value);
+		env_set_variable(e, dst, &saved);
+	}
+	return 0;
+}
+
+
 ExecStatus eval_stmt(
 		Arena* ta,
 		AST *ast,
@@ -6403,20 +6505,9 @@ ExecStatus eval_stmt(
 	}
 
 	if(stmt->statement_type == STATEMENT_ASSIGN){
-		char *dst = stmt->as.statement.dst;
-		// Check if it has been defined before
-    if(env_find_local(e, dst) == NULL){
-			runtime_error(e, "Variable %s has not been defined", dst);
-			return 1;
-    }
-
-		//  TODO: Check if it's not null
-    SCRATCH_SCOPE(ta){
-      Value value = eval_expr(ta, e, script_path, stmt->as.statement.expr, &silent);
-      Value saved = value_clone(env_storage(e), &value);
-      env_set_variable(e, dst, &saved);
-    }
-		return 0;
+		if(stmt->as.statement.tensor_indices != NULL)
+			return eval_tensor_assignment(ta, e, script_path, stmt, &silent);
+		return eval_variable_assignment(ta, e, script_path, stmt, &silent);
 	}
 
 	if(stmt->statement_type == STATEMENT_FUNCTION_DEF){
