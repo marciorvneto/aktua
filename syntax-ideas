@@ -31,6 +31,7 @@ STMT_END        = "\n"
 
 ASSIGNMENT      = "let" id "=" EXPRESSION
                 | id "=" EXPRESSION
+                | id "[" ARGS_LIST "]" = EXPRESSION
 
 IF_STATEMENT    = "if" EXPRESSION BLOCK ELIF_LIST ELSE_OPT
 

@@ -6667,7 +6667,7 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
   AST *ast     = arena_alloc(e->persistent, sizeof(AST));
   parse_code   = parse_source(e,  buffer, len, ast);
 
-  // ast_print(ast, 0);
+  ast_print(ast, 0);
 
   // Evaluation uses temporary memory
   SCRATCH_SCOPE(ta){
