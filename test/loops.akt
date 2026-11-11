@@ -99,3 +99,27 @@ fn doubled_sum(n) {
 }
 assert_eq(doubled_sum(4), 12)
 assert_eq(doubled_sum(4), 12)
+
+// let in a block shadows the outer variable until the block ends
+let x = 1
+if 1 {
+  let x = 5
+  assert_eq(x, 5)
+}
+assert_eq(x, 1)
+
+for i in [1, 2, 3] {
+  let x = 100 * i
+}
+assert_eq(x, 1)
+
+// Plain assignment in a block still reaches the outer variable
+if 1 {
+  x = 2
+}
+assert_eq(x, 2)
+
+// Redeclaring in the same scope replaces the value
+let G = 1
+let G = G + 10
+assert_eq(G, 11)

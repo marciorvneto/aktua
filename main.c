@@ -1869,7 +1869,6 @@ AST *parse_tuple(Arena *pa, AST *parent, Parser *parser) {
 }
 
 AST *parse_paren_expr(Arena *pa, AST *parent, Parser *parser) {
-    Token *current = NULL;
     if(parser_eat(TOK_LPAREN, parser) == NULL) return NULL;
     AST *expr = parse_expression(pa, parent, parser);
     if(parser_eat(TOK_RPAREN, parser) == NULL) return NULL;
@@ -1877,7 +1876,6 @@ AST *parse_paren_expr(Arena *pa, AST *parent, Parser *parser) {
 }
 
 AST *parse_primary(Arena *pa, AST *parent, Parser *parser) {
-	Token *current = parser_peek(parser);
   size_t save = parser->next;
   AST *primary = NULL;
 
@@ -2287,7 +2285,6 @@ AST *parse_expr_stmt(Arena *pa, AST *parent, Parser *parser){
 
 AST *parse_statement(Arena *pa, AST *parent, Parser *parser){
   size_t save = parser->next;
-	Token *current = parser_peek(parser);
   AST *stmt = NULL;
 
   if(
@@ -2499,9 +2496,22 @@ void ast_print(AST *ast, int level){
 				ast_print(ast->as.binop.right, level + 2);
 				break;
 			}
-		case AST_POSTFIX_OP:
+		case AST_UNARY_OP:
 			{
 				char opBuf[128];
+				op_type_repr(ast->as.unop.op, opBuf);
+				printf("%sUNOP[%s]:\n", buf, opBuf);
+				ast_print(ast->as.unop.arg, level + 1);
+				break;
+			}
+		// Never built by the parser. Listed instead of a default case,
+		// so -Wswitch still flags any new node type that isn't printed
+		case AST_ARGS_LIST:
+		case AST_NODE_TYPE_COUNT:
+			printf("%s<node type %d>\n", buf, ast->type);
+			break;
+		case AST_POSTFIX_OP:
+			{
 				printf("%sPOSTFIX[%s]:\n", buf, ast->as.postfix_op.op);
 				fill_indent(level + 1, buf);
 				printf("%sTARGET:\n", buf);
@@ -2589,8 +2599,10 @@ Arena *env_storage(Environment *e) {
   return e->parent ? e->frame : e->persistent;
 }
 
+// Searches newest first, so a let in a block shadows an outer variable
+// of the same name until the block ends
 int env_variable_idx(Environment *e, const char* name){
-	for(int i = 0; i < e->num_vars; i++){
+	for(int i = (int)e->num_vars - 1; i >= 0; i--){
 		if(strcmp(name, e->vars[i].name) == 0) return i;
 	}
 	return -1;
@@ -4623,7 +4635,6 @@ int import_script(Arena *ta, Environment *e, char* importer, char *path);
 Value native_import(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
   if(val.valueType != VALUE_STRING){
-    char buf[1024];
 		runtime_error(e, "Importing a module expects a string.");
     *silent = 1;
     return make_num(0);
@@ -5207,7 +5218,6 @@ Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 		runtime_error(e, "poly: Expected a 1-D-like array of coefficients");
 		return make_nan();
 	}
-	int err;
 	Polynomial p = poly_new(a, coeffs, num_coeffs);
 	poly_update_degree(&p);
 	return make_poly(p);
@@ -6182,7 +6192,6 @@ Value eval_array(Arena *ta, Environment *e, char *script_path, AST *array, int *
 		return make_tensor(t);
 	}
 
-	bool dtype_set = false;
 	DType dtype    = DTYPE_REAL;
 
 	if(num_rows == 1){
@@ -6404,7 +6413,6 @@ int eval_tensor_assignment(Arena *ta, Environment *e, char *script_path, AST *st
 	}
 	size_t offset      = 0;
 	size_t index_count = 0;
-	size_t current_idx = 0;
 	size_t count       = tensor->value->value.tensor.count;
 	size_t ndim        = tensor->value->value.tensor.ndim;
 	size_t *strides    = tensor->value->value.tensor.strides;
@@ -6510,17 +6518,13 @@ ExecStatus eval_stmt(
 
 	if(stmt->statement_type == STATEMENT_DECL_ASSIGN){
 		char *dst = stmt->as.statement.dst;
-		// Check if it hasn't been defined before
-    if(env_find_local(e, dst) != NULL){
-			runtime_error(e, "Variable %s has already been defined", dst);
-			return 1;
-    }
 
-		//  TODO: Check if it's not null
+		// let always makes a new variable. An existing one with the same
+		// name, here or in an enclosing block, is shadowed, not overwritten
     SCRATCH_SCOPE(ta){
       Value value = eval_expr(ta, e, script_path, stmt->as.statement.expr, &silent);
       Value saved = value_clone(env_storage(e), &value);
-      env_set_variable(e, dst, &saved);
+      env_alloc_variable(e, dst, &saved);
     }
 		return 0;
 	}
@@ -6730,7 +6734,6 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
   ssize_t nread     = 0;
   ssize_t last_good = 0;
   int parse_code    = 0;
-  int stop          = 0;
 
   while(1){
 
@@ -6840,10 +6843,6 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
 
 
 int main(int argc, char **argv){
-	size_t size        = 0;
-	ssize_t nread      = 0;
-	ssize_t last_good  = 0;
-	int parse_code     = 0;
 	RunStats run_stats = {0};
 
 	Arena ta      = arena_create(32 * 1024 * 1024); // 32 MB for now
