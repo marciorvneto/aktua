@@ -1,0 +1,69 @@
+// -----------------------------------------------------
+//
+//  ODEs
+//  By: Marcio R. V. Neto, 2026
+//
+//  Implementing several ODE integrators
+//  in Aktua
+//
+// -----------------------------------------------------
+
+
+fn fun(t, y) {
+	return -y
+}
+
+// Euler's method
+
+fn euler(fun, y0, tmax, num_points){
+
+	let ts = linspace(0, tmax, num_points)
+	let h  = ts[1] - ts[0]
+
+	let ys = zeros([num_points])
+	ys[0]  = y0
+
+	for i in range(1, num_points){
+		ys[i] = ys[i - 1] + h * fun(ts[i - 1], ys[i - 1])
+	}
+
+	return (ts, ys)
+}
+let res_euler = euler(fun, 1, 1, 50)
+let ye = res_euler[1]
+let error_euler = abs(exp(-1) - ye[-1])
+print("Euler's method")
+print("Absolute error: " + error_euler)
+plot(res_euler[0], res_euler[1])
+
+
+fn rk4(fun, y0, tmax, num_points){
+
+	let ts = linspace(0, tmax, num_points)
+	let h  = ts[1] - ts[0]
+
+	let ys = zeros([num_points])
+	ys[0]  = y0
+
+	let k1 = 0
+	let k2 = 0
+	let k3 = 0
+	let k4 = 0
+
+	for i in range(1, num_points){
+		k1 = h * fun(ts[i - 1],       ys[i - 1])
+		k2 = h * fun(ts[i - 1] + h/2, ys[i - 1] + k1 / 2)
+		k3 = h * fun(ts[i - 1] + h/2, ys[i - 1] + k2 / 2)
+		k4 = h * fun(ts[i - 1] + h,   ys[i - 1] + k3)
+		ys[i] = ys[i - 1] + (k1 + 2*k2 + 2*k3 + k4) / 6	
+	}
+
+	return (ts, ys)
+}
+
+let res_rk4 = rk4(fun, 1, 1, 50)
+let ye_rk4 = res_rk4[1]
+let error_rk4 = abs(exp(-1) - ye_rk4[-1])
+print("Runge-Kutta 4th order")
+print("Absolute error: " + error_rk4)
+plot(res_rk4[0], res_rk4[1])
