@@ -9,6 +9,7 @@
 // -----------------------------------------------------
 
 
+// dy/dt = -y, y(0) = 1. Exact solution: y(t) = exp(-t)
 fn fun(t, y) {
 	return -y
 }
@@ -23,19 +24,61 @@ fn euler(fun, y0, tmax, num_points){
 	let ys = zeros([num_points])
 	ys[0]  = y0
 
+	// Slope at the start of each step
 	for i in range(1, num_points){
 		ys[i] = ys[i - 1] + h * fun(ts[i - 1], ys[i - 1])
 	}
 
 	return (ts, ys)
 }
-let res_euler = euler(fun, 1, 1, 50)
-let ye = res_euler[1]
-let error_euler = abs(exp(-1) - ye[-1])
+
+let res_euler   = euler(fun, 1, 1, 50)
+let error_euler = abs(exp(-1) - res_euler[1][-1])
 print("Euler's method")
+print("y(1) = " + res_euler[1][-1] + ", exact " + exp(-1))
 print("Absolute error: " + error_euler)
 plot(res_euler[0], res_euler[1])
 
+
+// Backward Euler
+
+fn backward_euler(fun, y0, tmax, num_points){
+
+	let ts = linspace(0, tmax, num_points)
+	let h  = ts[1] - ts[0]
+
+	let ys = zeros([num_points])
+	ys[0]  = y0
+
+	// Slope at the end of each step, so ys[i] is on both sides:
+	// solve g(y) = y - ys[i-1] - h f(t[i], y) = 0 with Newton.
+	// For f = -y, g is linear and Newton gets it in one step.
+	for i in range(1, num_points){
+		let y  = ys[i - 1]
+		let dy = 1
+		while abs(dy) > 1e-12 {
+			let d  = 1e-6
+			let g  = y - ys[i - 1] - h * fun(ts[i], y)
+			let dg = 1 - h * (fun(ts[i], y + d) - fun(ts[i], y - d)) / (2 * d)
+			dy = g / dg
+			y  = y - dy
+		}
+		ys[i] = y
+	}
+
+	return (ts, ys)
+}
+
+let res_beuler   = backward_euler(fun, 1, 1, 50)
+let error_beuler = abs(exp(-1) - res_beuler[1][-1])
+print("")
+print("Backward Euler")
+print("y(1) = " + res_beuler[1][-1] + ", exact " + exp(-1))
+print("Absolute error: " + error_beuler)
+plot(res_beuler[0], res_beuler[1])
+
+
+// Classic Runge-Kutta, 4th order
 
 fn rk4(fun, y0, tmax, num_points){
 
@@ -45,25 +88,45 @@ fn rk4(fun, y0, tmax, num_points){
 	let ys = zeros([num_points])
 	ys[0]  = y0
 
-	let k1 = 0
-	let k2 = 0
-	let k3 = 0
-	let k4 = 0
-
+	// Four slopes per step: start, midpoint twice, end
 	for i in range(1, num_points){
-		k1 = h * fun(ts[i - 1],       ys[i - 1])
-		k2 = h * fun(ts[i - 1] + h/2, ys[i - 1] + k1 / 2)
-		k3 = h * fun(ts[i - 1] + h/2, ys[i - 1] + k2 / 2)
-		k4 = h * fun(ts[i - 1] + h,   ys[i - 1] + k3)
-		ys[i] = ys[i - 1] + (k1 + 2*k2 + 2*k3 + k4) / 6	
+		let t  = ts[i - 1]
+		let y  = ys[i - 1]
+		let k1 = h * fun(t,       y)
+		let k2 = h * fun(t + h/2, y + k1 / 2)
+		let k3 = h * fun(t + h/2, y + k2 / 2)
+		let k4 = h * fun(t + h,   y + k3)
+		ys[i] = y + (k1 + 2*k2 + 2*k3 + k4) / 6
 	}
 
 	return (ts, ys)
 }
 
-let res_rk4 = rk4(fun, 1, 1, 50)
-let ye_rk4 = res_rk4[1]
-let error_rk4 = abs(exp(-1) - ye_rk4[-1])
+let res_rk4   = rk4(fun, 1, 1, 50)
+let error_rk4 = abs(exp(-1) - res_rk4[1][-1])
+print("")
 print("Runge-Kutta 4th order")
+print("y(1) = " + res_rk4[1][-1] + ", exact " + exp(-1))
 print("Absolute error: " + error_rk4)
 plot(res_rk4[0], res_rk4[1])
+
+
+// Halving h: both Eulers' errors halve, RK4's drops ~16x
+
+print("")
+print("Error at t = 1 vs. number of steps")
+for n in [10, 20, 40, 80] {
+	let e_euler  = abs(exp(-1) - euler(fun, 1, 1, n + 1)[1][-1])
+	let e_beuler = abs(exp(-1) - backward_euler(fun, 1, 1, n + 1)[1][-1])
+	let e_rk4    = abs(exp(-1) - rk4(fun, 1, 1, n + 1)[1][-1])
+	print(n + " steps:  Euler " + e_euler + ",  backward " + e_beuler + ",  RK4 " + e_rk4)
+}
+
+
+// Large steps: h = 2.5. Euler needs h < 2 here, backward Euler
+// is stable for any h
+
+print("")
+print("y(10) with 4 steps of h = 2.5, exact " + exp(-10))
+print("Euler:          " + euler(fun, 1, 10, 5)[1][-1])
+print("Backward Euler: " + backward_euler(fun, 1, 10, 5)[1][-1])
