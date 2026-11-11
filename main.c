@@ -3526,6 +3526,9 @@ typedef Value (*UnaryValueDispatch)(Arena *a, Environment *e, Value *caller, Val
 //
 //============================
 
+
+const char *fn_name(Value *fn);
+
 bool get_opt_string(Environment *e, const char *fn, size_t argc, Value *argv,
                   size_t i, const char *name, const char *def, const char **out){
 	if(i >= argc) { *out = def; return true; }
@@ -4589,6 +4592,18 @@ Value native_assert(Arena *a, Environment *e, char* script, size_t argc, Value *
   return make_num(cond.value.number);
 }
 
+Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
+                      Value *fun, size_t argc, Value *args, int *silent);
+Value native_apply(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+	Value fn = argv[0];
+	if(fn.valueType != VALUE_FUNCTION){
+		runtime_error(e, "apply: first argument must be a function");
+		return make_nan();
+	}
+	return call_function(a, e, script, fn_name(&fn), &fn, 1, &argv[1], silent);
+}
+
+
 Value native_ls(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   env_list_variables(e);
   *silent = 1;
@@ -5370,8 +5385,9 @@ typedef struct {
 } NativeFn;
 
 
-#define NATIVE_LIST             \
+#define NATIVE_FNS_LIST         \
         N(assert,   2)          \
+        N(apply,    2)          \
         N(ls,       0)          \
         N(print,    1)          \
         N(import,   1)          \
@@ -5400,11 +5416,18 @@ typedef struct {
 #define NV(name, argc_min, argc_max) { #name, native_##name, argc_min, argc_max },
 #define M(name, rf, cf, rcf) N(name, 1)
 #define R(name, reducer_fn, init, empty_ok) N(name, 1)
-static const NativeFn natives[] = { NATIVE_LIST };
+static const NativeFn natives[] = { NATIVE_FNS_LIST };
 #undef M
 #undef N
 #undef R
 
+const char *fn_name(Value *fn){
+	if(fn->value.fun.kind == FN_NATIVE){
+		return natives[fn->value.fun.native_data.native_index].name;
+	}else{
+		return fn->value.fun.definition->as.fn_def.id;
+	}
+}
 
 //==============================
 //
@@ -5492,9 +5515,9 @@ typedef enum {
 	EXEC_RETURN,
 } ExecStatus;
 
-ExecStatus eval_stmt(Arena* ta, AST *ast, Environment *e, char *script_path, AST *stmt, Value *result_out);
+ExecStatus eval_stmt(Arena* ta, Environment *e, char *script_path, AST *stmt, Value *result_out);
 Value eval_expr(Arena *a, Environment *e, char *script_path, AST *expr, int *silent);
-ExecStatus eval_block( Arena *a, AST *ast, Environment *e, char *script_path, AST *first, Value *result_out);
+ExecStatus eval_block( Arena *a, Environment *e, char *script_path, AST *first, Value *result_out);
 
 Value eval_unop(Arena *a, Environment *e, AST *op, Value *arg_given){
 	Value *arg  = arg_given;
@@ -5580,6 +5603,73 @@ Environment *push_env(Environment *e){
 	return new_env;
 }
 
+Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
+                      Value *fun, size_t argc, Value *args, int *silent){
+	// Sanity checks
+
+	if (fun->valueType != VALUE_FUNCTION) {
+		runtime_error(e, "%s is not a function", name);
+		return make_nan();
+	}
+
+  if(fun->value.fun.kind == FN_NATIVE){
+    size_t argc_min = fun->value.fun.native_data.argc_min;
+    size_t argc_max = fun->value.fun.native_data.argc_max;
+		if((size_t)argc < argc_min || (size_t)argc > argc_max){
+			if(argc_max == ARGS_VARIADIC){
+				runtime_error(e, "%s expects at least %zu arguments, got %d", name, argc_min, argc);
+			}else if(argc_min == argc_max){
+				runtime_error(e, "%s expects %zu arguments, got %d", name, argc_min, argc);
+			}else{
+				runtime_error(e, "%s expects between %zu and %zu arguments, got %d", name, argc_min, argc_max, argc);
+			}
+			return make_nan();
+		}
+  }else{
+    size_t num_args = fun->value.fun.definition->as.fn_def.num_args;
+		if((size_t)argc != num_args){
+			runtime_error(e, "%s expects %zu arguments, got %d", name, num_args, argc);
+			return make_nan();
+		}
+  }
+
+  if(fun->value.fun.kind == FN_NATIVE){
+    int idx = fun->value.fun.native_data.native_index;
+    if(idx < 0 || idx >= LEN(natives)){
+			runtime_error(e, "%s not registered", name);
+      return make_nan();
+    }
+    NativeValueDispatch dispatch = natives[idx].fn;
+    Value result = dispatch(ta, e, script_path, argc, args, silent);
+    return result;
+  }
+	// Push a new environment for the function scope
+
+  size_t scratch = arena_save(e->frame);
+	Environment *new_env = push_env(e);
+
+	// Set its argument values to those evaluated before
+
+  AST *arg_def = fun->value.fun.definition->as.fn_def.params;
+  for(size_t i = 0; i < argc; i++, arg_def = arg_def->next){
+      Value owned = value_clone(env_storage(new_env), &args[i]);
+      env_set_variable(new_env, arg_def->as.literal.value.id, &owned);
+  }
+
+	Value result;
+  AST *block     = fun->value.fun.definition->as.fn_def.block;
+  ExecStatus out = eval_block(ta,  new_env, script_path, block, &result);
+
+  if(out == EXEC_ERROR){
+    arena_restore(e->frame, scratch);
+    return make_nan();
+  }
+
+  Value escaped = value_clone(ta, &result);
+  arena_restore(e->frame, scratch);
+	return escaped;
+}
+
 Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, int *silent){
 	int argc      = fn_call->as.fn_call.num_arguments;
 	char *fn_name = fn_call->as.fn_call.fn_name;
@@ -5608,80 +5698,7 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 		return make_nan();
 	}
 	Value *fun = fun_var->value;
-
-	// Sanity checks
-
-	if (fun->valueType != VALUE_FUNCTION) {
-		runtime_error(e, "%s is not a function", fn_name);
-		return make_nan();
-	}
-
-  if(fun->value.fun.kind == FN_NATIVE){
-    size_t argc_min = fun->value.fun.native_data.argc_min;
-    size_t argc_max = fun->value.fun.native_data.argc_max;
-		if((size_t)argc < argc_min || (size_t)argc > argc_max){
-			if(argc_max == ARGS_VARIADIC){
-				runtime_error(e, "%s expects at least %zu arguments, got %d", fn_name, argc_min, argc);
-			}else if(argc_min == argc_max){
-				runtime_error(e, "%s expects %zu arguments, got %d", fn_name, argc_min, argc);
-			}else{
-				runtime_error(e, "%s expects between %zu and %zu arguments, got %d", fn_name, argc_min, argc_max, argc);
-			}
-			return make_nan();
-		}
-  }else{
-    size_t num_args = fun->value.fun.definition->as.fn_def.num_args;
-		if((size_t)argc != num_args){
-			runtime_error(e, "%s expects %zu arguments, got %d", fn_name, num_args, argc);
-			return make_nan();
-		}
-  }
-
-  if(fun->value.fun.kind == FN_NATIVE){
-    int idx = fun->value.fun.native_data.native_index;
-    if(idx < 0 || idx >= LEN(natives)){
-			runtime_error(e, "%s not registered", fn_name);
-      return make_nan();
-    }
-    NativeValueDispatch dispatch = natives[idx].fn;
-    Value result = dispatch(ta, e, script_path, argc, evaluated, silent);
-    return result;
-  }
-
-
-	// Push a new environment for the function scope
-
-  size_t scratch = arena_save(e->frame);
-	Environment *new_env = push_env(e);
-
-	// Set its argument values to those evaluated before
-
-	size_t i = 0;
-	for(
-			AST *arg      = fn_call->as.fn_call.first_arg,
-			    *arg_def  = fun->value.fun.definition->as.fn_def.params;
-			arg          != NULL;
-			arg           = arg->next,
-			arg_def       = arg_def->next
-		 )
-	{
-		Value owned = value_clone(env_storage(new_env), &evaluated[i]);
-		env_set_variable(new_env, arg_def->as.literal.value.id, &owned);
-		i++;
-	}
-
-	Value result;
-  AST *block     = fun->value.fun.definition->as.fn_def.block;
-  ExecStatus out = eval_block(ta, fn_call, new_env, script_path, block, &result);
-
-  if(out == EXEC_ERROR){
-    arena_restore(e->frame, scratch);
-    return make_nan();
-  }
-
-  Value escaped = value_clone(ta, &result);
-  arena_restore(e->frame, scratch);
-	return escaped;
+	return call_function(ta, e, script_path, fn_name, fun, argc, evaluated, silent);
 }
 
 //============================== 
@@ -6339,7 +6356,6 @@ Value eval_expr(Arena *ta, Environment *e, char *script_path, AST *expr, int *si
 
 ExecStatus eval_block(
     Arena *ta,
-    AST *ast,
     Environment *e,
     char *script_path,
     AST *block,
@@ -6358,7 +6374,7 @@ ExecStatus eval_block(
             int silent = 1;
             result = eval_expr( ta, e, script_path, stmt, &silent);
         } else {
-            int err = eval_stmt(ta, ast, e, script_path, stmt, result_out);
+            int err = eval_stmt(ta, e, script_path, stmt, result_out);
             if (err != 0) {
                 e->num_vars = mark;
                 return err;
@@ -6477,7 +6493,6 @@ int eval_variable_assignment(Arena *ta, Environment *e, char *script_path, AST *
 
 ExecStatus eval_stmt(
 		Arena* ta,
-		AST *ast,
 		Environment *e,
 		char *script_path,
 		AST *stmt,
@@ -6556,10 +6571,10 @@ ExecStatus eval_stmt(
       return 0;
 
     if (!cond_true && stmt->as.if_stmt.else_is_elif) {
-      return eval_stmt(ta, ast, e, script_path, branch, result_out);
+      return eval_stmt(ta, e, script_path, branch, result_out);
     }
 
-    return eval_block(ta, ast, e, script_path, branch, result_out);
+    return eval_block(ta, e, script_path, branch, result_out);
   }
 
   if(stmt->statement_type == STATEMENT_FOR){
@@ -6581,7 +6596,7 @@ ExecStatus eval_stmt(
       env_set_variable(e, id, &item);
 
       Value body_result;
-      ExecStatus status = eval_block(ta, ast, e, script_path, stmt->as.for_stmt.block, &body_result);
+      ExecStatus status = eval_block(ta, e, script_path, stmt->as.for_stmt.block, &body_result);
       if(status == EXEC_RETURN){
         if(result_out) *result_out = body_result;   // don't restore: it may point into ta
         return EXEC_RETURN;
@@ -6608,7 +6623,7 @@ ExecStatus eval_stmt(
 			}       
 
 			Value body_result;
-			ExecStatus status = eval_block(ta, ast, e, script_path, stmt->as.while_stmt.block,
+			ExecStatus status = eval_block(ta, e, script_path, stmt->as.while_stmt.block,
 					&body_result);
 			if(status == EXEC_RETURN){
 				if(result_out) *result_out = body_result;   // don't restore: it may point into ta!
@@ -6635,7 +6650,7 @@ int run_ast(Arena* ta, AST *ast, Environment *e, char *script_path){
 	AST *stmt = ast->as.program.statement_list->as.statement_list.first;
 
 	while(stmt != NULL){
-		ExecStatus status = eval_stmt(ta, ast, e, script_path, stmt, NULL);
+		ExecStatus status = eval_stmt(ta, e, script_path, stmt, NULL);
 		if(status == EXEC_RETURN){
 			printf("Return outside function body\n");
 		}

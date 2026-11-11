@@ -18,7 +18,7 @@ vim.cmd([[
   syntax match aktuaFunction /\v<[A-Za-z_][A-Za-z0-9_]*\ze\s*\(/
 
   " Native functions implemented in C (NATIVE_LIST in main.c)
-  syntax keyword aktuaBuiltin assert ls print import complex abs real imag arg log log10 exp sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh floor ceil round sqr sqrt max min sum prod range linspace len push mean eye diag zeros ones plot poly polymod polydiv polygcd poles impulse step zvar
+  syntax keyword aktuaBuiltin assert apply ls print import complex abs real imag arg log log10 exp sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh floor ceil round sqr sqrt max min sum prod range linspace len push mean eye diag zeros ones plot poly polymod polydiv polygcd poles impulse step zvar
 
   " Postfix properties (postfix_fn_list in main.c), e.g. A.T, x.shape
   syntax match aktuaProperty /\v(\.)@1<=<(T|shape)>/
