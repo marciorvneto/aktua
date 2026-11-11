@@ -76,12 +76,12 @@ EXPO            = POSTFIX ^ UNARY
 POSTFIX         = PRIMARY POSTFIX_TAIL
 
 POSTFIX_TAIL    = "." id POSTFIX_TAIL
+                | "[" ARGS_LIST "]" POSTFIX_TAIL
                 | eps
 
 PRIMARY         = number
                 | id "(" ARGS_LIST ")"
                 | id "(" ")"
-                | INDEXING
                 | id
                 | '"' + char* + '"'
                 | ARRAY
@@ -98,8 +98,6 @@ ROW             = EXPRESSION ROW_TAIL
 
 ROW_TAIL        = "," EXPRESSION ROW_TAIL
                 | eps
-
-INDEXING        = id "[" ARGS_LIST "]"
 
 ARGS_LIST       = EXPRESSION ARGS_LIST_TAIL
 

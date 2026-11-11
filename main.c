@@ -1421,8 +1421,8 @@ struct AST {
 		} fn_call;
 
 		struct   {
-			char   *var_name;
-			AST    *first;
+			AST *target;
+			AST *first;
 		} indexing;
 
 		struct {
@@ -1551,11 +1551,11 @@ AST *ast_make_id(Arena *pa, size_t len){
 	return expr;
 }
 
-AST *ast_make_indexing(Arena *pa, size_t len){
+AST *ast_make_indexing(Arena *pa){
 	AST *expr = ast_alloc(pa, AST_INDEXING);
-	expr->statement_type       = STATEMENT_EXPR;
-	expr->as.indexing.var_name = arena_alloc(pa, len + 1);
-	expr->as.indexing.first    = NULL;
+	expr->statement_type     = STATEMENT_EXPR;
+	expr->as.indexing.target = NULL;
+	expr->as.indexing.first  = NULL;
 	return expr;
 }
 
@@ -1820,22 +1820,6 @@ AST *parse_args_list(Arena *pa, AST *parent, Parser *parser){
 }
 
 
-AST *parse_indexing(Arena *pa, AST *parent, Parser *parser){
-    Token *name = parser_eat(TOK_ID, parser);
-    if(!name) return NULL;
-    char *var_name = name->value;
-		if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
-
-		AST *indexing = ast_make_indexing(pa, strlen(var_name));
-    strcpy(indexing->as.indexing.var_name, name->value);
-		AST *expr  = parse_args_list(pa, parent, parser);
-		if(!expr) return NULL;
-		indexing->as.indexing.first = expr;
-
-		if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
-		return indexing;
-}
-
 AST *parse_string(Arena *pa, AST *parent, Parser *parser) {
     Token *current = NULL;
 		if((current = parser_eat(TOK_STRING, parser)) == NULL) return NULL;
@@ -1900,7 +1884,6 @@ AST *parse_primary(Arena *pa, AST *parent, Parser *parser) {
   if(
       (parser->next = save, primary = parse_number(pa, parent, parser))     ||
       (parser->next = save, primary = parse_fn_call(pa, parent, parser))    ||
-      (parser->next = save, primary = parse_indexing(pa, parent, parser))   ||
       (parser->next = save, primary = parse_id(pa, parent, parser))         ||
       (parser->next = save, primary = parse_string(pa, parent, parser))     ||
       (parser->next = save, primary = parse_array(pa, parent, parser))      ||
@@ -1970,14 +1953,41 @@ AST *parse_expo(Arena *pa, AST *parent, Parser *parser){
 	return postfix;
 }
 
-AST *parse_postfix_tail(Arena *pa, AST *parent, Parser *parser, AST *target){
-	if(parser_done(parser) || parser_peek(parser)->type != TOK_DOT) return target;
-	parser_eat(TOK_DOT, parser);
+
+AST *parse_postfix_tail(Arena *pa, AST *parent, Parser *parser, AST *target);
+
+AST *parse_postfix_tail_dot(Arena *pa, AST *parent, Parser *parser, AST *target){
+	if(parser_eat(TOK_DOT, parser) == NULL) return NULL;
 	AST *id = parse_id(pa, parent, parser);
 	if(id == NULL) return NULL;
 	AST *postfix = ast_make_postfix(pa, id->as.literal.value.id);
 	postfix->as.postfix_op.target = target;
 	return parse_postfix_tail(pa, parent, parser, postfix);
+}
+AST *parse_postfix_tail_lbrack(Arena *pa, AST *parent, Parser *parser, AST *target){
+	if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
+	AST *args_list = parse_args_list(pa, parent, parser);
+	if(!args_list) return NULL;
+	if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
+
+	AST *indexing                = ast_make_indexing(pa);
+	indexing->as.indexing.target = target;
+	indexing->as.indexing.first  = args_list;
+	return parse_postfix_tail(pa, parent, parser, indexing);
+}
+
+AST *parse_postfix_tail(Arena *pa, AST *parent, Parser *parser, AST *target){
+	size_t save = parser->next;
+	AST *tail = NULL;
+	if(
+		(parser->next = save, tail = parse_postfix_tail_dot(pa, parent, parser, target)) ||
+		(parser->next = save, tail = parse_postfix_tail_lbrack(pa, parent, parser, target))
+		)
+	{
+		return tail;
+	}
+	parser->next = save;
+	return target;
 }
 
 AST *parse_postfix(Arena *pa, AST *parent, Parser *parser){
@@ -2456,9 +2466,7 @@ void ast_print(AST *ast, int level){
 			}
 		case AST_INDEXING:
 			{
-				printf("%sINDEXING[%s]:\n",
-						buf,
-						ast->as.indexing.var_name);
+				printf("%sINDEXING:\n", buf);
 				for(AST *node = ast->as.indexing.first;
 						node != NULL;
 						node = node->next
@@ -6097,28 +6105,26 @@ static bool resolve_index(Environment *e, const char *name, Value v, size_t size
 
 Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing, int *silent){
 
-	char *name = indexing->as.indexing.var_name;
+  AST *target        = indexing->as.indexing.target;
+  const char *name   = target->type == AST_ID ? target->as.literal.value.id : "expression";
 
-	Variable *var = env_find_variable(e, name);
-	if(!var){
-		runtime_error(e, "Undefined variable %s", name);
-		return make_nan();
-	}
+	size_t errors      = e->run_stats->runtime_errors;
+	Value target_value = eval_expr(ta, e, script_path, target, silent);
+	if(e->run_stats->runtime_errors != errors) return make_nan();
 
-	size_t errors = e->run_stats->runtime_errors;
 	size_t n = 0;
 	Value idx[MAX_DIMS];
 	for(AST *node = indexing->as.indexing.first; node != NULL; node = node->next){
 		if(n == MAX_DIMS){
-			runtime_error(e, "Too many indices: %s", name);
+			runtime_error(e, "Too many indices");
 			return make_nan();
 		}
 		idx[n++] = eval_expr(ta, e, script_path, node, silent);
 		if(e->run_stats->runtime_errors != errors) return make_nan();
 	}
 
-	if(var->value->valueType == VALUE_TENSOR){
-		Tensor *t = &var->value->value.tensor;
+	if(target_value.valueType == VALUE_TENSOR){
+		Tensor *t = &target_value.value.tensor;
 		if(n != t->ndim){
 			runtime_error(e, "%s has %zu dimensions, got %zu indices", name, t->ndim, n);
 			return make_nan();
@@ -6133,14 +6139,14 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 		return make_num(t->data.re[off]);
 	}
 
-	if(var->value->valueType == VALUE_TUPLE){
+	if(target_value.valueType == VALUE_TUPLE){
 		if(n != 1){
 			runtime_error(e, "Tuples take a single index: %s", name);
 			return make_nan();
 		}
 		size_t i;
-		if(!resolve_index(e, name, idx[0], var->value->value.tuple.size, &i)) return make_nan();
-		return var->value->value.tuple.items[i];
+		if(!resolve_index(e, name, idx[0], target_value.value.tuple.size, &i)) return make_nan();
+		return target_value.value.tuple.items[i];
 	}
 
 	runtime_error(e, "Can't index from variable %s", name);
