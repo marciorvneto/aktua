@@ -30,6 +30,9 @@
 
 #define ARGS_VARIADIC SIZE_MAX
 
+// Integer exponent check shared by polynomial and transfer function powers
+#define POW_MAX_EXP 1000
+
 //============================== 
 //
 //    Arena
@@ -3857,6 +3860,90 @@ Value ordered_div_poly_num(Arena *a, Environment *e, Value *left, Value *right){
     return mul_num_poly(a, e, &inv_num, &poly_value);
 }
 
+static bool integer_exponent(Environment *e, Value *v, long *out){
+	if(v->valueType != VALUE_NUMBER){
+		runtime_error(e, "^: polynomials can only be raised to integer powers");
+		return false;
+	}
+	double raw = v->value.number;
+	if(trunc(raw) != raw){
+		runtime_error(e, "^: polynomials can only be raised to integer powers (given %g)", raw);
+		return false;
+	}
+	if(fabs(raw) > POW_MAX_EXP){
+		runtime_error(e, "^: exponent %g is too large (at most %d)", raw, POW_MAX_EXP);
+		return false;
+	}
+	*out = (long)raw;
+	return true;
+}
+
+static Polynomial poly_mul(Arena *a, Polynomial p1, Polynomial p2){
+	Polynomial pnew = alloc_poly(a, p1.deg + p2.deg);
+	for(size_t i = 0; i < p1.num_coeffs; i++){
+		for(size_t j = 0; j < p2.num_coeffs; j++){
+			pnew.coeffs[i + j] += p1.coeffs[i] * p2.coeffs[j];
+		}
+	}
+	return pnew;
+}
+
+// p^n for n >= 0, by repeated squaring: O(log n) multiplications
+static Polynomial poly_pow(Arena *a, Polynomial p, unsigned long n){
+	Polynomial result = poly_from_num(a, 1.0);
+	Polynomial base   = p;
+	while(n > 0){
+		if(n & 1) result = poly_mul(a, result, base);
+		n >>= 1;
+		if(n > 0) base = poly_mul(a, base, base);
+	}
+	return result;
+}
+
+Value pow_poly_scalar(Arena *a, Environment *e, Value *left, Value *right){
+	long n;
+	if(!integer_exponent(e, right, &n)) return make_nan();
+
+	Polynomial p = left->value.poly;
+	if(n >= 0) return make_poly(poly_pow(a, p, (unsigned long)n));
+
+	// Negative powers leave the polynomials: p^-n = 1 / p^n
+	if(poly_is_zero(&p)){
+		runtime_error(e, "^: zero polynomial raised to a negative power");
+		return make_nan();
+	}
+	TransferFunction tf = {
+		.num = poly_from_num(a, 1.0),
+		.den = poly_pow(a, p, (unsigned long)(-n)),
+		.Ts  = 0
+	};
+	return make_transfer_function(tf);
+}
+
+// (num/den)^n = num^n / den^n. If num and den share no factors, neither do
+// their powers, so there's nothing to simplify. Ts is kept, so zvar(Ts)^-1
+// stays discrete
+Value pow_tf_scalar(Arena *a, Environment *e, Value *left, Value *right){
+	long n;
+	if(!integer_exponent(e, right, &n)) return make_nan();
+
+	TransferFunction tf = left->value.tf;
+	Polynomial top = n >= 0 ? tf.num : tf.den;
+	Polynomial bot = n >= 0 ? tf.den : tf.num;
+	if(poly_is_zero(&bot)){
+		runtime_error(e, "^: zero transfer function raised to a negative power");
+		return make_nan();
+	}
+	unsigned long k = (unsigned long)(n >= 0 ? n : -n);
+
+	TransferFunction out = {
+		.num = poly_pow(a, top, k),
+		.den = poly_pow(a, bot, k),
+		.Ts  = tf.Ts
+	};
+	return make_transfer_function(out);
+}
+
 
 // ------------- Transfer Functions --------------------
 
@@ -4526,6 +4613,14 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_NUMBER]  = broadcast_pow,
 			[VALUE_COMPLEX] = broadcast_pow,
 			[VALUE_TENSOR]  = broadcast_pow,
+			[VALUE_NAN]     = op_with_nan,
+		},
+		[VALUE_POLYNOMIAL] = {
+			[VALUE_NUMBER]  = pow_poly_scalar,
+			[VALUE_NAN]     = op_with_nan,
+		},
+		[VALUE_TRANSFER_FUNCTION] = {
+			[VALUE_NUMBER]  = pow_tf_scalar,
 			[VALUE_NAN]     = op_with_nan,
 		},
 		[VALUE_NAN] = {

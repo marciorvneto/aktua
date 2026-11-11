@@ -1,0 +1,89 @@
+// -----------------------------------------------------
+//
+//  PADE APPROXIMATION
+//  By: Marcio R. V. Neto, 2026
+//
+//  A dead time exp(-L s) is not a ratio of polynomials,
+//  so it can't be a transfer function. Pade approximants
+//  replace it with one that matches its Taylor series
+//  as far as possible. We compare orders 1 and 2 on the
+//  leaky tank with a 20 s delay.
+//
+// -----------------------------------------------------
+
+fn pade1(L) {
+    let s = poly([0, 1])
+    (1 - L*s/2) / (1 + L*s/2)
+}
+
+fn pade2(L) {
+    let s = poly([0, 1])
+    let x = L*s
+    (1 - x/2 + x^2/12) / (1 + x/2 + x^2/12)
+}
+
+let s = poly([0, 1])
+let H = 0.2 / (100*s + 1)
+
+let L = 20
+
+print("First order:")
+print(pade1(L))
+print("")
+print("Second order:")
+print(pade2(L))
+
+let H1 = H * pade1(L)
+let H2 = H * pade2(L)
+
+let ws = 10 ^ linspace(-3, 0, 201)
+let I = complex(0, 1)
+
+// Exact delayed plant in the frequency domain
+let Hexact = H(ws*I) * exp(-L*ws*I)
+
+// Both approximants are all-pass, |pade(jw)| = 1, so the
+// magnitudes match the exact plant. The error is all phase.
+
+print("")
+print("Max magnitude error, order 1: " + max(abs(abs(H1(ws*I)) - abs(Hexact))))
+
+let pi = 4 * atan(1)
+let P1 = pade1(L)
+let P2 = pade2(L)
+
+print("")
+print("Phase error [deg] vs. exp(-L s)")
+for w in [0.01, 0.05, 0.1, 0.2] {
+  let d = exp(-L*w*I)
+  print("w = " + w + ":  order 1 " + arg(P1(w*I) / d) * 180 / pi + ",  order 2 " + arg(P2(w*I) / d) * 180 / pi)
+}
+
+print("")
+print("Magnitude vs. log10(w), the same for all three:")
+plot(log10(ws), abs(Hexact))
+
+
+// Phase error up to w = 0.2, linear in w: it grows fast near the top
+let ws = 10 ^ linspace(-3, log10(0.2), 201)
+let d = exp(-L*ws*I)
+
+let e1 = arg(P1(ws*I) / d) * 180 / pi
+let e2 = arg(P2(ws*I) / d) * 180 / pi
+
+print("Phase error [deg] vs. w, order 1:")
+plot(ws, e1)
+print("Phase error [deg] vs. w, order 2:")
+plot(ws, e2)
+
+
+// In time, the delay is visible: the exact response waits 20 s,
+// order 1 dips first (its zero at s = +1/10), order 2 comes close
+let t = linspace(0, 150, 301)
+
+print("Step response, exact (delayed by L):")
+plot(t, step(H, t - L))
+print("Step response, order 1:")
+plot(t, step(H1, t))
+print("Step response, order 2:")
+plot(t, step(H2, t))
