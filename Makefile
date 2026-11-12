@@ -1,9 +1,14 @@
-.PHONY: aktua stdlib clean test syntax
+.PHONY: aktua stdlib clean test syntax repl
 
 aktua: build/aktua stdlib
 
+repl: build/repl
+
+build/repl:  repl.c
+	$(CC) -ggdb -Wall repl.c -o build/repl
+
 build/aktua: main.c | build
-	gcc -ggdb main.c -lm -o build/aktua
+	$(CC) -ggdb main.c -lm -o build/aktua
 
 test: aktua
 	@for f in test/*.akt examples/*.akt; \
