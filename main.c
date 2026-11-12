@@ -4576,9 +4576,13 @@ BROADCAST_OP(pow, "^", pow(x,y),  cpow(x, y))
 bool as_boolean(Value *v){
 	if(v->valueType == VALUE_BOOLEAN) return v->value.boolean;
 	if(v->valueType == VALUE_NUMBER) return v->value.number;
-	if(v->valueType == VALUE_COMPLEX) return v->value.number;
+	if(v->valueType == VALUE_COMPLEX) return v->value.complex_number;
 	if(v->valueType == VALUE_NAN) return false;
 	return true;
+}
+
+Value promote_bool_to_number(const Value *v){
+	return make_num(v->value.boolean ? 1 : 0);
 }
 
 Value eq_boolean(Arena *a, Environment *e, Value *left, Value *right){
@@ -4599,6 +4603,14 @@ Value or_boolean(Arena *a, Environment *e, Value *left, Value *right){
 	return make_boolean(v_left || v_right);
 }
 
+bool op_is_arithmetic(OpType op){
+	return  op == OP_PLUS  ||
+					op == OP_MUL   ||	
+					op == OP_DIV   ||	
+					op == OP_MINUS ||
+					op == OP_POW;
+}
+
 
 
 static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE_TYPE_COUNT] = {
@@ -4606,6 +4618,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER]              = {
 			[VALUE_NUMBER]            = add_scalar_scalar,
 			[VALUE_COMPLEX]           = add_scalar_scalar,
+			[VALUE_BOOLEAN]           = add_scalar_scalar,
 			[VALUE_TENSOR]            = broadcast_add,
 			[VALUE_POLYNOMIAL]        = add_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = add_num_tf,
@@ -4615,6 +4628,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_COMPLEX]              = {
 			[VALUE_NUMBER]            = add_scalar_scalar,
 			[VALUE_COMPLEX]           = add_scalar_scalar,
+			[VALUE_BOOLEAN]           = add_scalar_scalar,
 			[VALUE_TENSOR]            = broadcast_add,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
@@ -4624,6 +4638,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_TENSOR] = {
 			[VALUE_NUMBER]            = broadcast_add,
 			[VALUE_COMPLEX]           = broadcast_add,
+			[VALUE_BOOLEAN]           = broadcast_add,
 			[VALUE_TENSOR]            = broadcast_add,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
@@ -4855,10 +4870,12 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER]  = eq_scalar_scalar,
 			[VALUE_COMPLEX] = eq_scalar_scalar,
+			[VALUE_BOOLEAN] = eq_boolean,
 		},
 		[VALUE_COMPLEX] = {
 			[VALUE_NUMBER]  = eq_scalar_scalar,
 			[VALUE_COMPLEX] = eq_scalar_scalar,
+			[VALUE_BOOLEAN] = eq_boolean,
 		},
 		[VALUE_BOOLEAN] = {
 			[VALUE_NUMBER]            = eq_boolean,
@@ -4868,6 +4885,18 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
 			[VALUE_NAN]               = eq_boolean,
+		},
+		[VALUE_TENSOR] = {
+			[VALUE_BOOLEAN] = op_with_nan,
+		},
+		[VALUE_POLYNOMIAL] = {
+			[VALUE_BOOLEAN] = op_with_nan,
+		},
+		[VALUE_TRANSFER_FUNCTION] = {
+			[VALUE_BOOLEAN] = op_with_nan,
+		},
+		[VALUE_NAN] = {
+			[VALUE_BOOLEAN] = eq_boolean,
 		},
 		[VALUE_STRING] = {
 			[VALUE_STRING] = eq_str_str,
@@ -4901,6 +4930,12 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 	// Logical
 
 	[OP_AND] = {
+		[VALUE_NUMBER] = {
+			[VALUE_BOOLEAN] = and_boolean,
+		},
+		[VALUE_COMPLEX] = {
+			[VALUE_BOOLEAN] = and_boolean,
+		},
 		[VALUE_BOOLEAN] = {
 			[VALUE_NUMBER]  = and_boolean,
 			[VALUE_COMPLEX] = and_boolean,
@@ -4908,6 +4943,12 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		}
 	},
 	[OP_OR] = {
+		[VALUE_NUMBER] = {
+			[VALUE_BOOLEAN] = or_boolean,
+		},
+		[VALUE_COMPLEX] = {
+			[VALUE_BOOLEAN] = or_boolean,
+		},
 		[VALUE_BOOLEAN] = {
 			[VALUE_NUMBER]  = or_boolean,
 			[VALUE_COMPLEX] = or_boolean,
@@ -5881,6 +5922,11 @@ Value eval_unop(Arena *a, Environment *e, AST *op, Value *arg_given){
 		return make_nan();
 	}
 
+	Value tmp;
+	if(op_is_arithmetic(op->as.binop.op) && arg->valueType == VALUE_BOOLEAN){
+		tmp = promote_bool_to_number(arg);
+		arg = &tmp;
+	}
 	UnaryFn fn = unop_dispatch[op->as.binop.op][arg->valueType];
 
 	if(!fn){
@@ -5919,6 +5965,17 @@ Value eval_binop(Arena *a, Environment *e, AST *op, Value *raw_left, Value *raw_
 		return make_nan();
 	}
 
+	Value tmp_l, tmp_r;
+	if(op_is_arithmetic(op->as.binop.op)){
+		if(left->valueType == VALUE_BOOLEAN){
+			tmp_l = promote_bool_to_number(left);
+			left = &tmp_l;
+		}
+		if(right->valueType == VALUE_BOOLEAN){
+			tmp_r = promote_bool_to_number(right);
+			right = &tmp_r;
+		}
+	}
 	BinaryFn fn = binop_dispatch[op->as.binop.op][left->valueType][right->valueType];
 
 	if(!fn){

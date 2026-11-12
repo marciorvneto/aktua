@@ -13,3 +13,8 @@ assert((t or t)  == t,     "expected t or t to be t")
 assert((t or f)  == t,     "expected t or f to be t")
 assert((f or t)  == t,     "expected f or t to be t")
 assert((f or f)  == f,     "expected f or f to be f")
+
+assert(-t        == -1,    "expected -t to be -1")
+assert(+f        == 0,     "expected +f to be 0")
+assert((not not t) == t,   "expected not not t to be t")
+assert(-(t + t)  == -2,    "expected -(t + t) to be -2")
