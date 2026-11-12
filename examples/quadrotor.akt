@@ -1,5 +1,12 @@
-// Tiny 2D quadrotor: x/z motion and pitch.
-// Idealized model: no drag, motor lag, or thrust limits.
+// -----------------------------------------------------
+//
+//  QUADROTOR
+//  By: Marcio R. V. Neto, 2026
+//
+//  Tiny 2D quadrotor: x/z motion and pitch.
+//  Idealized model: no drag, motor lag, or thrust limits.
+//
+// -----------------------------------------------------
 
 let m = 0.5       // mass [kg]
 let g = 9.81      // gravity [m/s^2]
