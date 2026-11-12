@@ -20,8 +20,6 @@ void enable_raw_mode(void){
 	t.c_iflag &= ~(IXON | ICRNL);
 	t.c_oflag &= ~(OPOST);
 
-	// read() returns after at most 100 ms, with 0 bytes if nothing arrived.
-	// That timeout is what lets us tell a lone ESC from an escape sequence.
 	t.c_cc[VMIN]  = 0;
 	t.c_cc[VTIME] = 1;
 
@@ -38,13 +36,13 @@ void disable_raw_mode(void){
 //==============================
 
 typedef enum {
-	// Single-byte keys, named for readability
+	// Single-byte keys
 	KEY_TAB       = 9,
 	KEY_ENTER     = 13,
 	KEY_ESC       = 27,
 	KEY_BACKSPACE = 127,
 
-	// Multi-byte keys, above any byte value
+	// Multi-byte keys
 	KEY_UP = 1000,
 	KEY_DOWN,
 	KEY_LEFT,
@@ -54,7 +52,7 @@ typedef enum {
 	KEY_DELETE,
 } Key;
 
-// Reads one byte, giving up after the VTIME timeout. Returns 1 if a byte arrived.
+// Reads one byte, giving up after the VTIME timeout.
 static int read_byte(unsigned char *c){
 	return read(STDIN_FILENO, c, 1) == 1;
 }
@@ -64,7 +62,8 @@ int read_key(void){
 	unsigned char c;
 	ssize_t n;
 
-	// Wait for the first byte. read() returns 0 every 100 ms while idle, so loop.
+	// Wait for the first byte - returns 0 until something comes, 
+	// so we need to loop 
 	while((n = read(STDIN_FILENO, &c, 1)) != 1){
 		if(n == -1 && errno != EAGAIN && errno != EINTR) return -1;
 	}
@@ -72,12 +71,6 @@ int read_key(void){
 	if(c != KEY_ESC) return c;
 
 	// An ESC arrived. If nothing follows quickly, it was the Esc key itself.
-	// Sequences come in a few shapes:
-	//   ESC [ A..D        arrows
-	//   ESC [ H / ESC [ F Home / End (xterm style)
-	//   ESC O H / ESC O F Home / End ("application mode")
-	//   ESC [ n ~         Home (1, 7), Delete (3), End (4, 8) - tmux sends these
-	// Anything we don't recognize (Alt+key, F-keys, ...) collapses to KEY_ESC.
 	unsigned char seq[3];
 	if(!read_byte(&seq[0])) return KEY_ESC;
 	if(!read_byte(&seq[1])) return KEY_ESC;

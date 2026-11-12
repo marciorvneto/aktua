@@ -825,6 +825,8 @@ typedef enum {
 typedef struct {
 	TokenType type;
 	char      *value;
+	size_t     offset;
+	size_t     line;
 } Token;
 
 void token_type_repr(TokenType type, char *buf){
@@ -861,6 +863,7 @@ typedef struct {
 	const char   *source;
 	size_t       size;
 	size_t       offset;
+	size_t       line;
 } Tokenizer;
 
 int tokenizer_eat_char(Tokenizer *tokenizer, char c){
@@ -922,8 +925,8 @@ int tokenizer_is_str(const char *pos, const char *str, size_t n){
 
 Token tokenizer_make_symbol(Arena *a, TokenType type, Tokenizer *tokenizer, size_t symbol_len){
 	Token tok = {
-		tok.type  = type,
-		tok.value = NULL,
+		.type  = type,
+		.value = NULL,
 	};
 	size_t num_chars = symbol_len;
 	tokenizer->offset += num_chars;
@@ -1056,10 +1059,17 @@ Token tokenize_keyword(Arena *a, const char *pos, size_t len){
   return tok;
 }
 
+void push_token(Token *tokens, size_t *num_tokens, size_t start, size_t line, Token tok){
+	tok.line                = line;
+	tok.offset              = start;
+	tokens[(*num_tokens)++] = tok;
+}
+
 int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_tokens){
 	Tokenizer tokenizer;
 	tokenizer.source = line;
 	tokenizer.offset = 0;
+	tokenizer.line   = 1;
 	tokenizer.size   = n;
 
 	*num_tokens      = 0;
@@ -1067,24 +1077,26 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 
 	while(tokenizer.offset < tokenizer.size){
 		const char *pos = tokenizer.source + tokenizer.offset;
+		size_t start    = tokenizer.offset;
 
 		if(pos[0] == '\n'){
 			if(depth == 0){
-				Token token = {
+				Token tok = {
 					.type = TOK_NL,
 					.value = "\\n",
 				};
-				tokens[(*num_tokens)++] = token;
+				push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			}
+			tokenizer.line++;
 			tokenizer.offset++;
 			continue;
 		}
 
 		if(pos[0] == '/' && pos[1] == '/'){
-      while(tokenizer.offset < tokenizer.size && tokenizer.source[tokenizer.offset] != '\n') {
-        tokenizer.offset++;
-      }
-      continue;
+			while(tokenizer.offset < tokenizer.size && tokenizer.source[tokenizer.offset] != '\n') {
+				tokenizer.offset++;
+			}
+			continue;
 		}
 
 		if(isspace(pos[0])){
@@ -1092,41 +1104,40 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 			continue;
 		}
 
-    // Check for strings
-    
-    if(pos[0] == '"'){
-      Token tok;
+		// Check for strings
+
+		if(pos[0] == '"'){
+			Token tok;
 			if(tokenizer_eat_string(a, &tokenizer, &tok) != 0) return 1;
-      tokens[(*num_tokens)++] = tok;
-      continue;
-    }
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		}
 
 		// Check for booleans
-    size_t boolean_len = boolean_match(pos);
+		size_t boolean_len = boolean_match(pos);
 		if(boolean_len > 0){
-      Token tok = tokenize_boolean(boolean_len == 4); // True
-			tokens[*num_tokens] = tok;
-			(*num_tokens)++;
+			Token tok = tokenize_boolean(boolean_len == 4); // True
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			tokenizer.offset += boolean_len;
-      continue;
+			continue;
 		}
 
 		// Check for keywords
-    size_t keyword_len = keywork_match(pos);
-    if(keyword_len > 0){
+		size_t keyword_len = keywork_match(pos);
+		if(keyword_len > 0){
 			TokenType op_type;
 			if(boolean_op_match(pos, keyword_len, &op_type)){
-				tokens[(*num_tokens)++] = (Token){ .type = op_type };
+				Token tok = { .type = op_type };
+				push_token(tokens, num_tokens, start, tokenizer.line, tok);
 				tokenizer.offset += keyword_len;
 				continue;
 			}
 
-      Token tok = tokenize_keyword(a, pos, keyword_len);
-			tokens[*num_tokens] = tok;
-			(*num_tokens)++;
+			Token tok = tokenize_keyword(a, pos, keyword_len);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			tokenizer.offset += keyword_len;
-      continue;
-    }
+			continue;
+		}
 
 		// Check for identifiers
 		int id_size = tokenizer_is_id(pos);
@@ -1135,11 +1146,10 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 			strncpy(value, pos, id_size);
 			value[id_size] = '\0';
 			Token tok = {
-				tok.type  = TOK_ID,
-				tok.value = value,
+				.type  = TOK_ID,
+				.value = value,
 			};
-			tokens[*num_tokens] = tok;
-			(*num_tokens)++;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			tokenizer.offset += id_size;
 			// token_print(&tok);
 			continue;
@@ -1152,126 +1162,125 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 			strncpy(value, pos, num_size);
 			value[num_size] = '\0';
 			Token tok = {
-				tok.type  = TOK_NUMBER,
-				tok.value = value,
+				.type  = TOK_NUMBER,
+				.value = value,
 			};
-			tokens[*num_tokens] = tok;
-			(*num_tokens)++;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			tokenizer.offset += num_size;
 			// token_print(&tok);
 			continue;
 		}
 		// Check for binary operators
-			size_t symbol_len = 0;
-			if((symbol_len = tokenizer_is_symbol(pos, "+"))) {
-				Token tok = tokenizer_make_symbol(a, TOK_PLUS, &tokenizer, symbol_len);
-				tokens[(*num_tokens)++] = tok;
-				continue;
-			};
-			if((symbol_len = tokenizer_is_symbol(pos, "-"))) {
-				Token tok = tokenizer_make_symbol(a, TOK_MINUS, &tokenizer, symbol_len);
-				tokens[(*num_tokens)++] = tok;
-				continue;
-			};
-			if((symbol_len = tokenizer_is_symbol(pos, "*"))) {
-				Token tok = tokenizer_make_symbol(a, TOK_MUL, &tokenizer, symbol_len);
-				tokens[(*num_tokens)++] = tok;
-				continue;
-			};
-			if((symbol_len = tokenizer_is_symbol(pos, "/"))) {
-				Token tok = tokenizer_make_symbol(a, TOK_DIV, &tokenizer, symbol_len);
-				tokens[(*num_tokens)++] = tok;
-				continue;
-			};
-			if((symbol_len = tokenizer_is_symbol(pos, "^"))) {
-				Token tok = tokenizer_make_symbol(a, TOK_CARET, &tokenizer, symbol_len);
-				tokens[(*num_tokens)++] = tok;
-				continue;
-			};
-			if((symbol_len = tokenizer_is_symbol(pos, "@"))) {
-				Token tok = tokenizer_make_symbol(a, TOK_AT, &tokenizer, symbol_len);
-				tokens[(*num_tokens)++] = tok;
-				continue;
-			};
+		size_t symbol_len = 0;
+		if((symbol_len = tokenizer_is_symbol(pos, "+"))) {
+			Token tok = tokenizer_make_symbol(a, TOK_PLUS, &tokenizer, symbol_len);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if((symbol_len = tokenizer_is_symbol(pos, "-"))) {
+			Token tok = tokenizer_make_symbol(a, TOK_MINUS, &tokenizer, symbol_len);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if((symbol_len = tokenizer_is_symbol(pos, "*"))) {
+			Token tok = tokenizer_make_symbol(a, TOK_MUL, &tokenizer, symbol_len);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if((symbol_len = tokenizer_is_symbol(pos, "/"))) {
+			Token tok = tokenizer_make_symbol(a, TOK_DIV, &tokenizer, symbol_len);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if((symbol_len = tokenizer_is_symbol(pos, "^"))) {
+			Token tok = tokenizer_make_symbol(a, TOK_CARET, &tokenizer, symbol_len);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if((symbol_len = tokenizer_is_symbol(pos, "@"))) {
+			Token tok = tokenizer_make_symbol(a, TOK_AT, &tokenizer, symbol_len);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
 
 		// Check for special symbols
 		if(tokenizer_is_symbol(pos, "=") && tokenizer_lookahead(pos, "=")) {
 			Token tok = tokenizer_make_symbol(a, TOK_DBL_EQ, &tokenizer, 2);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if(tokenizer_is_symbol(pos, "<") && tokenizer_lookahead(pos, "=")) {
 			Token tok = tokenizer_make_symbol(a, TOK_LEQ, &tokenizer, 2);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if(tokenizer_is_symbol(pos, ">") && tokenizer_lookahead(pos, "=")) {
 			Token tok = tokenizer_make_symbol(a, TOK_GEQ, &tokenizer, 2);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "<"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_LT, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, ">"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_GT, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "="))) {
 			Token tok = tokenizer_make_symbol(a, TOK_EQ, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "("))) {
 			Token tok = tokenizer_make_symbol(a, TOK_LPAREN, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			depth++;
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, ")"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_RPAREN, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			depth--;
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "["))) {
 			Token tok = tokenizer_make_symbol(a, TOK_LBRACKET, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			depth++;
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "]"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_RBRACKET, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			depth--;
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "{"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_LCURLY, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "}"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_RCURLY, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, ","))) {
 			Token tok = tokenizer_make_symbol(a, TOK_COMMA, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "."))) {
 			Token tok = tokenizer_make_symbol(a, TOK_DOT, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, ";"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_SEMI, &tokenizer, symbol_len);
-			tokens[(*num_tokens)++] = tok;
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
 
@@ -1281,8 +1290,7 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 	}
 
 	Token eof = { .type = TOK_EOF };
-	tokens[(*num_tokens)++] = eof;
-
+	push_token(tokens, num_tokens, tokenizer.offset, tokenizer.line, eof);
 	return 0;
 
 }
@@ -7128,9 +7136,10 @@ void print_usage(){
 	printf("    If a FILE argument isn't supplied, a repl is launched\n");
 }
 
-void cleanup(Arena *ta, Arena *a){
-	arena_destroy(ta);
+void cleanup(Arena *ta, Arena *a, Arena *fa){
 	arena_destroy(a);
+	arena_destroy(ta);
+	arena_destroy(fa);
 }
 
 int launch_repl(Arena *ta, Environment *e, char *script_path){
@@ -7138,15 +7147,14 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
   size_t size       = 0;
   ssize_t nread     = 0;
   ssize_t last_good = 0;
-  int parse_code    = 0;
 
   while(1){
 
     printf("aktua> ");
     nread = getline(&buffer, &size, stdin);
     if(nread == -1){
-      printf("\nNo lines were read. Exiting...\n");
-      break;
+      printf("\n");
+			break;
     }
 
     // Trimming the endline characters
@@ -7160,14 +7168,13 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
     if (strcmp(buffer, "") == 0)
       continue;
 
-    if (strcmp(buffer, "q") == 0) {
-      printf("\nExiting...\n");
+    if (strcmp(buffer, ":q") == 0) {
       break;
     }
 
     // Tokenization and parsing use the permanent arena
     AST *ast   = arena_alloc(e->persistent, sizeof(AST));
-    parse_code = parse_source(e,  buffer, strlen(buffer), ast);
+    int parse_code = parse_source(e,  buffer, strlen(buffer), ast);
 
     // Evaluation uses temporary memory
     SCRATCH_SCOPE(ta){
@@ -7180,7 +7187,7 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
 
   }
   free(buffer);
-  return parse_code;
+  return 0;
 }
 
 char *read_entire_file(size_t *out_len, FILE *f){
@@ -7258,19 +7265,19 @@ int main(int argc, char **argv){
 	if(argc < 2){
 		// REPL
 		int code = launch_repl(&ta, &e, argv[0]);
-		cleanup(&ta, &pa);
+		cleanup(&ta, &pa, &fa);
 		return code;
 	}else{
 
 		if(strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0){
 			print_usage();
-			cleanup(&ta, &pa);
+			cleanup(&ta, &pa, &fa);
 			exit(0);
 		}
 
 		if(strcmp(argv[1], "--builtins") == 0){
       for(size_t i = 0; i < LEN(natives); i++) printf("%s\n", natives[i].name);
-			cleanup(&ta, &pa);
+			cleanup(&ta, &pa, &fa);
 			exit(0);
 		}
 
