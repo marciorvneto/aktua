@@ -9,6 +9,8 @@ vim.cmd([[
   syntax keyword aktuaKeyword let fn return
   syntax keyword aktuaConditional if elif else
   syntax keyword aktuaRepeat for in while
+  syntax keyword aktuaBoolean true false
+  syntax keyword aktuaLogical and or not
 
   syntax match aktuaDelimiter /[{}()\[\],;.]/
   syntax match aktuaOperator  /[-+*\/^@<>=]/
@@ -33,6 +35,8 @@ local groups = {
   aktuaKeyword     = "Keyword",
   aktuaConditional = "Conditional",
   aktuaRepeat      = "Repeat",
+  aktuaBoolean     = "Boolean",
+  aktuaLogical     = "Operator",
   aktuaDelimiter   = "Delimiter",
   aktuaOperator    = "Operator",
   aktuaNumber      = "Number",

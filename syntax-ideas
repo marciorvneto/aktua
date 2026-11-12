@@ -49,7 +49,18 @@ PARAMS          = id
 
 BLOCK           = "{" STATEMENTS_LIST "}"
 
-EXPRESSION      = ADDITIVE COMPOP ADDITIVE
+EXPRESSION      = OR_EXPR
+
+OR_EXPR         = AND_EXPR "or" OR_EXPR
+                | AND_EXPR
+
+AND_EXPR        = NOT_EXPR "and" AND_EXPR
+                | NOT_EXPR
+
+NOT_EXPR        = "not" NOT_EXPR
+                | COMPARISON
+
+COMPARISON      = ADDITIVE COMPOP ADDITIVE
                 | ADDITIVE
 
 COMPOP          = ==
@@ -59,15 +70,15 @@ COMPOP          = ==
                 | < 
 
 ADDITIVE        = TERM + ADDITIVE
-                | TERM + ADDITIVE
+                | TERM - ADDITIVE
                 | TERM
 
 TERM            = UNARY * TERM
                 | UNARY / TERM
                 | UNARY
 
-UNARY           = "+" UNARY
-                | "-" UNARY
+UNARY           = "+"   UNARY
+                | "-"   UNARY
                 | EXPO
 
 EXPO            = POSTFIX ^ UNARY
@@ -80,6 +91,7 @@ POSTFIX_TAIL    = "." id POSTFIX_TAIL
                 | eps
 
 PRIMARY         = number
+								| BOOLEAN
                 | id "(" ARGS_LIST ")"
                 | id "(" ")"
                 | id
@@ -87,6 +99,9 @@ PRIMARY         = number
                 | ARRAY
                 | TUPLE
                 | "(" EXPRESSION ")"
+
+BOOLEAN         = true
+								| false
 
 ARRAY           = "[" "]"
                 | "[" ROW ARRAY_TAIL "]"

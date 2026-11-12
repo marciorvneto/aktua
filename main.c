@@ -786,6 +786,11 @@ char *alloc_string(Arena *a, size_t len){
 	V(TOK_EOF)          \
 	V(TOK_STRING)       \
 	V(TOK_NUMBER)       \
+	V(TOK_TRUE)         \
+	V(TOK_FALSE)        \
+	V(TOK_NOT)          \
+	V(TOK_AND)          \
+	V(TOK_OR)           \
 	X(TOK_LPAREN)       \
 	X(TOK_RPAREN)       \
 	X(TOK_LBRACKET)     \
@@ -950,16 +955,25 @@ int tokenizer_eat_string(Arena *a, Tokenizer *tokenizer, Token *out){
 	return 0;
 }
 
-#define KEYWORDS_LIST \
-        X(let)        \
-        X(fn)         \
-        X(if)         \
-        X(else)       \
-        X(elif)       \
-        X(return)     \
-        X(for)        \
-        X(while)      \
-        X(in)         \
+// Keywords that tokenize to their own operator token instead of TOK_KEYWORD.
+#define BOOLEAN_OP_KEYWORDS_LIST(W) \
+        W(and, TOK_AND)             \
+        W(or,  TOK_OR)              \
+        W(not, TOK_NOT)
+
+#define KEYWORD_FROM_OP(word, tok) X(word)
+
+#define KEYWORDS_LIST            \
+        X(let)                   \
+        X(fn)                    \
+        X(if)                    \
+        X(else)                  \
+        X(elif)                  \
+        X(return)                \
+        X(for)                   \
+        X(while)                 \
+        X(in)                    \
+        BOOLEAN_OP_KEYWORDS_LIST(KEYWORD_FROM_OP) \
         V(KEYWORDS_COUNT)
 
 typedef enum {
@@ -978,6 +992,39 @@ const char *KEYWORDS[KEYWORDS_COUNT] = {
 #undef V
 };
 
+typedef struct {
+	const char *word;
+	TokenType   type;
+} WordToken;
+
+#define OP_TOKEN_ENTRY(word, tok) { #word, tok },
+static const WordToken BOOLEAN_OP_TOKENS[] = {
+	BOOLEAN_OP_KEYWORDS_LIST(OP_TOKEN_ENTRY)
+};
+#undef OP_TOKEN_ENTRY
+
+// If the keyword at pos (of length len) is a boolean operator,
+// writes its token type to *type and returns true.
+static bool boolean_op_match(const char *pos, size_t len, TokenType *type){
+	for(size_t i = 0; i < sizeof(BOOLEAN_OP_TOKENS)/sizeof(BOOLEAN_OP_TOKENS[0]); i++){
+		if(strlen(BOOLEAN_OP_TOKENS[i].word) == len && strncmp(pos, BOOLEAN_OP_TOKENS[i].word, len) == 0){
+			*type = BOOLEAN_OP_TOKENS[i].type;
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool is_word_end(char c){
+	return !isalnum((unsigned char)c) && c != '_';
+}
+
+size_t boolean_match(const char *pos){
+	if(tokenizer_is_str(pos, "true",  4) && is_word_end(pos[4])) return 4;
+	if(tokenizer_is_str(pos, "false", 5) && is_word_end(pos[5])) return 5;
+	return 0;
+}
+
 size_t keywork_match(const char *pos){
   for(size_t i = 0; i < KEYWORDS_COUNT; i++){
     size_t len = strlen(KEYWORDS[i]);
@@ -993,6 +1040,11 @@ size_t keywork_match(const char *pos){
   return 0;
 }
 
+Token tokenize_boolean(bool b){
+	if(b) return (Token) { .type = TOK_TRUE };
+	return       (Token) { .type = TOK_FALSE };
+}
+
 Token tokenize_keyword(Arena *a, const char *pos, size_t len){
   char *value = arena_alloc(a, len + 1);
   strncpy(value, pos, len);
@@ -1003,8 +1055,6 @@ Token tokenize_keyword(Arena *a, const char *pos, size_t len){
   };
   return tok;
 }
-
-
 
 int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_tokens){
 	Tokenizer tokenizer;
@@ -1051,9 +1101,26 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
       continue;
     }
 
+		// Check for booleans
+    size_t boolean_len = boolean_match(pos);
+		if(boolean_len > 0){
+      Token tok = tokenize_boolean(boolean_len == 4); // True
+			tokens[*num_tokens] = tok;
+			(*num_tokens)++;
+			tokenizer.offset += boolean_len;
+      continue;
+		}
+
 		// Check for keywords
     size_t keyword_len = keywork_match(pos);
     if(keyword_len > 0){
+			TokenType op_type;
+			if(boolean_op_match(pos, keyword_len, &op_type)){
+				tokens[(*num_tokens)++] = (Token){ .type = op_type };
+				tokenizer.offset += keyword_len;
+				continue;
+			}
+
       Token tok = tokenize_keyword(a, pos, keyword_len);
 			tokens[*num_tokens] = tok;
 			(*num_tokens)++;
@@ -1252,18 +1319,21 @@ typedef enum {
 } ASTNodeType;
 
 
-#define OP_TYPE_LIST         \
-	      X(OP_PLUS)           \
-	      X(OP_MINUS)          \
-	      X(OP_MUL)            \
-	      X(OP_DIV)            \
-	      X(OP_POW)            \
-	      X(OP_TMUL)           \
-				X(OP_DBL_EQ)         \
-				X(OP_GEQ)            \
-				X(OP_LEQ)            \
-				X(OP_LT)             \
-				X(OP_GT)             \
+#define OP_TYPE_LIST \
+	      X(OP_PLUS)   \
+	      X(OP_MINUS)  \
+	      X(OP_MUL)    \
+	      X(OP_DIV)    \
+	      X(OP_POW)    \
+	      X(OP_TMUL)   \
+				X(OP_DBL_EQ) \
+				X(OP_GEQ)    \
+				X(OP_LEQ)    \
+				X(OP_LT)     \
+				X(OP_GT)     \
+				X(OP_AND)    \
+				X(OP_OR)     \
+				X(OP_NOT)    \
 	      X(OP_TYPE_LIST_COUNT)
 
 typedef enum {
@@ -1286,18 +1356,21 @@ void op_type_repr(OpType type, char *buf){
 
 OpType op_from_tok(TokenType type){
 	switch (type) {
-		case TOK_PLUS:    return OP_PLUS;
-	  case TOK_MINUS:   return OP_MINUS;
-	  case TOK_MUL:     return OP_MUL;
-	  case TOK_DIV:     return OP_DIV;
-	  case TOK_CARET:   return OP_POW;
-	  case TOK_AT:      return OP_TMUL;
-	  case TOK_DBL_EQ:  return OP_DBL_EQ;
-	  case TOK_GEQ:     return OP_GEQ;
-	  case TOK_LEQ:     return OP_LEQ;
-	  case TOK_LT:      return OP_LT;
-	  case TOK_GT:      return OP_GT;
-		default:          UNREACHABLE("op_from_tok");
+		case TOK_PLUS:   return OP_PLUS;
+	  case TOK_MINUS:  return OP_MINUS;
+	  case TOK_MUL:    return OP_MUL;
+	  case TOK_DIV:    return OP_DIV;
+	  case TOK_CARET:  return OP_POW;
+	  case TOK_AT:     return OP_TMUL;
+	  case TOK_DBL_EQ: return OP_DBL_EQ;
+	  case TOK_GEQ:    return OP_GEQ;
+	  case TOK_LEQ:    return OP_LEQ;
+	  case TOK_LT:     return OP_LT;
+	  case TOK_GT:     return OP_GT;
+	  case TOK_AND:    return OP_AND;
+	  case TOK_OR:     return OP_OR;
+	  case TOK_NOT:    return OP_NOT;
+		default:         UNREACHABLE("op_from_tok");
 	}
 }
 
@@ -1306,6 +1379,7 @@ OpType op_from_tok(TokenType type){
 typedef enum {
 	VALUE_ID,
 	VALUE_NUMBER,
+	VALUE_BOOLEAN,
 	VALUE_COMPLEX,
 	VALUE_STRING,
 	VALUE_POLYNOMIAL,
@@ -1341,6 +1415,7 @@ struct Value {
 	union {
 		Polynomial       poly;
 		TransferFunction tf;
+		bool             boolean;
 		double           number;
 		double complex   complex_number;
 		char             *str;
@@ -1545,6 +1620,15 @@ AST *ast_make_number(Arena *pa, double number){
 	expr->as.literal.valueType    = VALUE_NUMBER;
 	return expr;
 }
+
+AST *ast_make_boolean(Arena *pa, bool boolean){
+	AST *expr = ast_alloc(pa, AST_LITERAL);
+	expr->statement_type           = STATEMENT_EXPR;
+	expr->as.literal.value.boolean = boolean;
+	expr->as.literal.valueType     = VALUE_BOOLEAN;
+	return expr;
+}
+
 
 AST *ast_make_id(Arena *pa, size_t len){
 	AST *expr = ast_alloc(pa, AST_ID);
@@ -1797,6 +1881,21 @@ AST *parse_number(Arena *pa, AST *parent, Parser *parser) {
 		return expr;
 }
 
+AST *parse_boolean(Arena *pa, AST *parent, Parser *parser) {
+    Token *current = NULL;
+		size_t save = parser->next;
+		if(
+				(parser->next = save, current = parser_eat(TOK_TRUE, parser)) ||
+				(parser->next = save, current = parser_eat(TOK_FALSE, parser))
+			)
+		{
+			AST *boolean = ast_make_boolean(pa, current->type == TOK_TRUE ? true : false);
+			return boolean;
+		}
+		return NULL;
+}
+
+
 AST *parse_id(Arena *pa, AST *parent, Parser *parser) {
     Token *current = NULL;
 		if((current = parser_eat(TOK_ID, parser)) == NULL) return NULL;
@@ -1884,6 +1983,7 @@ AST *parse_primary(Arena *pa, AST *parent, Parser *parser) {
 
   if(
       (parser->next = save, primary = parse_number(pa, parent, parser))     ||
+      (parser->next = save, primary = parse_boolean(pa, parent, parser))    ||
       (parser->next = save, primary = parse_fn_call(pa, parent, parser))    ||
       (parser->next = save, primary = parse_id(pa, parent, parser))         ||
       (parser->next = save, primary = parse_string(pa, parent, parser))     ||
@@ -1922,7 +2022,7 @@ AST *parse_unary(Arena *pa, AST *parent, Parser *parser){
   if(parser_peek(parser)->type == TOK_PLUS || parser_peek(parser)->type == TOK_MINUS){
     OpType op;
 
-    if(parser_peek(parser)->type == TOK_PLUS)  op = OP_PLUS;
+    if(parser_peek(parser)->type == TOK_PLUS)       op = OP_PLUS;
     else if(parser_peek(parser)->type == TOK_MINUS) op = OP_MINUS;
     else return NULL;
 
@@ -2017,7 +2117,7 @@ AST *parse_additive(Arena *pa, AST *parent, Parser *parser){
 	return left;
 }
 
-AST *parse_expression(Arena *pa, AST *parent, Parser *parser){
+AST *parse_comparison(Arena *pa, AST *parent, Parser *parser){
 	AST *left = parse_additive(pa, parent, parser);
 	if(!left) return NULL;
 	while(!parser_done(parser) && (
@@ -2038,6 +2138,60 @@ AST *parse_expression(Arena *pa, AST *parent, Parser *parser){
 		left = binop;
 	}
 	return left;
+}
+
+AST *parse_not_expr(Arena *pa, AST *parent, Parser *parser){
+  if(parser_peek(parser)->type == TOK_NOT){
+		parser_eat(TOK_NOT, parser);
+    OpType op = OP_NOT;
+
+    AST *unop         = ast_make_unop(pa, op)  ;
+    unop->as.unop.arg = parse_not_expr(pa, unop, parser);
+		if(!unop->as.unop.arg) return NULL;
+
+    return unop;
+  }
+  return parse_comparison(pa, parent, parser);
+}
+
+AST *parse_and_expr(Arena *pa, AST *parent, Parser *parser){
+	AST *not_expr = parse_not_expr(pa, parent, parser);
+	if(!not_expr) return NULL;
+	while(!parser_done(parser) && ( parser_peek(parser)->type == TOK_AND))
+	{
+		Token *op_tok         = parser_eat(parser_peek(parser)->type, parser);
+		if(!op_tok) return NULL;
+		AST   *binop          = ast_make_binop(pa, op_from_tok(op_tok->type));
+		AST   *right          = parse_and_expr(pa, parent, parser);
+		if(!right)  return NULL;
+		binop->as.binop.left  = not_expr;
+		binop->as.binop.right = right;
+		not_expr = binop;
+	}
+	return not_expr;
+}
+
+
+AST *parse_or_expr(Arena *pa, AST *parent, Parser *parser){
+	AST *and_expr = parse_and_expr(pa, parent, parser);
+	if(!and_expr) return NULL;
+	while(!parser_done(parser) && ( parser_peek(parser)->type == TOK_OR))
+	{
+		Token *op_tok         = parser_eat(parser_peek(parser)->type, parser);
+		if(!op_tok) return NULL;
+		AST   *binop          = ast_make_binop(pa, op_from_tok(op_tok->type));
+		AST   *right          = parse_or_expr(pa, parent, parser);
+		if(!right)  return NULL;
+		binop->as.binop.left  = and_expr;
+		binop->as.binop.right = right;
+		and_expr = binop;
+	}
+	return and_expr;
+}
+
+
+AST *parse_expression(Arena *pa, AST *parent, Parser *parser){
+	return parse_or_expr(pa, parent, parser);
 }
 
 
@@ -2448,6 +2602,8 @@ void ast_print(AST *ast, int level){
 					printf("%sLIT: %s\n", buf, ast->as.literal.value.str);
 				} else if(ast->as.literal.valueType == VALUE_NUMBER){
 					printf("%sLIT: %.2f\n", buf, ast->as.literal.value.number);
+				} else if(ast->as.literal.valueType == VALUE_BOOLEAN){
+					printf("%sLIT: %s\n", buf, ast->as.literal.value.boolean ? "true" : "false");
 				}
 				break;
 			}
@@ -2807,6 +2963,11 @@ Value value_clone(Arena *a, Value *v){
         copy.value.number = v->value.number;
         break;
       }
+    case VALUE_BOOLEAN: 
+      {
+        copy.value.boolean = v->value.boolean;
+        break;
+      }
     case VALUE_ID: 
       {
         copy.value.id = clone_string(a, v->value.id);
@@ -2883,6 +3044,14 @@ Value make_string(char *str){
 	Value v = {
 		.valueType = VALUE_STRING,
 		.value.str = str
+	};
+	return v;
+}
+
+Value make_boolean(bool value){
+	Value v = {
+		.valueType     = VALUE_BOOLEAN,
+		.value.boolean = value
 	};
 	return v;
 }
@@ -3637,7 +3806,14 @@ Value unop_tf_minus(Arena *a, Value *arg){
 	return make_transfer_function(scale_tf(a, &arg->value.tf, -1.0));
 }
 
+// ----------- Boolean -------------
 
+bool as_boolean(Value *v);
+
+Value unop_not(Arena *a, Value *arg){
+	bool bool_val = as_boolean(&arg[0]);
+	return make_boolean(!bool_val);
+}
 
 static const UnaryFn unop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT] = {
 	[OP_PLUS] = {
@@ -3659,6 +3835,13 @@ static const UnaryFn unop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT] = {
 		[VALUE_NAN]               = unop_with_nan,
     [VALUE_STRING]            = unop_with_nan,
 	},
+	
+	[OP_NOT] = {
+		[VALUE_NUMBER]            = unop_not,
+		[VALUE_COMPLEX]           = unop_not,
+		[VALUE_BOOLEAN]           = unop_not,
+		[VALUE_NAN]               = unop_not,
+	}
 
 };
 
@@ -4244,6 +4427,8 @@ Value mul_tensor_tensor(Arena *a, Environment *e, Value *left, Value *right){
 	return make_tensor(out);
 }
 
+
+
 //------------ Broadcasting --------------
 
 #define BROADCAST_OP(name, sym, re_expr, cx_expr) \
@@ -4377,12 +4562,30 @@ Value broadcast(Arena *a, Environment *e, const char *sym, Value *l, Value *r, S
 	return make_tensor(out);
 }
 
+
+
 BROADCAST_OP(add, "+", x + y   ,  x + y)
 BROADCAST_OP(sub, "-", x - y   ,  x - y)
 BROADCAST_OP(mul, "*", x * y   ,  x * y)
 BROADCAST_OP(div, "/", x / y   ,  x / y)
 BROADCAST_OP(pow, "^", pow(x,y),  cpow(x, y))
 
+
+// --------------- Booleans -------------
+
+bool as_boolean(Value *v){
+	if(v->valueType == VALUE_BOOLEAN) return v->value.boolean;
+	if(v->valueType == VALUE_NUMBER) return v->value.number;
+	if(v->valueType == VALUE_COMPLEX) return v->value.number;
+	if(v->valueType == VALUE_NAN) return false;
+	return true;
+}
+
+Value eq_boolean(Arena *a, Environment *e, Value *left, Value *right){
+	bool v_left  = as_boolean(left);
+	bool v_right = as_boolean(right);
+	return make_boolean(v_left == v_right);
+}
 
 static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE_TYPE_COUNT] = {
 	[OP_PLUS] = {
@@ -4642,6 +4845,15 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		[VALUE_COMPLEX] = {
 			[VALUE_NUMBER]  = eq_scalar_scalar,
 			[VALUE_COMPLEX] = eq_scalar_scalar,
+		},
+		[VALUE_BOOLEAN] = {
+			[VALUE_NUMBER]            = eq_boolean,
+			[VALUE_COMPLEX]           = eq_boolean,
+			[VALUE_BOOLEAN]           = eq_boolean,
+			[VALUE_TENSOR]            = op_with_nan,
+			[VALUE_POLYNOMIAL]        = op_with_nan,
+			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
+			[VALUE_NAN]               = eq_boolean,
 		},
 		[VALUE_STRING] = {
 			[VALUE_STRING] = eq_str_str,
@@ -5892,7 +6104,16 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
 				printf("%s\n", buf);
 				break;
 			}
-  case VALUE_COMPLEX: 
+		case VALUE_BOOLEAN:
+			{
+				if(value->value.boolean){
+					printf("true\n");
+				}else{
+					printf("false\n");
+				}
+				break;
+			}
+		case VALUE_COMPLEX: 
       {
         double complex z = value->value.complex_number;
         char buf[80];

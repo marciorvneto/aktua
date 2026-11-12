@@ -1,0 +1,15 @@
+import("test.akt")
+
+let t = true
+let f = false
+
+let not_t = not t
+let not_f = not f
+
+assert(not_t == false, "expected not true to be false")
+
+
+//let and_tt = t and t
+//let and_tf = t and f
+//let and_ft = f and t
+//let and_ff = f and f
