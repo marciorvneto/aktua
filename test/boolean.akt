@@ -1,15 +1,15 @@
-import("test.akt")
-
 let t = true
 let f = false
 
-let not_t = not t
-let not_f = not f
+assert((not t)   == false, "expected not t to be f")
+assert((not f)   == true,  "expected not f to be t")
 
-assert(not_t == false, "expected not true to be false")
+assert((t and t) == t,     "expected t and t to be t")
+assert((t and f) == f,     "expected t and f to be f")
+assert((f and t) == f,     "expected f and t to be f")
+assert((f and f) == f,     "expected f and f to be f")
 
-
-//let and_tt = t and t
-//let and_tf = t and f
-//let and_ft = f and t
-//let and_ff = f and f
+assert((t or t)  == t,     "expected t or t to be t")
+assert((t or f)  == t,     "expected t or f to be t")
+assert((f or t)  == t,     "expected f or t to be t")
+assert((f or f)  == f,     "expected f or f to be f")

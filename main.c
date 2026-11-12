@@ -4587,6 +4587,20 @@ Value eq_boolean(Arena *a, Environment *e, Value *left, Value *right){
 	return make_boolean(v_left == v_right);
 }
 
+Value and_boolean(Arena *a, Environment *e, Value *left, Value *right){
+	bool v_left  = as_boolean(left);
+	bool v_right = as_boolean(right);
+	return make_boolean(v_left && v_right);
+}
+
+Value or_boolean(Arena *a, Environment *e, Value *left, Value *right){
+	bool v_left  = as_boolean(left);
+	bool v_right = as_boolean(right);
+	return make_boolean(v_left || v_right);
+}
+
+
+
 static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE_TYPE_COUNT] = {
 	[OP_PLUS] = {
 		[VALUE_NUMBER]              = {
@@ -4881,6 +4895,23 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 	[OP_LEQ] = {
 		[VALUE_NUMBER] = {
 			[VALUE_NUMBER] = leq_num_num,
+		}
+	},
+
+	// Logical
+
+	[OP_AND] = {
+		[VALUE_BOOLEAN] = {
+			[VALUE_NUMBER]  = and_boolean,
+			[VALUE_COMPLEX] = and_boolean,
+			[VALUE_BOOLEAN] = and_boolean,
+		}
+	},
+	[OP_OR] = {
+		[VALUE_BOOLEAN] = {
+			[VALUE_NUMBER]  = or_boolean,
+			[VALUE_COMPLEX] = or_boolean,
+			[VALUE_BOOLEAN] = or_boolean,
 		}
 	},
 
