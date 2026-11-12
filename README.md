@@ -1,4 +1,7 @@
-# Aktua
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-dark.svg">
+  <img alt="Aktua" src="docs/img/logo-light.svg" width="360">
+</picture>
 
 **Aktua** is a small, experimental programming language for control systems and numerical computing, written in C.
 
