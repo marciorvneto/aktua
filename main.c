@@ -3893,19 +3893,19 @@ Value pow_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
 // Real-specific
 
 Value eq_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
-	return make_num(as_complex(left) == as_complex(right));
+	return make_boolean(as_complex(left) == as_complex(right));
 }
 Value lt_num_num(Arena *a, Environment *e, Value *left, Value *right){
-	return make_num(left->value.number < right->value.number);
+	return make_boolean(left->value.number < right->value.number);
 }
 Value gt_num_num(Arena *a, Environment *e, Value *left, Value *right){
-	return make_num(left->value.number > right->value.number);
+	return make_boolean(left->value.number > right->value.number);
 }
 Value leq_num_num(Arena *a, Environment *e, Value *left, Value *right){
-	return make_num(left->value.number <= right->value.number);
+	return make_boolean(left->value.number <= right->value.number);
 }
 Value geq_num_num(Arena *a, Environment *e, Value *left, Value *right){
-	return make_num(left->value.number >= right->value.number);
+	return make_boolean(left->value.number >= right->value.number);
 }
 
 // ------------- Polynomials --------------------
@@ -4393,7 +4393,7 @@ Value cat_str_str(Arena *a, Environment *e, Value *left, Value *right){
   return make_string(cat_strings(a, str1, str2));
 }
 Value eq_str_str(Arena *a, Environment *e, Value *left, Value *right){
-		return make_num(strcmp(left->value.str, right->value.str) == 0);
+		return make_boolean(strcmp(left->value.str, right->value.str) == 0);
 }
 
 //------------ Tensors --------------
@@ -6964,12 +6964,12 @@ ExecStatus eval_stmt(
         stmt->as.if_stmt.condition, &silent
         );
 
-    if (cond.valueType != VALUE_NUMBER) {
-			runtime_error(e,"Expected numeric condition");
+    if (cond.valueType != VALUE_NUMBER && cond.valueType != VALUE_BOOLEAN) {
+			runtime_error(e,"Expected numeric or boolean condition");
       return 1;
     }
 
-    int cond_true = cond.value.number != 0.0;
+		bool cond_true = as_boolean(&cond);
 
     AST *branch = cond_true
       ? stmt->as.if_stmt.if_block
@@ -7021,11 +7021,12 @@ ExecStatus eval_stmt(
 			size_t scratch = arena_save(ta);
 
 			Value cond = eval_expr(ta, e, script_path, stmt->as.while_stmt.expr, &silent);
-			if(cond.valueType != VALUE_NUMBER){
-				runtime_error(e, "while: expected a numeric condition");
+			if(cond.valueType != VALUE_NUMBER && cond.valueType != VALUE_BOOLEAN){
+				runtime_error(e, "while: expected a numeric or boolean condition");
 				return EXEC_ERROR;
 			}
-			if(cond.value.number == 0.0){
+			bool result = as_boolean(&cond);
+			if(!result){
 				arena_restore(ta, scratch);
 				return EXEC_OK; 
 			}       

@@ -22,10 +22,8 @@ fn dynamics(t, s) {
 
   // Pitch forward between 1 and 3 seconds, then return to level.
   let target = 0
-  if t > 1 {
-    if t < 3 {
-      target = 0.18
-    }
+  if t > 1 and t < 3 {
+		target = 0.18
   }
 
   // Ideal differential rotor thrust produces this pitch acceleration.

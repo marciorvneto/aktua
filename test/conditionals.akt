@@ -25,3 +25,9 @@ if key == "one" {
 } else {
 	print("UNKNOWN KEY")
 }
+
+let ran = false
+if 2 {
+	ran = true
+}
+assert(ran, "nonzero number is truthy")

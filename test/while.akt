@@ -42,7 +42,7 @@ assert_eq(count, 12)
 // return from inside a while leaves the function
 fn first_square_above(limit) {
   let k = 0
-  while 1 {
+  while true {
     if k * k > limit {
       return k
     }
