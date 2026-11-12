@@ -5,12 +5,12 @@
 }
 
 :root {
-  --paper:          #eef3ea;
-  --sheet:          #f8faf6;
-  --grid:           #d3e2cc;
-  --graphite:       #2a2f2b;
-  --graphite-light: #5b655d;
-  --ink:            #1f4fa0;
+  --paper:          #eef2f5;
+  --sheet:          #f8fafb;
+  --grid:           #d5dee5;
+  --graphite:       #101417;
+  --graphite-light: #56616b;
+  --ink:            #007589;
 
   --font-text: "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --font-code: "Atkinson Hyperlegible Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -21,12 +21,12 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper:          #171d19;
-    --sheet:          #1d2520;
-    --grid:           #26332b;
-    --graphite:       #dde5de;
-    --graphite-light: #98a69b;
-    --ink:            #8fb3f5;
+    --paper:          #101417;
+    --sheet:          #161b1f;
+    --grid:           #232b31;
+    --graphite:       #eef2f5;
+    --graphite-light: #97a3ad;
+    --ink:            #09c3e3;
   }
 }
 
@@ -79,6 +79,12 @@ h1 {
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.02em;
+}
+
+h1 img {
+  display: block;
+  height: 1em;
+  width: auto;
 }
 
 h2 {
