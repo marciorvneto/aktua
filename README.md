@@ -199,4 +199,4 @@ If you use Aktua in your work, please cite it. GitHub's "Cite this repository" b
 
 ## License
 
-Aktua is licensed under the [MIT License](LICENSE.md).
+Aktua is licensed under the [MIT License](LICENSE.md). The Aktua name and logo are not covered by it; see [`docs/img/README.md`](docs/img/README.md).
