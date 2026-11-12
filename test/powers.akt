@@ -1,0 +1,47 @@
+import("test.akt")
+
+let s = poly([0, 1])
+
+// Polynomials to non-negative powers stay polynomials
+let p = (s + 1)^3
+assert_eq(p(0), 1)
+assert_eq(p(1), 8)
+assert_eq(p(2), 27)
+
+let p2 = s^2
+assert_eq(p2(3), 9)
+
+let p0 = s^0
+assert_eq(p0(5), 1)
+
+// Repeated squaring agrees with plain multiplication
+let q  = s - 2
+let q5 = q^5
+let qq = q * q * q * q * q
+assert_eq(q5(4), qq(4))
+
+// Negative powers give transfer functions
+let inv = s^-1
+assert_close(inv(2), 0.5, 1e-15)
+
+let inv2 = (s + 1)^-2
+assert_close(inv2(1), 0.25, 1e-15)
+
+// Transfer functions: numerator and denominator are raised separately
+let H   = (s + 2) / (s + 1)
+let Hp  = H^2
+let Hm  = H^-2
+let H0  = H^0
+assert_close(Hp(1), 2.25, 1e-15)
+assert_close(Hm(1), 1 / 2.25, 1e-15)
+assert_close(H0(7), 1, 1e-15)
+
+// Unary minus binds looser than ^
+let neg = -s^2
+assert_eq(neg(3), -9)
+
+// A unit delay in discrete time keeps Ts, so it mixes with other z terms
+let z = zvar(0.1)
+let D = 0.5 + 0.5 * z^-1
+assert_close(D(1), 1, 1e-15)
+assert_close(D(2), 0.75, 1e-15)

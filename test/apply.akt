@@ -1,0 +1,6 @@
+import("test.akt")
+
+fn my_function(x) { x * x }
+
+let val = apply(my_function, 3)
+assert_eq(val, 9)

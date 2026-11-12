@@ -1,0 +1,73 @@
+// -----------------------------------------------------
+//
+//  QUADROTOR
+//  By: Marcio R. V. Neto, 2026
+//
+//  Tiny 2D quadrotor: x/z motion and pitch.
+//  Idealized model: no drag, motor lag, or thrust limits.
+//
+// -----------------------------------------------------
+
+let m = 0.5       // mass [kg]
+let g = 9.81      // gravity [m/s^2]
+let kp = 16       // pitch controller proportional gain
+let kd = 5        // pitch controller damping gain
+
+// State: [x, z, vx, vz, theta, omega]
+fn dynamics(t, s) {
+  let vx = s[2]
+  let vz = s[3]
+  let theta = s[4]
+  let omega = s[5]
+
+  // Pitch forward between 1 and 3 seconds, then return to level.
+  let target = 0
+  if t > 1 {
+    if t < 3 {
+      target = 0.18
+    }
+  }
+
+  // Ideal differential rotor thrust produces this pitch acceleration.
+  let alpha = kp * (target - theta) - kd * omega
+
+  // Total thrust is held at hover thrust, m*g.
+  let thrust = m * g
+
+  [
+    vx,
+    vz,
+    thrust * sin(theta) / m,
+    thrust * cos(theta) / m - g,
+    omega,
+    alpha
+  ]
+}
+
+// Classic fourth-order Runge-Kutta step.
+fn rk4(f, t, s, dt) {
+  let k1 = f(t,         s)
+  let k2 = f(t + dt/2,  s + dt/2 * k1)
+  let k3 = f(t + dt/2,  s + dt/2 * k2)
+  let k4 = f(t + dt,    s + dt * k3)
+  s + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+}
+
+let t = linspace(0, 5, 501)
+let dt = t[1] - t[0]
+
+let s = [0, 0, 0, 0, 0, 0]
+let x = zeros([len(t)])
+let z = zeros([len(t)])
+let pitch = zeros([len(t)])
+
+for i in range(1, len(t)) {
+  s = rk4(dynamics, t[i - 1], s, dt)
+  x[i] = s[0]
+  z[i] = s[1]
+  pitch[i] = s[4]
+}
+
+print("Final horizontal position: " + x[-1] + " m")
+plot(x, z)
+plot(t, pitch)

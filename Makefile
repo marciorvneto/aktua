@@ -1,14 +1,17 @@
 .PHONY: aktua stdlib clean test syntax repl
 
+CFLAGS = -Wall -ggdb
+LDLIBS = -lm
+
 aktua: build/aktua stdlib
 
 repl: build/repl
 
-build/repl:  repl.c
-	$(CC) -ggdb -Wall repl.c -o build/repl
+build/repl: repl.c | build
+	$(CC) $(CFLAGS) repl.c -o build/repl
 
 build/aktua: main.c | build
-	$(CC) -ggdb main.c -lm -o build/aktua
+	$(CC) $(CFLAGS) main.c -o build/aktua $(LDLIBS)
 
 test: aktua
 	@for f in test/*.akt examples/*.akt; \

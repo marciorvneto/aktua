@@ -1,0 +1,27 @@
+// Filling an empty tank. The outflow follows Torricelli's law,
+// q_out = k sqrt(h), so the model is nonlinear: A dh/dt = q_in - k sqrt(h)
+// By: Marcio R. V. Neto, 2026
+
+let A    = 2       // Cross-section [m^2]
+let k    = 0.02    // Outflow coefficient [m^2.5/s]
+let q_in = 0.01    // Inflow [m^3/s]
+
+fn f(t, h) { (q_in - k * sqrt(h)) / A }
+
+// One step of classic Runge-Kutta
+fn rk4(f, t, y, dt) {
+  let k1 = f(t, y)
+  let k2 = f(t + dt/2, y + dt/2 * k1)
+  let k3 = f(t + dt/2, y + dt/2 * k2)
+  let k4 = f(t + dt, y + dt * k3)
+  y + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+}
+
+let t = linspace(0, 500, 501)
+let h = zeros([len(t)])
+for i in range(1, len(t)) {
+  h[i] = rk4(f, t[i-1], h[i-1], t[i] - t[i-1])
+}
+
+print("Final level: " + h[-1] + " m, steady state " + (q_in / k)^2 + " m")
+plot(t, h)

@@ -1,3 +1,5 @@
+import("test.akt")
+
 let v = [1,2,3,4]
 
 let M = [1,2,3,4;
@@ -14,3 +16,56 @@ print(M)
 print("")
 print(I)
 print("")
+
+// ------------------ Tensor assignment operations ------------------
+
+v[0] = 123
+assert_eq(v[0], 123)
+assert_eq(v[1], 2)
+
+// Last element, and an index computed from an expression
+v[len(v) - 1] = 40
+assert_eq(v[3], 40)
+
+M[0, 0] = 456
+assert_eq(M[0, 0], 456)
+assert_eq(M[0, 1], 2)
+
+M[1, 3] = -8
+assert_eq(M[1, 3], -8)
+assert_eq(M[1, 2], 7)
+
+// Filling a matrix element by element
+let D = zeros([3, 3])
+for i in range(0, 3) {
+  D[i, i] = -1
+  if i < 2 {
+    D[i, i + 1] = 1
+  }
+}
+assert_eq(D[0, 0], -1)
+assert_eq(D[0, 1], 1)
+assert_eq(D[1, 2], 1)
+assert_eq(D[2, 2], -1)
+assert_eq(D[2, 0], 0)
+
+// A complex value turns a real tensor complex.
+// == doesn't compare complex numbers yet, so these use assert_close
+let c = [1, 2, 3]
+c[1] = complex(0, 1)
+assert_close(c[1], complex(0, 1), 1e-12)
+assert_close(c[0], 1, 1e-12)
+assert_close(c[2], 3, 1e-12)
+
+// A real value in a complex tensor
+c[2] = 5
+assert_close(c[2], 5, 1e-12)
+
+// Parameters are copies: writing to one doesn't reach the caller
+fn zero_first(A) {
+  A[0] = 0
+  A[0]
+}
+let w = [1, 2, 3]
+assert_eq(zero_first(w), 0)
+assert_eq(w[0], 1)

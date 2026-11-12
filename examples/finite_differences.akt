@@ -36,16 +36,15 @@ let D = 1/dt * (-eye(N) + diag(ones([N-1]), 1))
 print("")
 print("Number of elements in the matrix: " + len(D))
 
+// The last row has no y[i+1] to use, so we replace it
+// with a backward difference, (y[N-1] - y[N-2]) / dt
+
+D[N-1, N-2] = -1/dt
+D[N-1, N-1] =  1/dt
+
 let ycos_approx = D @ ysin
 
-// The last row has no y[i+1] to use, so it only holds
-// -y[N-1]/dt. That shows up as the spike at t = 10 in
-// the plot, so we leave that point out of the error.
-
-let err_fwd = 0
-for i in range(0, N-1) {
-  err_fwd = max([err_fwd, abs(ycos_approx[i] - cos(t[i]))])
-}
+let err_fwd = max(abs(ycos_approx - cos(t)))
 print("Forward difference, max error:  " + err_fwd)
 
 // --- Centered difference -----------------------------
@@ -56,12 +55,22 @@ print("Forward difference, max error:  " + err_fwd)
 // the first and the last rows are incomplete.
 
 let Dc = 1/(2*dt) * (diag(ones([N-1]), 1) - diag(ones([N-1]), -1))
+
+// One-sided stencils that are also second order:
+//   first row: (-3 y[0] + 4 y[1] - y[2]) / (2 dt)
+//   last row:  (3 y[N-1] - 4 y[N-2] + y[N-3]) / (2 dt)
+
+Dc[0, 0]     = -3/(2*dt)
+Dc[0, 1]     =  4/(2*dt)
+Dc[0, 2]     = -1/(2*dt)
+
+Dc[N-1, N-1] =  3/(2*dt)
+Dc[N-1, N-2] = -4/(2*dt)
+Dc[N-1, N-3] =  1/(2*dt)
+
 let ycos_centered = Dc @ ysin
 
-let err_ctr = 0
-for i in range(1, N-1) {
-  err_ctr = max([err_ctr, abs(ycos_centered[i] - cos(t[i]))])
-}
+let err_ctr = max(abs(ycos_centered - cos(t)))
 print("Centered difference, max error: " + err_ctr)
 
 // --- Plots -------------------------------------------

@@ -30,6 +30,9 @@
 
 #define ARGS_VARIADIC SIZE_MAX
 
+// Integer exponent check shared by polynomial and transfer function powers
+#define POW_MAX_EXP 1000
+
 //============================== 
 //
 //    Arena
@@ -1364,6 +1367,7 @@ struct AST {
 		struct {
 			char          *dst;
 			AST           *expr;
+			AST           *tensor_indices;
 		} statement;
 
 		struct {
@@ -1420,8 +1424,8 @@ struct AST {
 		} fn_call;
 
 		struct   {
-			char   *var_name;
-			AST    *first;
+			AST *target;
+			AST *first;
 		} indexing;
 
 		struct {
@@ -1550,11 +1554,11 @@ AST *ast_make_id(Arena *pa, size_t len){
 	return expr;
 }
 
-AST *ast_make_indexing(Arena *pa, size_t len){
+AST *ast_make_indexing(Arena *pa){
 	AST *expr = ast_alloc(pa, AST_INDEXING);
-	expr->statement_type       = STATEMENT_EXPR;
-	expr->as.indexing.var_name = arena_alloc(pa, len + 1);
-	expr->as.indexing.first    = NULL;
+	expr->statement_type     = STATEMENT_EXPR;
+	expr->as.indexing.target = NULL;
+	expr->as.indexing.first  = NULL;
 	return expr;
 }
 
@@ -1819,22 +1823,6 @@ AST *parse_args_list(Arena *pa, AST *parent, Parser *parser){
 }
 
 
-AST *parse_indexing(Arena *pa, AST *parent, Parser *parser){
-    Token *name = parser_eat(TOK_ID, parser);
-    if(!name) return NULL;
-    char *var_name = name->value;
-		if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
-
-		AST *indexing = ast_make_indexing(pa, strlen(var_name));
-    strcpy(indexing->as.indexing.var_name, name->value);
-		AST *expr  = parse_args_list(pa, parent, parser);
-		if(!expr) return NULL;
-		indexing->as.indexing.first = expr;
-
-		if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
-		return indexing;
-}
-
 AST *parse_string(Arena *pa, AST *parent, Parser *parser) {
     Token *current = NULL;
 		if((current = parser_eat(TOK_STRING, parser)) == NULL) return NULL;
@@ -1884,7 +1872,6 @@ AST *parse_tuple(Arena *pa, AST *parent, Parser *parser) {
 }
 
 AST *parse_paren_expr(Arena *pa, AST *parent, Parser *parser) {
-    Token *current = NULL;
     if(parser_eat(TOK_LPAREN, parser) == NULL) return NULL;
     AST *expr = parse_expression(pa, parent, parser);
     if(parser_eat(TOK_RPAREN, parser) == NULL) return NULL;
@@ -1892,14 +1879,12 @@ AST *parse_paren_expr(Arena *pa, AST *parent, Parser *parser) {
 }
 
 AST *parse_primary(Arena *pa, AST *parent, Parser *parser) {
-	Token *current = parser_peek(parser);
   size_t save = parser->next;
   AST *primary = NULL;
 
   if(
       (parser->next = save, primary = parse_number(pa, parent, parser))     ||
       (parser->next = save, primary = parse_fn_call(pa, parent, parser))    ||
-      (parser->next = save, primary = parse_indexing(pa, parent, parser))   ||
       (parser->next = save, primary = parse_id(pa, parent, parser))         ||
       (parser->next = save, primary = parse_string(pa, parent, parser))     ||
       (parser->next = save, primary = parse_array(pa, parent, parser))      ||
@@ -1969,14 +1954,41 @@ AST *parse_expo(Arena *pa, AST *parent, Parser *parser){
 	return postfix;
 }
 
-AST *parse_postfix_tail(Arena *pa, AST *parent, Parser *parser, AST *target){
-	if(parser_done(parser) || parser_peek(parser)->type != TOK_DOT) return target;
-	parser_eat(TOK_DOT, parser);
+
+AST *parse_postfix_tail(Arena *pa, AST *parent, Parser *parser, AST *target);
+
+AST *parse_postfix_tail_dot(Arena *pa, AST *parent, Parser *parser, AST *target){
+	if(parser_eat(TOK_DOT, parser) == NULL) return NULL;
 	AST *id = parse_id(pa, parent, parser);
 	if(id == NULL) return NULL;
 	AST *postfix = ast_make_postfix(pa, id->as.literal.value.id);
 	postfix->as.postfix_op.target = target;
 	return parse_postfix_tail(pa, parent, parser, postfix);
+}
+AST *parse_postfix_tail_lbrack(Arena *pa, AST *parent, Parser *parser, AST *target){
+	if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
+	AST *args_list = parse_args_list(pa, parent, parser);
+	if(!args_list) return NULL;
+	if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
+
+	AST *indexing                = ast_make_indexing(pa);
+	indexing->as.indexing.target = target;
+	indexing->as.indexing.first  = args_list;
+	return parse_postfix_tail(pa, parent, parser, indexing);
+}
+
+AST *parse_postfix_tail(Arena *pa, AST *parent, Parser *parser, AST *target){
+	size_t save = parser->next;
+	AST *tail = NULL;
+	if(
+		(parser->next = save, tail = parse_postfix_tail_dot(pa, parent, parser, target)) ||
+		(parser->next = save, tail = parse_postfix_tail_lbrack(pa, parent, parser, target))
+		)
+	{
+		return tail;
+	}
+	parser->next = save;
+	return target;
 }
 
 AST *parse_postfix(Arena *pa, AST *parent, Parser *parser){
@@ -2067,19 +2079,32 @@ AST *parse_block(Arena *pa, AST *parent, Parser *parser){
   return list;
 }
 
-AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
-	size_t save    = parser->next;
-  Token *current = NULL;
-  AST   *stmt    = NULL;
-  if((current = parser_peek(parser)) && 
-      parser_keyword_eat("let", parser))
-  {
-    stmt = ast_make_statement(pa, STATEMENT_DECL_ASSIGN);
-  }else{
-		parser->next = save;
-    stmt = ast_make_statement(pa, STATEMENT_ASSIGN);
-  }
+AST *parse_tensor_idx_assignment(Arena *pa, AST *parent, Parser *parser, AST *stmt){
+  Token *id = NULL;
+  if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
+  if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
 
+	AST *indices = parse_args_list(pa, parent, parser);
+	if(!indices) return NULL;
+
+	stmt->as.statement.tensor_indices = indices;
+
+  if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
+
+  stmt->as.statement.dst  = arena_alloc(pa, strlen(id->value) + 1);
+  strcpy(stmt->as.statement.dst, id->value);
+
+  if((id = parser_eat(TOK_EQ, parser)) == NULL) return NULL;
+
+  AST *expr               = parse_expression(pa, stmt, parser);
+	if(!expr) return NULL;
+  stmt->as.statement.expr = expr;
+
+  if(!parser_eat_stmt_end(parser)) return NULL;
+  return stmt;
+}
+
+AST *parse_variable_assignment(Arena *pa, AST *parent, Parser *parser, AST *stmt){
   Token *id = NULL;
   if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
 
@@ -2094,6 +2119,28 @@ AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
 
   if(!parser_eat_stmt_end(parser)) return NULL;
   return stmt;
+}
+
+AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
+	size_t save    = parser->next;
+  Token *current = NULL;
+  AST   *stmt    = NULL;
+  if((current = parser_peek(parser)) && 
+      parser_keyword_eat("let", parser))
+  {
+    stmt = ast_make_statement(pa, STATEMENT_DECL_ASSIGN);
+	}else{
+		parser->next = save;
+		stmt = ast_make_statement(pa, STATEMENT_ASSIGN);
+		if(
+				(parser->next = save, parse_variable_assignment(pa, parent, parser, stmt)) ||
+				(parser->next = save, parse_tensor_idx_assignment(pa, parent, parser, stmt))
+			){
+			return stmt;
+		}
+	}
+
+	return parse_variable_assignment(pa, parent, parser, stmt);
 }
 
 AST *parse_while_stmt(Arena *pa, AST *parent, Parser *parser){
@@ -2241,7 +2288,6 @@ AST *parse_expr_stmt(Arena *pa, AST *parent, Parser *parser){
 
 AST *parse_statement(Arena *pa, AST *parent, Parser *parser){
   size_t save = parser->next;
-	Token *current = parser_peek(parser);
   AST *stmt = NULL;
 
   if(
@@ -2352,6 +2398,15 @@ void ast_print(AST *ast, int level){
 				printf("%sSTMT:\n", buf);
 				fill_indent(level + 1, buf);
 				printf("%sSRC:  %s\n", buf, ast->as.statement.dst);
+				if(ast->as.statement.tensor_indices){
+					printf("%sINDICES:\n", buf);
+					for(AST *idx = ast->as.statement.tensor_indices;
+							idx != NULL;
+							idx = idx->next
+							){
+						ast_print(idx, level + 2);
+					}
+				}
 				printf("%sEXP:\n", buf);
 				ast_print(ast->as.statement.expr, level + 2);
 				break;
@@ -2411,9 +2466,7 @@ void ast_print(AST *ast, int level){
 			}
 		case AST_INDEXING:
 			{
-				printf("%sINDEXING[%s]:\n",
-						buf,
-						ast->as.indexing.var_name);
+				printf("%sINDEXING:\n", buf);
 				for(AST *node = ast->as.indexing.first;
 						node != NULL;
 						node = node->next
@@ -2446,9 +2499,22 @@ void ast_print(AST *ast, int level){
 				ast_print(ast->as.binop.right, level + 2);
 				break;
 			}
-		case AST_POSTFIX_OP:
+		case AST_UNARY_OP:
 			{
 				char opBuf[128];
+				op_type_repr(ast->as.unop.op, opBuf);
+				printf("%sUNOP[%s]:\n", buf, opBuf);
+				ast_print(ast->as.unop.arg, level + 1);
+				break;
+			}
+		// Never built by the parser. Listed instead of a default case,
+		// so -Wswitch still flags any new node type that isn't printed
+		case AST_ARGS_LIST:
+		case AST_NODE_TYPE_COUNT:
+			printf("%s<node type %d>\n", buf, ast->type);
+			break;
+		case AST_POSTFIX_OP:
+			{
 				printf("%sPOSTFIX[%s]:\n", buf, ast->as.postfix_op.op);
 				fill_indent(level + 1, buf);
 				printf("%sTARGET:\n", buf);
@@ -2536,8 +2602,10 @@ Arena *env_storage(Environment *e) {
   return e->parent ? e->frame : e->persistent;
 }
 
+// Searches newest first, so a let in a block shadows an outer variable
+// of the same name until the block ends
 int env_variable_idx(Environment *e, const char* name){
-	for(int i = 0; i < e->num_vars; i++){
+	for(int i = (int)e->num_vars - 1; i >= 0; i--){
 		if(strcmp(name, e->vars[i].name) == 0) return i;
 	}
 	return -1;
@@ -3473,6 +3541,9 @@ typedef Value (*UnaryValueDispatch)(Arena *a, Environment *e, Value *caller, Val
 //
 //============================
 
+
+const char *fn_name(Value *fn);
+
 bool get_opt_string(Environment *e, const char *fn, size_t argc, Value *argv,
                   size_t i, const char *name, const char *def, const char **out){
 	if(i >= argc) { *out = def; return true; }
@@ -3787,6 +3858,90 @@ Value ordered_div_poly_num(Arena *a, Environment *e, Value *left, Value *right){
     Value inv_num    = make_num(1.0/num);
 
     return mul_num_poly(a, e, &inv_num, &poly_value);
+}
+
+static bool integer_exponent(Environment *e, Value *v, long *out){
+	if(v->valueType != VALUE_NUMBER){
+		runtime_error(e, "^: polynomials can only be raised to integer powers");
+		return false;
+	}
+	double raw = v->value.number;
+	if(trunc(raw) != raw){
+		runtime_error(e, "^: polynomials can only be raised to integer powers (given %g)", raw);
+		return false;
+	}
+	if(fabs(raw) > POW_MAX_EXP){
+		runtime_error(e, "^: exponent %g is too large (at most %d)", raw, POW_MAX_EXP);
+		return false;
+	}
+	*out = (long)raw;
+	return true;
+}
+
+static Polynomial poly_mul(Arena *a, Polynomial p1, Polynomial p2){
+	Polynomial pnew = alloc_poly(a, p1.deg + p2.deg);
+	for(size_t i = 0; i < p1.num_coeffs; i++){
+		for(size_t j = 0; j < p2.num_coeffs; j++){
+			pnew.coeffs[i + j] += p1.coeffs[i] * p2.coeffs[j];
+		}
+	}
+	return pnew;
+}
+
+// p^n for n >= 0, by repeated squaring: O(log n) multiplications
+static Polynomial poly_pow(Arena *a, Polynomial p, unsigned long n){
+	Polynomial result = poly_from_num(a, 1.0);
+	Polynomial base   = p;
+	while(n > 0){
+		if(n & 1) result = poly_mul(a, result, base);
+		n >>= 1;
+		if(n > 0) base = poly_mul(a, base, base);
+	}
+	return result;
+}
+
+Value pow_poly_scalar(Arena *a, Environment *e, Value *left, Value *right){
+	long n;
+	if(!integer_exponent(e, right, &n)) return make_nan();
+
+	Polynomial p = left->value.poly;
+	if(n >= 0) return make_poly(poly_pow(a, p, (unsigned long)n));
+
+	// Negative powers leave the polynomials: p^-n = 1 / p^n
+	if(poly_is_zero(&p)){
+		runtime_error(e, "^: zero polynomial raised to a negative power");
+		return make_nan();
+	}
+	TransferFunction tf = {
+		.num = poly_from_num(a, 1.0),
+		.den = poly_pow(a, p, (unsigned long)(-n)),
+		.Ts  = 0
+	};
+	return make_transfer_function(tf);
+}
+
+// (num/den)^n = num^n / den^n. If num and den share no factors, neither do
+// their powers, so there's nothing to simplify. Ts is kept, so zvar(Ts)^-1
+// stays discrete
+Value pow_tf_scalar(Arena *a, Environment *e, Value *left, Value *right){
+	long n;
+	if(!integer_exponent(e, right, &n)) return make_nan();
+
+	TransferFunction tf = left->value.tf;
+	Polynomial top = n >= 0 ? tf.num : tf.den;
+	Polynomial bot = n >= 0 ? tf.den : tf.num;
+	if(poly_is_zero(&bot)){
+		runtime_error(e, "^: zero transfer function raised to a negative power");
+		return make_nan();
+	}
+	unsigned long k = (unsigned long)(n >= 0 ? n : -n);
+
+	TransferFunction out = {
+		.num = poly_pow(a, top, k),
+		.den = poly_pow(a, bot, k),
+		.Ts  = tf.Ts
+	};
+	return make_transfer_function(out);
 }
 
 
@@ -4460,6 +4615,14 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_TENSOR]  = broadcast_pow,
 			[VALUE_NAN]     = op_with_nan,
 		},
+		[VALUE_POLYNOMIAL] = {
+			[VALUE_NUMBER]  = pow_poly_scalar,
+			[VALUE_NAN]     = op_with_nan,
+		},
+		[VALUE_TRANSFER_FUNCTION] = {
+			[VALUE_NUMBER]  = pow_tf_scalar,
+			[VALUE_NAN]     = op_with_nan,
+		},
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
 			[VALUE_TENSOR]            = op_with_nan,
@@ -4536,6 +4699,18 @@ Value native_assert(Arena *a, Environment *e, char* script, size_t argc, Value *
   return make_num(cond.value.number);
 }
 
+Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
+                      Value *fun, size_t argc, Value *args, int *silent);
+Value native_apply(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+	Value fn = argv[0];
+	if(fn.valueType != VALUE_FUNCTION){
+		runtime_error(e, "apply: first argument must be a function");
+		return make_nan();
+	}
+	return call_function(a, e, script, fn_name(&fn), &fn, 1, &argv[1], silent);
+}
+
+
 Value native_ls(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   env_list_variables(e);
   *silent = 1;
@@ -4555,7 +4730,6 @@ int import_script(Arena *ta, Environment *e, char* importer, char *path);
 Value native_import(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
   if(val.valueType != VALUE_STRING){
-    char buf[1024];
 		runtime_error(e, "Importing a module expects a string.");
     *silent = 1;
     return make_num(0);
@@ -5139,7 +5313,6 @@ Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 		runtime_error(e, "poly: Expected a 1-D-like array of coefficients");
 		return make_nan();
 	}
-	int err;
 	Polynomial p = poly_new(a, coeffs, num_coeffs);
 	poly_update_degree(&p);
 	return make_poly(p);
@@ -5317,8 +5490,9 @@ typedef struct {
 } NativeFn;
 
 
-#define NATIVE_LIST             \
+#define NATIVE_FNS_LIST         \
         N(assert,   2)          \
+        N(apply,    2)          \
         N(ls,       0)          \
         N(print,    1)          \
         N(import,   1)          \
@@ -5347,11 +5521,18 @@ typedef struct {
 #define NV(name, argc_min, argc_max) { #name, native_##name, argc_min, argc_max },
 #define M(name, rf, cf, rcf) N(name, 1)
 #define R(name, reducer_fn, init, empty_ok) N(name, 1)
-static const NativeFn natives[] = { NATIVE_LIST };
+static const NativeFn natives[] = { NATIVE_FNS_LIST };
 #undef M
 #undef N
 #undef R
 
+const char *fn_name(Value *fn){
+	if(fn->value.fun.kind == FN_NATIVE){
+		return natives[fn->value.fun.native_data.native_index].name;
+	}else{
+		return fn->value.fun.definition->as.fn_def.id;
+	}
+}
 
 //==============================
 //
@@ -5439,9 +5620,9 @@ typedef enum {
 	EXEC_RETURN,
 } ExecStatus;
 
-ExecStatus eval_stmt(Arena* ta, AST *ast, Environment *e, char *script_path, AST *stmt, Value *result_out);
+ExecStatus eval_stmt(Arena* ta, Environment *e, char *script_path, AST *stmt, Value *result_out);
 Value eval_expr(Arena *a, Environment *e, char *script_path, AST *expr, int *silent);
-ExecStatus eval_block( Arena *a, AST *ast, Environment *e, char *script_path, AST *first, Value *result_out);
+ExecStatus eval_block( Arena *a, Environment *e, char *script_path, AST *first, Value *result_out);
 
 Value eval_unop(Arena *a, Environment *e, AST *op, Value *arg_given){
 	Value *arg  = arg_given;
@@ -5527,6 +5708,73 @@ Environment *push_env(Environment *e){
 	return new_env;
 }
 
+Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
+                      Value *fun, size_t argc, Value *args, int *silent){
+	// Sanity checks
+
+	if (fun->valueType != VALUE_FUNCTION) {
+		runtime_error(e, "%s is not a function", name);
+		return make_nan();
+	}
+
+  if(fun->value.fun.kind == FN_NATIVE){
+    size_t argc_min = fun->value.fun.native_data.argc_min;
+    size_t argc_max = fun->value.fun.native_data.argc_max;
+		if((size_t)argc < argc_min || (size_t)argc > argc_max){
+			if(argc_max == ARGS_VARIADIC){
+				runtime_error(e, "%s expects at least %zu arguments, got %d", name, argc_min, argc);
+			}else if(argc_min == argc_max){
+				runtime_error(e, "%s expects %zu arguments, got %d", name, argc_min, argc);
+			}else{
+				runtime_error(e, "%s expects between %zu and %zu arguments, got %d", name, argc_min, argc_max, argc);
+			}
+			return make_nan();
+		}
+  }else{
+    size_t num_args = fun->value.fun.definition->as.fn_def.num_args;
+		if((size_t)argc != num_args){
+			runtime_error(e, "%s expects %zu arguments, got %d", name, num_args, argc);
+			return make_nan();
+		}
+  }
+
+  if(fun->value.fun.kind == FN_NATIVE){
+    int idx = fun->value.fun.native_data.native_index;
+    if(idx < 0 || idx >= LEN(natives)){
+			runtime_error(e, "%s not registered", name);
+      return make_nan();
+    }
+    NativeValueDispatch dispatch = natives[idx].fn;
+    Value result = dispatch(ta, e, script_path, argc, args, silent);
+    return result;
+  }
+	// Push a new environment for the function scope
+
+  size_t scratch = arena_save(e->frame);
+	Environment *new_env = push_env(e);
+
+	// Set its argument values to those evaluated before
+
+  AST *arg_def = fun->value.fun.definition->as.fn_def.params;
+  for(size_t i = 0; i < argc; i++, arg_def = arg_def->next){
+      Value owned = value_clone(env_storage(new_env), &args[i]);
+      env_set_variable(new_env, arg_def->as.literal.value.id, &owned);
+  }
+
+	Value result;
+  AST *block     = fun->value.fun.definition->as.fn_def.block;
+  ExecStatus out = eval_block(ta,  new_env, script_path, block, &result);
+
+  if(out == EXEC_ERROR){
+    arena_restore(e->frame, scratch);
+    return make_nan();
+  }
+
+  Value escaped = value_clone(ta, &result);
+  arena_restore(e->frame, scratch);
+	return escaped;
+}
+
 Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, int *silent){
 	int argc      = fn_call->as.fn_call.num_arguments;
 	char *fn_name = fn_call->as.fn_call.fn_name;
@@ -5555,78 +5803,7 @@ Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, 
 		return make_nan();
 	}
 	Value *fun = fun_var->value;
-
-	// Sanity checks
-
-	if (fun->valueType != VALUE_FUNCTION) {
-		runtime_error(e, "%s is not a function", fn_name);
-		return make_nan();
-	}
-
-  if(fun->value.fun.kind == FN_NATIVE){
-    size_t argc_min = fun->value.fun.native_data.argc_min;
-    size_t argc_max = fun->value.fun.native_data.argc_max;
-		if((size_t)argc < argc_min || (size_t)argc > argc_max){
-			if(argc_max == ARGS_VARIADIC){
-				runtime_error(e, "%s expects at least %zu arguments, got %d", fn_name, argc_min, argc);
-			}else if(argc_min == argc_max){
-				runtime_error(e, "%s expects %zu arguments, got %d", fn_name, argc_min, argc);
-			}else{
-				runtime_error(e, "%s expects between %zu and %zu arguments, got %d", fn_name, argc_min, argc_max, argc);
-			}
-			return make_nan();
-		}
-  }else{
-    size_t num_args = fun->value.fun.definition->as.fn_def.num_args;
-		if((size_t)argc != num_args){
-			runtime_error(e, "%s expects %zu arguments, got %d", fn_name, num_args, argc);
-			return make_nan();
-		}
-  }
-
-  if(fun->value.fun.kind == FN_NATIVE){
-    int idx = fun->value.fun.native_data.native_index;
-    if(idx < 0 || idx >= LEN(natives)){
-			runtime_error(e, "%s not registered", fn_name);
-      return make_nan();
-    }
-    NativeValueDispatch dispatch = natives[idx].fn;
-    Value result = dispatch(ta, e, script_path, argc, evaluated, silent);
-    return result;
-  }
-
-
-	// Push a new environment for the function scope
-
-  size_t scratch = arena_save(e->frame);
-	Environment *new_env = push_env(e);
-
-	// Set its argument values to those evaluated before
-
-	size_t i = 0;
-	for(
-			AST *arg      = fn_call->as.fn_call.first_arg,
-			    *arg_def  = fun->value.fun.definition->as.fn_def.params;
-			arg          != NULL;
-			arg           = arg->next,
-			arg_def       = arg_def->next
-		 ){
-		env_set_variable(new_env, arg_def->as.literal.value.id, &evaluated[i]);
-		i++;
-	}
-
-	Value result;
-  AST *block     = fun->value.fun.definition->as.fn_def.block;
-  ExecStatus out = eval_block(ta, fn_call, new_env, script_path, block, &result);
-
-  if(out == EXEC_ERROR){
-    arena_restore(e->frame, scratch);
-    return make_nan();
-  }
-
-  Value escaped = value_clone(ta, &result);
-  arena_restore(e->frame, scratch);
-	return escaped;
+	return call_function(ta, e, script_path, fn_name, fun, argc, evaluated, silent);
 }
 
 //============================== 
@@ -6050,28 +6227,26 @@ static bool resolve_index(Environment *e, const char *name, Value v, size_t size
 
 Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing, int *silent){
 
-	char *name = indexing->as.indexing.var_name;
+  AST *target        = indexing->as.indexing.target;
+  const char *name   = target->type == AST_ID ? target->as.literal.value.id : "expression";
 
-	Variable *var = env_find_variable(e, name);
-	if(!var){
-		runtime_error(e, "Undefined variable %s", name);
-		return make_nan();
-	}
+	size_t errors      = e->run_stats->runtime_errors;
+	Value target_value = eval_expr(ta, e, script_path, target, silent);
+	if(e->run_stats->runtime_errors != errors) return make_nan();
 
-	size_t errors = e->run_stats->runtime_errors;
 	size_t n = 0;
 	Value idx[MAX_DIMS];
 	for(AST *node = indexing->as.indexing.first; node != NULL; node = node->next){
 		if(n == MAX_DIMS){
-			runtime_error(e, "Too many indices: %s", name);
+			runtime_error(e, "Too many indices");
 			return make_nan();
 		}
 		idx[n++] = eval_expr(ta, e, script_path, node, silent);
 		if(e->run_stats->runtime_errors != errors) return make_nan();
 	}
 
-	if(var->value->valueType == VALUE_TENSOR){
-		Tensor *t = &var->value->value.tensor;
+	if(target_value.valueType == VALUE_TENSOR){
+		Tensor *t = &target_value.value.tensor;
 		if(n != t->ndim){
 			runtime_error(e, "%s has %zu dimensions, got %zu indices", name, t->ndim, n);
 			return make_nan();
@@ -6086,14 +6261,14 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 		return make_num(t->data.re[off]);
 	}
 
-	if(var->value->valueType == VALUE_TUPLE){
+	if(target_value.valueType == VALUE_TUPLE){
 		if(n != 1){
 			runtime_error(e, "Tuples take a single index: %s", name);
 			return make_nan();
 		}
 		size_t i;
-		if(!resolve_index(e, name, idx[0], var->value->value.tuple.size, &i)) return make_nan();
-		return var->value->value.tuple.items[i];
+		if(!resolve_index(e, name, idx[0], target_value.value.tuple.size, &i)) return make_nan();
+		return target_value.value.tuple.items[i];
 	}
 
 	runtime_error(e, "Can't index from variable %s", name);
@@ -6112,7 +6287,6 @@ Value eval_array(Arena *ta, Environment *e, char *script_path, AST *array, int *
 		return make_tensor(t);
 	}
 
-	bool dtype_set = false;
 	DType dtype    = DTYPE_REAL;
 
 	if(num_rows == 1){
@@ -6286,7 +6460,6 @@ Value eval_expr(Arena *ta, Environment *e, char *script_path, AST *expr, int *si
 
 ExecStatus eval_block(
     Arena *ta,
-    AST *ast,
     Environment *e,
     char *script_path,
     AST *block,
@@ -6305,7 +6478,7 @@ ExecStatus eval_block(
             int silent = 1;
             result = eval_expr( ta, e, script_path, stmt, &silent);
         } else {
-            int err = eval_stmt(ta, ast, e, script_path, stmt, result_out);
+            int err = eval_stmt(ta, e, script_path, stmt, result_out);
             if (err != 0) {
                 e->num_vars = mark;
                 return err;
@@ -6322,9 +6495,107 @@ ExecStatus eval_block(
     return 0;
 }
 
+int eval_tensor_assignment(Arena *ta, Environment *e, char *script_path, AST *stmt, int *silent){
+	char *dst = stmt->as.statement.dst;
+	Variable *tensor = NULL;
+	if((tensor = env_find_local(e, dst)) == NULL){
+		runtime_error(e, "Variable %s has not been defined", dst);
+		return 1;
+	}
+	if(tensor->value->valueType != VALUE_TENSOR){
+		runtime_error(e, "Expected %s to be a tensor", dst);
+		return 1;
+	}
+	size_t offset      = 0;
+	size_t index_count = 0;
+	size_t count       = tensor->value->value.tensor.count;
+	size_t ndim        = tensor->value->value.tensor.ndim;
+	size_t *strides    = tensor->value->value.tensor.strides;
+	size_t *sizes      = tensor->value->value.tensor.sizes;
+	DType dtype        = tensor->value->value.tensor.dtype;
+
+	size_t save        = ta->offset;
+
+	for(
+			AST *index = stmt->as.statement.tensor_indices;
+			index != NULL;
+			index = index->next, index_count++
+		 )
+	{
+		if(index_count >= ndim){
+			runtime_error(e, "More indices given than %zu dimensions (given %zu).", ndim, index_count); return 1;
+			return 1;
+		}
+		Value idx_value = eval_expr(ta, e, script_path, index, silent);
+		if(idx_value.valueType != VALUE_NUMBER){
+			runtime_error(e, "Invalid expression in index %zu. Expected a number.", index_count);
+			return 1;
+		}
+		if(trunc(idx_value.value.number) != idx_value.value.number){
+			runtime_error(e, "Indices must be integers (given %g).", idx_value.value.number);
+			return 1;
+		}
+		if(idx_value.value.number >= sizes[index_count] || idx_value.value.number < 0){
+			runtime_error(e, "Index out of range for axis %zu of size %zu (given %g).", 
+					index_count, sizes[index_count], idx_value.value.number);
+			return 1;
+		}
+		offset += strides[index_count] * idx_value.value.number;
+	}
+  if(index_count != ndim){ 
+		runtime_error(e, "%s has %zu dimensions, got %zu indices", dst, ndim, index_count); 
+		return 1;
+	}
+
+	Value expr_value = eval_expr(ta, e, script_path, stmt->as.statement.expr, silent);
+	if(expr_value.valueType != VALUE_NUMBER && expr_value.valueType != VALUE_COMPLEX){
+		runtime_error(e, "Can only assign numbers to tensors.", index_count);
+		return 1;
+	}
+
+	DType final_dtype     = expr_value.valueType == VALUE_COMPLEX ? DTYPE_COMPLEX : dtype;
+
+	if(final_dtype != dtype && final_dtype == DTYPE_COMPLEX){
+		double complex *new_cx = arena_alloc(env_storage(e), count * sizeof(double complex));
+		for(size_t i = 0; i < count; i++) new_cx[i] = tensor->value->value.tensor.data.re[i];
+		tensor->value->value.tensor.data.cx = new_cx;
+	}
+
+	if(final_dtype == DTYPE_COMPLEX){
+		tensor->value->value.tensor.data.cx[offset] = 
+			expr_value.valueType == VALUE_NUMBER ? 
+			expr_value.value.number : 
+			expr_value.value.complex_number;
+	}else{
+		tensor->value->value.tensor.data.re[offset] = expr_value.value.number;
+	}
+
+	tensor->value->value.tensor.dtype = final_dtype;
+
+	ta->offset = save;
+
+	return 0;
+}
+
+int eval_variable_assignment(Arena *ta, Environment *e, char *script_path, AST *stmt, int *silent){
+	char *dst = stmt->as.statement.dst;
+	// Check if it has been defined before
+	if(env_find_local(e, dst) == NULL){
+		runtime_error(e, "Variable %s has not been defined", dst);
+		return 1;
+	}
+	//  TODO: Check if it's not null
+	SCRATCH_SCOPE(ta){
+		Value value = eval_expr(ta, e, script_path, stmt->as.statement.expr, silent);
+		Value saved = value_clone(env_storage(e), &value);
+		env_set_variable(e, dst, &saved);
+	}
+	return 0;
+}
+
+
 ExecStatus eval_stmt(
 		Arena* ta,
-		AST *ast,
 		Environment *e,
 		char *script_path,
 		AST *stmt,
@@ -6342,36 +6613,21 @@ ExecStatus eval_stmt(
 
 	if(stmt->statement_type == STATEMENT_DECL_ASSIGN){
 		char *dst = stmt->as.statement.dst;
-		// Check if it hasn't been defined before
-    if(env_find_local(e, dst) != NULL){
-			runtime_error(e, "Variable %s has already been defined", dst);
-			return 1;
-    }
 
-		//  TODO: Check if it's not null
+		// let always makes a new variable. An existing one with the same
+		// name, here or in an enclosing block, is shadowed, not overwritten
     SCRATCH_SCOPE(ta){
       Value value = eval_expr(ta, e, script_path, stmt->as.statement.expr, &silent);
       Value saved = value_clone(env_storage(e), &value);
-      env_set_variable(e, dst, &saved);
+      env_alloc_variable(e, dst, &saved);
     }
 		return 0;
 	}
 
 	if(stmt->statement_type == STATEMENT_ASSIGN){
-		char *dst = stmt->as.statement.dst;
-		// Check if it has been defined before
-    if(env_find_local(e, dst) == NULL){
-			runtime_error(e, "Variable %s has not been defined", dst);
-			return 1;
-    }
-
-		//  TODO: Check if it's not null
-    SCRATCH_SCOPE(ta){
-      Value value = eval_expr(ta, e, script_path, stmt->as.statement.expr, &silent);
-      Value saved = value_clone(env_storage(e), &value);
-      env_set_variable(e, dst, &saved);
-    }
-		return 0;
+		if(stmt->as.statement.tensor_indices != NULL)
+			return eval_tensor_assignment(ta, e, script_path, stmt, &silent);
+		return eval_variable_assignment(ta, e, script_path, stmt, &silent);
 	}
 
 	if(stmt->statement_type == STATEMENT_FUNCTION_DEF){
@@ -6414,10 +6670,10 @@ ExecStatus eval_stmt(
       return 0;
 
     if (!cond_true && stmt->as.if_stmt.else_is_elif) {
-      return eval_stmt(ta, ast, e, script_path, branch, result_out);
+      return eval_stmt(ta, e, script_path, branch, result_out);
     }
 
-    return eval_block(ta, ast, e, script_path, branch, result_out);
+    return eval_block(ta, e, script_path, branch, result_out);
   }
 
   if(stmt->statement_type == STATEMENT_FOR){
@@ -6439,7 +6695,7 @@ ExecStatus eval_stmt(
       env_set_variable(e, id, &item);
 
       Value body_result;
-      ExecStatus status = eval_block(ta, ast, e, script_path, stmt->as.for_stmt.block, &body_result);
+      ExecStatus status = eval_block(ta, e, script_path, stmt->as.for_stmt.block, &body_result);
       if(status == EXEC_RETURN){
         if(result_out) *result_out = body_result;   // don't restore: it may point into ta
         return EXEC_RETURN;
@@ -6466,7 +6722,7 @@ ExecStatus eval_stmt(
 			}       
 
 			Value body_result;
-			ExecStatus status = eval_block(ta, ast, e, script_path, stmt->as.while_stmt.block,
+			ExecStatus status = eval_block(ta, e, script_path, stmt->as.while_stmt.block,
 					&body_result);
 			if(status == EXEC_RETURN){
 				if(result_out) *result_out = body_result;   // don't restore: it may point into ta!
@@ -6493,7 +6749,7 @@ int run_ast(Arena* ta, AST *ast, Environment *e, char *script_path){
 	AST *stmt = ast->as.program.statement_list->as.statement_list.first;
 
 	while(stmt != NULL){
-		ExecStatus status = eval_stmt(ta, ast, e, script_path, stmt, NULL);
+		ExecStatus status = eval_stmt(ta, e, script_path, stmt, NULL);
 		if(status == EXEC_RETURN){
 			printf("Return outside function body\n");
 		}
@@ -6573,7 +6829,6 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
   ssize_t nread     = 0;
   ssize_t last_good = 0;
   int parse_code    = 0;
-  int stop          = 0;
 
   while(1){
 
@@ -6683,10 +6938,6 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
 
 
 int main(int argc, char **argv){
-	size_t size        = 0;
-	ssize_t nread      = 0;
-	ssize_t last_good  = 0;
-	int parse_code     = 0;
 	RunStats run_stats = {0};
 
 	Arena ta      = arena_create(32 * 1024 * 1024); // 32 MB for now
