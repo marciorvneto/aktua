@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <ctype.h>
 #include <complex.h>
 #include <stddef.h>
@@ -779,44 +780,44 @@ char *alloc_string(Arena *a, size_t len){
 // a single X macro, I added a V macro for tokens
 // that carry value information
 
-#define TOK_TYPE_LIST \
-	V(TOK_KEYWORD)      \
-	V(TOK_ID)           \
-	V(TOK_NL)           \
-	V(TOK_EOF)          \
-	V(TOK_STRING)       \
-	V(TOK_NUMBER)       \
-	V(TOK_TRUE)         \
-	V(TOK_FALSE)        \
-	V(TOK_NOT)          \
-	V(TOK_AND)          \
-	V(TOK_OR)           \
-	X(TOK_LPAREN)       \
-	X(TOK_RPAREN)       \
-	X(TOK_LBRACKET)     \
-	X(TOK_RBRACKET)     \
-	X(TOK_LCURLY)       \
-	X(TOK_RCURLY)       \
-	X(TOK_COMMA)        \
-	X(TOK_DOT)          \
-	X(TOK_EQ)           \
-	X(TOK_DBL_EQ)       \
-	X(TOK_LT)           \
-	X(TOK_GT)           \
-	X(TOK_LEQ)          \
-	X(TOK_GEQ)          \
-	V(TOK_PLUS)         \
-	V(TOK_MINUS)        \
-	V(TOK_MUL)          \
-	V(TOK_DIV)          \
-	V(TOK_CARET)        \
-	V(TOK_AT)           \
-	V(TOK_SEMI)         \
-	X(TOK_TYPE_COUNT)
+#define TOK_TYPE_LIST              \
+	V(TOK_KEYWORD,    "keyword")     \
+	V(TOK_ID,         "id")          \
+	V(TOK_NL,         "new line")    \
+	X(TOK_EOF,        "end of file") \
+	V(TOK_STRING,     "string")      \
+	V(TOK_NUMBER,     "number")      \
+	X(TOK_TRUE,       "'true'")      \
+	X(TOK_FALSE,      "'false'")     \
+	X(TOK_NOT,        "'not'")       \
+	X(TOK_AND,        "'and'")       \
+	X(TOK_OR,         "'or'")        \
+	X(TOK_LPAREN,     "'('")         \
+	X(TOK_RPAREN,     "')'")         \
+	X(TOK_LBRACKET,   "'['")         \
+	X(TOK_RBRACKET,   "']'")         \
+	X(TOK_LCURLY,     "'{'")         \
+	X(TOK_RCURLY,     "'}'")         \
+	X(TOK_COMMA,      "','")         \
+	X(TOK_DOT,        "'.'")         \
+	X(TOK_EQ,         "'='")         \
+	X(TOK_DBL_EQ,     "'=='")        \
+	X(TOK_LT,         "'<'")         \
+	X(TOK_GT,         "'>'")         \
+	X(TOK_LEQ,        "'<='")        \
+	X(TOK_GEQ,        "'>='")        \
+	X(TOK_PLUS,       "'+'")         \
+	X(TOK_MINUS,      "'-'")         \
+	X(TOK_MUL,        "'*'")         \
+	X(TOK_DIV,        "'/'")         \
+	X(TOK_CARET,      "'^'")         \
+	X(TOK_AT,         "'@'")         \
+	X(TOK_SEMI,       "';'")         \
+	X(TOK_TYPE_COUNT, " ")
 
 typedef enum {
-#define X(name) name,
-#define V(name) name,
+#define X(name, user) name,
+#define V(name, user) name,
 	TOK_TYPE_LIST
 #undef X
 #undef V
@@ -829,33 +830,27 @@ typedef struct {
 	size_t     line;
 } Token;
 
-void token_type_repr(TokenType type, char *buf){
-	int repr_size = 0;
-	switch(type){
-#define X(name) case name: { repr_size = sprintf(buf, #name); break;}
-#define V(name) case name: { repr_size = sprintf(buf, #name); break;}
-		TOK_TYPE_LIST
+const char *TOKEN_NAMES[] = {
+#define X(id, name) [id] = name,
+#define V(id, name) [id] = name,
+	TOK_TYPE_LIST
 #undef X
 #undef V
-	}
-	buf[repr_size] = '\0';
-}
+};
 
-void token_repr(Token *tok, char *buf){
-	int repr_size = 0;
+void token_repr(Token *tok, char *buf, size_t size){
 	switch(tok->type){
-#define X(name) case name: { repr_size = sprintf(buf, #name); break;}
-#define V(name) case name: { repr_size = sprintf(buf, "%-15s [%s]", #name, tok->value); break;}
+#define X(name, user) case name: { snprintf(buf, size, #name); break;}
+#define V(name, user) case name: { snprintf(buf, size, "%-15s [%s]", #name, tok->value); break;}
 		TOK_TYPE_LIST
 #undef X
 #undef V
 	}
-	buf[repr_size] = '\0';
 }
 
 void token_print(Token *tok){
 	char buf[256];
-	token_repr(tok, buf);
+	token_repr(tok, buf, sizeof(buf));
 	printf("%s\n", buf);
 }
 
@@ -1546,10 +1541,14 @@ void ast_node_print(AST *ast){
 }
 
 typedef struct {
-	Token  *tokens;
-	size_t num_tokens;
-	size_t next;
+	Token    *tokens;
+	size_t   num_tokens;
+	size_t   next;
+	// For debugging
+	size_t   furthest;
+	uint64_t expected; // This might need to change if we have more than 64 token types
 } Parser;
+static_assert(TOK_TYPE_COUNT <= 64, "Too many token types");
 
 Token *parser_peek(Parser *parser){
 	if(parser->next < parser->num_tokens) return &parser->tokens[parser->next];
@@ -1568,13 +1567,25 @@ AST *ast_alloc(Arena *pa, ASTNodeType type){
 	return node;
 }
 
+void parser_fail(Parser *parser, TokenType expected){
+	if(parser->next > parser->furthest){
+		// Further along always wins and starts a new bitset
+		parser->furthest = parser->next;
+		parser->expected = 0;
+	}
+	if(parser->next == parser->furthest){
+		parser->expected |= (uint64_t)1 << expected;
+	}
+}
+
 Token *parser_eat(TokenType type, Parser *parser){
-	if(parser_done(parser)) return NULL;
+	if(parser_done(parser)) { parser_fail(parser, type); return NULL; }
 	Token *next = parser_peek(parser);
 	if(next->type == type){
 		parser->next++;
 		return next;
 	}
+	parser_fail(parser, type);
 	return NULL;
 }
 
@@ -2501,22 +2512,32 @@ AST *parse_statement_list(Arena *pa, AST *parent, Parser *parser){
 }
 
 
+typedef enum {
+	PARSE_OK,
+	PARSE_ERROR,
+	PARSE_INCOMPLETE
+} ParseResult;
 
-int parse_tokens(Arena *pa, AST *ast, Token *tokens, size_t num_tokens){
+ParseResult parse_tokens(Arena *pa, AST *ast, Parser *parser, Token *tokens, size_t num_tokens){
 	ast->parent = NULL;
 	ast->type = AST_PROGRAM;
 
-	Parser parser;
-	parser.num_tokens = num_tokens;
-	parser.tokens     = tokens;
-	parser.next       = 0;
+	parser->num_tokens = num_tokens;
+	parser->tokens     = tokens;
+	parser->next       = 0;
+	parser->furthest   = 0;
+	parser->expected   = 0;
 
-	AST *list = parse_statement_list(pa, ast, &parser);
+	AST *list = parse_statement_list(pa, ast, parser);
 	ast->as.program.statement_list = list;
 
-	if(!parser_done(&parser)) return 1;
+	if(!parser_done(parser)) return 1;
 
-	return list == NULL ? 1 : 0;
+	if(list == NULL){
+		if(tokens[parser->furthest].type == TOK_EOF) return PARSE_INCOMPLETE;
+		return PARSE_ERROR;
+	}
+	return PARSE_OK;
 }
 
 void fill_indent(size_t level, char *buf){
@@ -7079,25 +7100,41 @@ int run_ast(Arena* ta, AST *ast, Environment *e, char *script_path){
 }
 
 
-int parse_source(Environment *e,  const char *source, size_t source_len, AST *ast){
+ParseResult parse_source(Environment *e,  const char *source, size_t source_len, AST *ast){
 	// Null-terminated
 
   // --------- Commands that require parsing -----------
 
 	Token  *tokens    = arena_alloc(e->persistent, (source_len + 1) * sizeof(Token));
+	if(tokens == NULL){
+		fprintf(stderr, "Not enough memory to tokenize this file\n");
+		return PARSE_ERROR;
+	}
 	size_t num_tokens = 0;
 	int    err        = 0;
 	err = tokenize(e->persistent, source, source_len, tokens, &num_tokens);
 	if(err != 0){
 		fprintf(stderr, "Tokenization error\n");
-		return err;
+		return PARSE_ERROR;
 	}
 
   // for(size_t i = 0; i < num_tokens; i++){
   //   token_print(&tokens[i]);
   // }
 
-	return parse_tokens(e->persistent, ast, tokens, num_tokens);
+	Parser parser;
+	ParseResult result = parse_tokens(e->persistent, ast, &parser, tokens, num_tokens);
+	if(result == PARSE_ERROR){
+		Token furthest = tokens[parser.furthest];
+		size_t line    = furthest.line;
+
+		// Calculate column
+		size_t start = furthest.offset;
+		while(start > 0 && source[start - 1] != '\n') start--;
+		size_t col   = furthest.offset - start + 1;
+		fprintf(stderr, "line %zu, col %zu: unexpected %s\n", line, col, TOKEN_NAMES[furthest.type]);
+	}
+	return result;
 }
 
 //============================== 
