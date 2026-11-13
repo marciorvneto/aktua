@@ -11,7 +11,9 @@
 #include <math.h>
 #include <float.h>
 #include <sys/types.h>
+#include <unistd.h>
 
+#define AKTUA_VERSION "0.1.0"
 #define DISPLAY_SIG 6
 
 #define LEN(x) sizeof((x))/sizeof((x)[0])
@@ -7181,9 +7183,13 @@ size_t trim_end(char *str){
 //============================== 
 
 void print_usage(){
-	printf("Usage: aktua [FILE]\n");
+	printf("Usage: aktua [OPTIONS] [FILE]\n");
 	printf("    Runs an Aktua script located at FILE\n");
 	printf("    If a FILE argument isn't supplied, a repl is launched\n");
+	printf("\n");
+	printf("    -q, --quiet      Start the repl without the header\n");
+	printf("    -v, --version    Show version and build info\n");
+	printf("    -h, --help       Show this message\n");
 }
 
 void cleanup(Arena *ta, Arena *a, Arena *fa){
@@ -7192,7 +7198,33 @@ void cleanup(Arena *ta, Arena *a, Arena *fa){
 	arena_destroy(fa);
 }
 
-int launch_repl(Arena *ta, Environment *e, char *script_path){
+bool use_color(){
+	return isatty(STDOUT_FILENO) && getenv("NO_COLOR") == NULL;
+}
+
+void print_repl_header(){
+	if(use_color()) printf("\x1b[38;2;9;195;227mAktua\x1b[0m");
+	else            printf("Aktua");
+	printf(" %s - :q or Ctrl-D to quit\n", AKTUA_VERSION);
+}
+
+void print_version(){
+	if(use_color()) printf("\x1b[38;2;9;195;227m");
+	printf(" █████╗ ██╗  ██╗████████╗██╗   ██╗ █████╗\n");
+	printf("██╔══██╗██║ ██╔╝╚══██╔══╝██║   ██║██╔══██╗\n");
+	printf("███████║█████╔╝    ██║   ██║   ██║███████║\n");
+	printf("██╔══██║██╔═██╗    ██║   ██║   ██║██╔══██║\n");
+	printf("██║  ██║██║  ██╗   ██║   ╚██████╔╝██║  ██║\n");
+	printf("╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝\n");
+	if(use_color()) printf("\x1b[0m");
+	printf("\n");
+	printf("Aktua %s\n", AKTUA_VERSION);
+	printf("Built %s with gcc %s\n", __DATE__, __VERSION__);
+}
+
+
+
+int launch_repl(Arena *ta, Environment *e, char *script_path, bool quiet){
   int status         = 0;
   char *buffer       = NULL; // Null-terminated
   size_t size        = 0;
@@ -7208,6 +7240,7 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
 	}
 	pending[0]         = '\0';
 
+	if(!quiet && isatty(STDIN_FILENO)) print_repl_header();
   while(1){
 
 		if(pending_len == 0) printf("aktua> ");
@@ -7260,7 +7293,6 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
 		pending_len += line_len;
 		pending[pending_len++] = '\n';
 		pending[pending_len]   = '\0'; 
-
 
     // Tokenization and parsing use the permanent arena
 		size_t scratch = e->persistent->offset;
@@ -7360,7 +7392,7 @@ int main(int argc, char **argv){
 
 	if(argc < 2){
 		// REPL
-		int code = launch_repl(&ta, &e, argv[0]);
+		int code = launch_repl(&ta, &e, argv[0], false);
 		cleanup(&ta, &pa, &fa);
 		return code;
 	}else{
@@ -7369,6 +7401,18 @@ int main(int argc, char **argv){
 			print_usage();
 			cleanup(&ta, &pa, &fa);
 			exit(0);
+		}
+
+		if(strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0){
+			print_version();
+			cleanup(&ta, &pa, &fa);
+			exit(0);
+		}
+
+		if(strcmp(argv[1], "-q") == 0 || strcmp(argv[1], "--quiet") == 0){
+			int code = launch_repl(&ta, &e, argv[0], true);
+			cleanup(&ta, &pa, &fa);
+			return code;
 		}
 
 		if(strcmp(argv[1], "--builtins") == 0){
