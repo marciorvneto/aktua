@@ -2543,11 +2543,15 @@ ParseResult parse_tokens(Arena *pa, AST *ast, Parser *parser, Token *tokens, siz
 	AST *list = parse_statement_list(pa, ast, parser);
 	ast->as.program.statement_list = list;
 
-	if(!parser_done(parser)){
-		if(tokens[parser->furthest].type == TOK_EOF) return PARSE_INCOMPLETE;
-		return PARSE_ERROR;
+	// A statement that fails by walking into EOF leaves the parser on TOK_EOF,
+	// so parser_done() is true even though nothing was parsed. That is an
+	// incomplete input (unclosed paren, bracket, ...), not a successful program.
+	if(list != NULL && parser_done(parser)) return PARSE_OK;
+	if(parser->furthest < parser->num_tokens
+			&& tokens[parser->furthest].type == TOK_EOF){
+		return PARSE_INCOMPLETE;
 	}
-	return PARSE_OK;
+	return PARSE_ERROR;
 }
 
 void fill_indent(size_t level, char *buf){
@@ -7189,18 +7193,37 @@ void cleanup(Arena *ta, Arena *a, Arena *fa){
 }
 
 int launch_repl(Arena *ta, Environment *e, char *script_path){
-  char *buffer      = NULL; // Null-terminated
-  size_t size       = 0;
-  ssize_t nread     = 0;
-  ssize_t last_good = 0;
+  int status         = 0;
+  char *buffer       = NULL; // Null-terminated
+  size_t size        = 0;
+  ssize_t nread      = 0;
+  ssize_t last_good  = 0;
+
+	size_t pending_cap = 1024;
+	char *pending      = malloc(pending_cap); // This is for multi-line inputs
+	size_t pending_len = 0;
+	if(pending == NULL){
+		fprintf(stderr, "Out of memory\n");
+		return 1;
+	}
+	pending[0]         = '\0';
 
   while(1){
 
-    printf("aktua> ");
+		if(pending_len == 0) printf("aktua> ");
+		else printf("...> ");
+		fflush(stdout);
     nread = getline(&buffer, &size, stdin);
-    if(nread == -1){
-      printf("\n");
-			break;
+    if(nread == -1){ // End of file, or Ctrl-D (Unix)
+			if(pending_len == 0){
+				printf("\n");
+				break;
+			}
+			clearerr(stdin);
+			pending_len = 0;
+			pending[0]  = '\0';
+			printf("\n");
+			continue;
     }
 
     // Trimming the endline characters
@@ -7210,30 +7233,57 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
     trim_end(buffer);
 
     // --------- Basic commands -----------
+		if(pending_len == 0){
+			if (strcmp(buffer, "") == 0)
+				continue;
 
-    if (strcmp(buffer, "") == 0)
-      continue;
+			if (strcmp(buffer, ":q") == 0) {
+				break;
+			}
+		}
 
-    if (strcmp(buffer, ":q") == 0) {
-      break;
-    }
+		size_t line_len = strlen(buffer);
+		size_t needed = pending_len + line_len + 2; // '\n' + '\0'
+		if(needed > pending_cap){
+			size_t new_cap = pending_cap * 2;
+			while(new_cap < needed) new_cap *= 2;
+			char *grown = realloc(pending, new_cap);
+			if(grown == NULL){
+				fprintf(stderr, "Out of memory\n");
+				status = 1;
+				break;
+			}
+			pending     = grown;
+			pending_cap = new_cap;
+		}
+		memcpy(pending + pending_len, buffer, line_len);
+		pending_len += line_len;
+		pending[pending_len++] = '\n';
+		pending[pending_len]   = '\0'; 
+
 
     // Tokenization and parsing use the permanent arena
-    AST *ast   = arena_alloc(e->persistent, sizeof(AST));
-    int parse_code = parse_source(e,  buffer, strlen(buffer), ast, true);
+		size_t scratch = e->persistent->offset;
+    AST *ast       = arena_alloc(e->persistent, sizeof(AST));
+    int result     = parse_source(e,  pending, pending_len, ast, true);
+		if(result != PARSE_OK) e->persistent->offset = scratch;
+
+		if(result == PARSE_INCOMPLETE) continue;
+
+		pending_len = 0;
+		pending[0]  = '\0';
+
+    if(result != PARSE_OK) continue;
 
     // Evaluation uses temporary memory
     SCRATCH_SCOPE(ta){
-      if(parse_code == 0) run_ast(ta, ast, e, script_path);
-    }
-    if(parse_code != 0){
-      printf("Syntax error\n");
-      continue;
+      run_ast(ta, ast, e, script_path);
     }
 
   }
   free(buffer);
-  return 0;
+  free(pending);
+  return status;
 }
 
 char *read_entire_file(size_t *out_len, FILE *f){
