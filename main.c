@@ -2518,6 +2518,18 @@ typedef enum {
 	PARSE_INCOMPLETE
 } ParseResult;
 
+void report_parse_error(const char *source, Token *tokens, Parser *parser){
+	Token furthest = tokens[parser->furthest];
+	size_t line    = furthest.line;
+
+	// Calculate column
+	size_t start = furthest.offset;
+	while(start > 0 && source[start - 1] != '\n') start--;
+	size_t col   = furthest.offset - start + 1;
+	fprintf(stderr, "line %zu, col %zu: unexpected %s\n", line, col, TOKEN_NAMES[furthest.type]);
+}
+
+
 ParseResult parse_tokens(Arena *pa, AST *ast, Parser *parser, Token *tokens, size_t num_tokens){
 	ast->parent = NULL;
 	ast->type = AST_PROGRAM;
@@ -2531,9 +2543,7 @@ ParseResult parse_tokens(Arena *pa, AST *ast, Parser *parser, Token *tokens, siz
 	AST *list = parse_statement_list(pa, ast, parser);
 	ast->as.program.statement_list = list;
 
-	if(!parser_done(parser)) return 1;
-
-	if(list == NULL){
+	if(!parser_done(parser)){
 		if(tokens[parser->furthest].type == TOK_EOF) return PARSE_INCOMPLETE;
 		return PARSE_ERROR;
 	}
@@ -7100,7 +7110,14 @@ int run_ast(Arena* ta, AST *ast, Environment *e, char *script_path){
 }
 
 
-ParseResult parse_source(Environment *e,  const char *source, size_t source_len, AST *ast){
+ParseResult parse_source(
+		Environment *e,  
+		const char *source, 
+		size_t source_len, 
+		AST *ast,
+		bool allow_incomplete  // <- This is only necessary for REPL mode
+		)
+{
 	// Null-terminated
 
   // --------- Commands that require parsing -----------
@@ -7124,16 +7141,8 @@ ParseResult parse_source(Environment *e,  const char *source, size_t source_len,
 
 	Parser parser;
 	ParseResult result = parse_tokens(e->persistent, ast, &parser, tokens, num_tokens);
-	if(result == PARSE_ERROR){
-		Token furthest = tokens[parser.furthest];
-		size_t line    = furthest.line;
-
-		// Calculate column
-		size_t start = furthest.offset;
-		while(start > 0 && source[start - 1] != '\n') start--;
-		size_t col   = furthest.offset - start + 1;
-		fprintf(stderr, "line %zu, col %zu: unexpected %s\n", line, col, TOKEN_NAMES[furthest.type]);
-	}
+	if(result == PARSE_INCOMPLETE && !allow_incomplete) result = PARSE_ERROR;
+	if(result == PARSE_ERROR) report_parse_error(source, tokens, &parser);
 	return result;
 }
 
@@ -7211,7 +7220,7 @@ int launch_repl(Arena *ta, Environment *e, char *script_path){
 
     // Tokenization and parsing use the permanent arena
     AST *ast   = arena_alloc(e->persistent, sizeof(AST));
-    int parse_code = parse_source(e,  buffer, strlen(buffer), ast);
+    int parse_code = parse_source(e,  buffer, strlen(buffer), ast, true);
 
     // Evaluation uses temporary memory
     SCRATCH_SCOPE(ta){
@@ -7274,7 +7283,7 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
 
   // Tokenization and parsing use the permanent arena
   AST *ast     = arena_alloc(e->persistent, sizeof(AST));
-  parse_code   = parse_source(e,  buffer, len, ast);
+  parse_code   = parse_source(e,  buffer, len, ast, false);
 
   // ast_print(ast, 0);
 
