@@ -13,10 +13,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "core.h"
+
 #define AKTUA_VERSION "0.1.0"
 #define DISPLAY_SIG 6
 
-#define LEN(x) sizeof((x))/sizeof((x)[0])
 #define POLY_CANCEL_TOL (64 * DBL_EPSILON)
 #define ALIGNMENT 16 	// Might change that in the future
 #define ALIGN_ALLOC(offset, align) ((offset + ((align) - 1)) & (~((align) - 1))) // Alignment trick
@@ -41,12 +42,6 @@
 //    Arena
 //
 //============================== 
-
-typedef struct {
-	char *base;
-	size_t offset;
-	size_t capacity;
-} Arena;
 
 Arena arena_create(size_t capacity){
 	Arena a;
@@ -441,26 +436,8 @@ void plot_braille(Arena *a, FILE *out, const PlotData *data,
 //
 //============================== 
 
-typedef enum {
-  FN_NATIVE,
-  FN_USER
-} FunctionKind;
 
 struct AST;
-
-typedef struct {
-  int         native_index;
-  size_t      argc_min;
-  size_t      argc_max;
-} NativeFunctionData;
-
-typedef struct {
-  FunctionKind kind; 
-  union {
-    struct AST*        definition;
-    NativeFunctionData native_data;
-  };
-} Function;
 
 int function_repr(Arena *a, size_t argc_min, size_t argc_max, const char *id, char* buf){
 	if(argc_max == ARGS_VARIADIC){
@@ -478,28 +455,8 @@ int function_repr(Arena *a, size_t argc_min, size_t argc_max, const char *id, ch
 	}
 }
 
-typedef struct Value Value;
-typedef struct {
-	Value*  items;
-	size_t size;
-} Tuple;
 
 // --------------- Tensors ----------------------
-
-#define MAX_DIMS 8
-typedef enum { DTYPE_REAL, DTYPE_COMPLEX } DType;
-
-typedef struct {
-  DType dtype;
-  union {
-    double         *re;
-    double complex *cx;
-  } data;
-  size_t ndim;
-  size_t count;
-  size_t sizes[MAX_DIMS];
-  size_t strides[MAX_DIMS];
-} Tensor;
 
 int tensor_init(Arena *a, Tensor *t, size_t ndim, size_t *sizes, DType dtype){
   if(ndim == 0 || ndim > MAX_DIMS) return 1;
@@ -666,11 +623,6 @@ int tensor_contract(Arena *arena, Tensor *a, Tensor *b, Tensor *out){
 // coeffs     = [1, -5, 3]
 // num_coeffs = 3
 // deg        = 2
-typedef struct {
-	double* coeffs;
-	size_t  num_coeffs;
-	size_t  deg;
-} Polynomial;
 
 Polynomial alloc_poly(Arena *a, size_t deg){
 	Polynomial p;
@@ -712,12 +664,6 @@ int poly_repr(Arena *a, Polynomial *p, char* buf, char* variable){
 	buf[printed] = '\0';
   return printed;
 }
-
-typedef struct {
-	Polynomial num;
-	Polynomial den;
-	double     Ts;   // Sample time. Ts = 0 means CT, Ts > 0 means DT
-} TransferFunction;
 
 // Appends to buf without ever writing past size; *len stops at size - 1
 void buf_append(char *buf, size_t size, size_t *len, const char *fmt, ...){
@@ -1379,28 +1325,6 @@ OpType op_from_tok(TokenType type){
 	}
 }
 
-// Expression value types
-
-typedef enum {
-	VALUE_ID,
-	VALUE_NUMBER,
-	VALUE_BOOLEAN,
-	VALUE_COMPLEX,
-	VALUE_STRING,
-	VALUE_POLYNOMIAL,
-	VALUE_TRANSFER_FUNCTION,
-	VALUE_NAN,
-
-  // User-defined functions
-
-	VALUE_FUNCTION,
-
-	// Things to think about
-	VALUE_TUPLE,
-	VALUE_TENSOR,
-	VALUE_TYPE_COUNT
-} ValueType;
-
 typedef enum {
 	STATEMENT_DECL_ASSIGN,
 	STATEMENT_ASSIGN,
@@ -1414,23 +1338,6 @@ typedef enum {
 
 // Forward declarations
 typedef struct AST AST;
-
-struct Value {
-	ValueType valueType;
-	union {
-		Polynomial       poly;
-		TransferFunction tf;
-		bool             boolean;
-		double           number;
-		double complex   complex_number;
-		char             *str;
-		char             *id;
-		Tensor           tensor;
-		Tuple            tuple;
-    Function         fun;
-	} value;
-};
-
 
 struct AST {
 	ASTNodeType   type;
@@ -2725,33 +2632,6 @@ void ast_print(AST *ast, int level){
 	}
 }
 
-//============================== 
-//
-//    Environment
-//
-//============================== 
-
-typedef struct {
-	char  *name;
-	Value *value;
-} Variable;
-
-typedef struct {
-	size_t failed_asserts;
-	size_t runtime_errors;
-} RunStats;
-
-typedef struct Environment Environment;
-struct Environment {
-  Arena       *persistent;
-  Arena       *frame;
-	Variable    *vars;
-	size_t      num_vars;
-	size_t      vars_capacity;
-	Environment *parent;
-	RunStats    *run_stats;
-	char        *exe_path;
-};
 
 // -------- Runtime errors ------
 
@@ -3740,14 +3620,6 @@ double *dt_response_at(Arena *a, Environment *e, TransferFunction tf, const doub
 	}
 	return out;
 }
-//=============================================
-//
-//   Dispatcher types and native functions
-//
-//=============================================
-
-typedef Value (*NativeValueDispatch)(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent);
-typedef Value (*UnaryValueDispatch)(Arena *a, Environment *e, Value *caller, Value *value);
 
 //============================
 //
@@ -5056,6 +4928,7 @@ Value native_print(Arena *a, Environment *e, char* script, size_t argc, Value *a
 }
 
 int import_script(Arena *ta, Environment *e, char* importer, char *path);
+int import_native_module(Environment *e, const char *name);
 Value native_import(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
   Value val = argv[0];
   if(val.valueType != VALUE_STRING){
@@ -5063,6 +4936,10 @@ Value native_import(Arena *a, Environment *e, char* script, size_t argc, Value *
     *silent = 1;
     return make_num(0);
   }
+	if(import_native_module(e, val.value.str)){
+		*silent = 1;
+		return make_num(0);
+	} 
   if(import_script(a, e, script, val.value.str) != 0){
 		runtime_error(e, "Error importing script %s", val.value.str);
 	}
@@ -5446,10 +5323,10 @@ Value reduce(Environment *e, const char* name, ReducerFn reducer, Value val, dou
   R(sum,  reducer_sum,  0.0,       true)     \
   R(prod, reducer_prod, 1.0,       false)
 
-#define R(name, reducer_fn, init, empty_ok) \
+#define R(name, reducer_fn, init, empty_ok)                                                        \
 Value native_##name(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent) \
-{  \
-    return reduce(e, #name, reducer_fn, argv[0], init, empty_ok); \
+{                                                                                                  \
+    return reduce(e, #name, reducer_fn, argv[0], init, empty_ok);                                  \
 }
   NATIVE_REDUCER_LIST
 #undef R
@@ -5811,13 +5688,6 @@ Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value 
 }
 
 
-typedef struct {
-  const char          *name;
-  NativeValueDispatch fn;
-  size_t              argc_min;
-  size_t              argc_max;
-} NativeFn;
-
 
 #define NATIVE_FNS_LIST         \
         N(assert,   2)          \
@@ -5857,7 +5727,7 @@ static const NativeFn natives[] = { NATIVE_FNS_LIST };
 
 const char *fn_name(Value *fn){
 	if(fn->value.fun.kind == FN_NATIVE){
-		return natives[fn->value.fun.native_data.native_index].name;
+		return fn->value.fun.native_data.native->name;
 	}else{
 		return fn->value.fun.definition->as.fn_def.id;
 	}
@@ -6084,12 +5954,7 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
   }
 
   if(fun->value.fun.kind == FN_NATIVE){
-    int idx = fun->value.fun.native_data.native_index;
-    if(idx < 0 || idx >= LEN(natives)){
-			runtime_error(e, "%s not registered", name);
-      return make_nan();
-    }
-    NativeValueDispatch dispatch = natives[idx].fn;
+    NativeValueDispatch dispatch = fun->value.fun.native_data.native->fn;
     Value result = dispatch(ta, e, script_path, argc, args, silent);
     return result;
   }
@@ -6292,7 +6157,7 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
               ta, 
               value->value.fun.native_data.argc_min,
               value->value.fun.native_data.argc_max,
-              natives[value->value.fun.native_data.native_index].name,
+							value->value.fun.native_data.native->name,
               buf
           );
         }else{
@@ -6479,20 +6344,38 @@ UnaryValueDispatch callable_values_dispatch[VALUE_TYPE_COUNT][VALUE_TYPE_COUNT] 
 
 
 
-void initialize_native_fns(Environment *e){
-  for(size_t i = 0; i < LEN(natives); i++){
+void register_natives(Environment *e, const NativeFn *fns, size_t count){
+  for(size_t i = 0; i < count; i++){
     NativeFunctionData data = {
-      .argc_min     = natives[i].argc_min,
-      .argc_max     = natives[i].argc_max,
-      .native_index = i
+      .argc_min = fns[i].argc_min,
+      .argc_max = fns[i].argc_max,
+			.native   = &fns[i]
     };
     Function native_fn = {
       .kind        = FN_NATIVE,
       .native_data = data
     };
     Value fn = make_function(native_fn);
-    env_set_variable(e, natives[i].name, &fn);
+    env_set_variable(e, fns[i].name, &fn);
   }
+}
+
+void initialize_native_fns(Environment *e){
+	register_natives(e, natives, LEN(natives));
+}
+
+static const NativeModule *native_modules[] = {
+	&hydraulics_module,
+};
+
+int import_native_module(Environment *e, const char *name){
+	for(size_t i = 0; i < LEN(native_modules); i++){
+		if(strcmp(name, native_modules[i]->name) == 0){
+			register_natives(e, native_modules[i]->fns, native_modules[i]->count);
+			return 1;
+		}
+	}
+	return 0;
 }
 
 Value eval_postfix(Arena *ta, Environment *e, char *script_path, AST *postfix, int *silent){
