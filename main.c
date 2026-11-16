@@ -6055,61 +6055,111 @@ void write_tensor_element(FILE *out, const Tensor *t, size_t off, int width){
   fprintf(out, "%*s", width, buf);
 }
 
-void write_tensor_rec(FILE *out, Tensor *t, size_t dim, size_t offset, int width){
+void write_tensor_rec(FILE *out, Tensor *t, size_t dim, size_t offset, int width, int indent){
   fputc('[', out);
   for(size_t i = 0; i < t->sizes[dim]; i++){
     size_t off = offset + i * t->strides[dim];
     if(dim == t->ndim - 1) write_tensor_element(out, t, off, width);
-    else                   write_tensor_rec(out, t, dim + 1, off, width);
+    else                   write_tensor_rec(out, t, dim + 1, off, width, indent);
 
     if(i + 1 == t->sizes[dim]) continue;                       // nothing after the last 
     if(dim == t->ndim - 1){ fputs(", ", out); continue; }      // between numbers in a row
 
     fputc(',', out);
     for(size_t k = 0; k < t->ndim - dim - 1; k++) fputc('\n', out);  // newline, plus a 
-    for(size_t k = 0; k <= dim; k++) fputc(' ', out);               // line up under the 
+    fprintf(out, "%*s", indent + (int)dim + 1, "");               // line up under the 
   }
   fputc(']', out);
 }
           
-void write_tensor(FILE *out, Tensor *t){
-  write_tensor_rec(out, t, 0, 0, tensor_max_width(t));
+void write_tensor(FILE *out, Tensor *t, int indent){
+  write_tensor_rec(out, t, 0, 0, tensor_max_width(t), indent);
 }
 
-// Prints a single value followed by one newline. Used directly for
-// values nested inside other values (tuple items), so they don't pick up
-// the blank lines that print_value puts around top-level results.
-static void print_value_bare(Arena *ta, Environment *e, Value *value){
+bool is_scalar(Value *v){
+	if(
+			v->valueType == VALUE_TENSOR            ||
+			v->valueType == VALUE_TUPLE             ||
+			v->valueType == VALUE_POLYNOMIAL        ||
+			v->valueType == VALUE_TRANSFER_FUNCTION
+		) return false;
+	return true;
+}
+
+static void write_indented(FILE *out, const char *s, int indent){
+	for(; *s != '\0'; s++){
+		fputc(*s, out);
+		if(*s == '\n') fprintf(out, "%*s", indent, "");
+	}
+}
+
+static void write_value(FILE *out, Arena *ta, Environment *e, Value *value, int indent, bool quote_strings);
+
+static bool tuple_fits_inline(Tuple *t){
+	for(size_t i = 0; i < t->size; i++){
+		Value *item = &t->items[i];
+		if(item->valueType == VALUE_TUPLE){
+			if(!tuple_fits_inline(&item->value.tuple)) return false;
+		}else if(!is_scalar(item)){
+			return false;
+		}
+	}
+	return true;
+}
+
+// Short tuples go on one line, like the input syntax: (1, "a", true)
+// Anything holding a tensor, polynomial or transfer function goes one item per line:
+// (
+//   [1, 2, 3],
+//   [4, 5, 6],
+// )
+static void write_tuple(FILE *out, Arena *ta, Environment *e, Tuple *t, int indent){
+	if(tuple_fits_inline(t)){
+		fputc('(', out);
+		for(size_t i = 0; i < t->size; i++){
+			write_value(out, ta, e, &t->items[i], indent, true);
+			if(i + 1 < t->size) fputs(", ", out);
+		}
+		fputc(')', out);
+		return;
+	}
+
+	fputs("(\n", out);
+	for(size_t i = 0; i < t->size; i++){
+		fprintf(out, "%*s", indent + 2, "");
+		write_value(out, ta, e, &t->items[i], indent + 2, true);
+		fputs(",\n", out);
+	}
+	fprintf(out, "%*s)", indent, "");
+}
+
+static void write_value(FILE *out, Arena *ta, Environment *e, Value *value, int indent, bool quote_strings){
 	switch(value->valueType){
 		case VALUE_ID:
 			{
 				Value resolved = resolve_variable(ta, e, value);
 				if(resolved.valueType == VALUE_NAN){
-					printf("%s\n", value->value.id);
+					fputs(value->value.id, out);
 				}else{
-					print_value_bare(ta, e, &resolved);
+					write_value(out, ta, e, &resolved, indent, quote_strings);
 				}
 				break;
 			}
 		case VALUE_NAN:
 			{
-				printf("nan\n");
+				fputs("nan", out);
 				break;
 			}
 		case VALUE_NUMBER:
 			{
         char buf[32];
         format_number(buf, 32, value->value.number, DISPLAY_SIG);
-				printf("%s\n", buf);
+				fputs(buf, out);
 				break;
 			}
 		case VALUE_BOOLEAN:
 			{
-				if(value->value.boolean){
-					printf("true\n");
-				}else{
-					printf("false\n");
-				}
+				fputs(value->value.boolean ? "true" : "false", out);
 				break;
 			}
 		case VALUE_COMPLEX: 
@@ -6120,34 +6170,30 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
             DISPLAY_SIG, false);
         else                                                  format_number(buf, sizeof(buf),
             creal(z), DISPLAY_SIG);
-        printf("%s\n", buf);
+        fputs(buf, out);
         break;
       }
 		case VALUE_STRING:
 			{
-        printf("%s\n", value->value.str);
+        if(quote_strings) fprintf(out, "\"%s\"", value->value.str);
+        else              fputs(value->value.str, out);
 				break;
 			}
 		case VALUE_TENSOR:
 			{
-        write_tensor(stdout, &value->value.tensor);
-        putchar('\n');
+        write_tensor(out, &value->value.tensor, indent);
 				break;
 			}
 		case VALUE_TUPLE:
 			{
-				printf("(\n");
-				for(size_t i = 0; i < value->value.tuple.size; i++){
-          print_value_bare(ta, e, &value->value.tuple.items[i]);
-				}
-				printf(")\n");
+        write_tuple(out, ta, e, &value->value.tuple, indent);
 				break;
 			}
 		case VALUE_POLYNOMIAL:
 			{
         char buf[1024];
         poly_repr(ta, &value->value.poly, buf, "x");
-        printf("%s\n", buf);
+        write_indented(out, buf, indent);
 				break;
 			}
 		case VALUE_FUNCTION:
@@ -6170,14 +6216,14 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
               buf
           );
         }
-        printf("%s%s\n", value->value.fun.kind == FN_NATIVE ? "native " : "", buf);
+        fprintf(out, "%s%s", value->value.fun.kind == FN_NATIVE ? "native " : "", buf);
 				break;
 			}
 		case VALUE_TRANSFER_FUNCTION:
 			{
         char buf[1024];
         transfer_function_repr(ta, &value->value.tf, buf, sizeof(buf));
-        printf("%s\n", buf);
+        write_indented(out, buf, indent);
 				break;
 			}
 		default:
@@ -6185,6 +6231,13 @@ static void print_value_bare(Arena *ta, Environment *e, Value *value){
 				break;
 			}
 	}
+}
+
+// Prints a single value followed by one newline, without the blank lines
+// that print_value puts around top-level results.
+static void print_value_bare(Arena *ta, Environment *e, Value *value){
+	write_value(stdout, ta, e, value, 0, false);
+	putchar('\n');
 }
 
 // Top-level printing (print() and REPL results): the value surrounded by
@@ -6633,17 +6686,6 @@ Value eval_expr(Arena *ta, Environment *e, char *script_path, AST *expr, int *si
 		case AST_ARRAY:
 			{
 				value = eval_array(ta, e, script_path, expr, silent);
-				// value.valueType        = VALUE_ARRAY;
-				// value.value.array.size = expr->as.array.size;
-				// value.value.array.nums = arena_alloc(ta, expr->as.array.size * sizeof(double));
-				// AST *item              = expr->as.array.first;
-				// size_t i               = 0;
-				// while(item != NULL){
-				// 	Value item_value = eval_expr(ta, e, script_path, item, silent);
-				// 	// TODO: check if it really is a number
-				// 	value.value.array.nums[i++] = item_value.value.number;
-				// 	item                        = item->next;
-				// }
 				break;
 			}
 		case AST_TUPLE:
