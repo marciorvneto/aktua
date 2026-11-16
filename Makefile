@@ -9,8 +9,8 @@ aktua: build/aktua stdlib
 
 repl: build/repl
 
-build/repl: repl.c | build
-	$(CC) $(CFLAGS) repl.c -o build/repl
+build/repl: repl.c lineedit.c include/lineedit.h | build
+	$(CC) $(CFLAGS) repl.c lineedit.c -o build/repl
 
 build/aktua: $(SRC) include/core.h | build
 	$(CC) $(CFLAGS) $(SRC) -o build/aktua $(LDLIBS)
