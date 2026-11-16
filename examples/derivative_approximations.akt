@@ -1,0 +1,30 @@
+// -----------------------------------------------------
+//
+//  Derivative approximations
+//  By: Marcio R. V. Neto, 2026
+//
+//  Estimating derivatives of functions
+//  in Aktua
+//
+// -----------------------------------------------------
+
+// Finite differences
+
+fn centered(fun, x0, h) {
+	(fun(x0 + h) - fun(x0 - h))/(2 * h)
+}
+
+let x0          = 7
+let h           = 1e-6
+let centered_fd = centered(sqr, x0, h)
+print(centered_fd)
+
+
+// Complex Taylor expansion (higher accuracy when applicable)
+
+let I              = complex(0,1) // Imaginary unit
+let x0             = 7
+let h              = 1e-20
+let complex_taylor = 1/h * imag(sqr(x0 + h * I))
+
+print(complex_taylor)

@@ -3,6 +3,9 @@
   <img alt="Aktua" src="docs/img/logo-light.svg" width="360">
 </picture>
 
+![Tests](https://github.com/marciorvneto/aktua/actions/workflows/tests.yml/badge.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+
 **Aktua** is a small, experimental programming language for control systems and numerical computing, written in C.
 
 It's a work in progress.
