@@ -7129,6 +7129,17 @@ int launch_repl(Arena *ta, Environment *e, char *script_path, bool quiet){
   int status         = 0;
   char *buffer       = NULL; // Null-terminated
 
+	// History file
+	char history_path[1024];
+	const char *home = getenv("HOME"); // TODO: Windows uses USERPROFILE
+	bool use_history = interactive && home != NULL;
+	if(use_history){
+		snprintf(history_path, sizeof(history_path), "%s/.aktua_history", home);
+		line_history_load(history_path);
+	}
+		
+
+
 	size_t pending_cap = 1024;
 	char *pending      = malloc(pending_cap); // This is for multi-line inputs
 	size_t pending_len = 0;
@@ -7208,6 +7219,8 @@ int launch_repl(Arena *ta, Environment *e, char *script_path, bool quiet){
   }
   free(buffer);
   free(pending);
+
+	if(use_history) line_history_save(history_path);
   return status;
 }
 

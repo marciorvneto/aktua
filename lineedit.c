@@ -138,6 +138,33 @@ void line_history_add(const char* line){
 	history_len++;
 }
 
+int line_history_load(const char* path){
+	FILE *f = fopen(path, "r");
+	if(f == NULL) return 1;
+	
+	char *line = NULL;
+	size_t size = 0;
+	while(getline(&line, &size, f) != -1){
+		line[strcspn(line, "\r\n")] = '\0';
+		line_history_add(line);
+	}
+
+	free(line);
+	fclose(f);
+	return 0;
+}
+
+int line_history_save(const char *path){
+	FILE *f = fopen(path, "w");
+	if(f == NULL) return 1;
+
+	for(size_t i = 0; i < history_len; i++){
+		fprintf(f, "%s\n", history[i]);
+	}
+
+	fclose(f);
+	return 0;
+}
 
 // We redraw the line every single time.
 static void refresh_line(const char *prompt, Line *l){
