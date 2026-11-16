@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <termios.h>
 #include <string.h>
@@ -11,6 +12,7 @@
 
 #define MAX_BUF_SIZE 4096
 #define HISTORY_MAX  1024
+static LineCompletionFn completion_fn = NULL;
 
 
 #define CTRL_KEY(x) ( ~((1 << 5) | (1 << 6)) & (x) )
@@ -184,6 +186,33 @@ static void line_set(Line *l, const char *text, size_t len){
 	l->cursor = len;
 }
 
+static int line_insert(Line *l, const char *text, size_t n){
+	if(l->len + n >= MAX_BUF_SIZE) return 0;
+	memmove(
+		&l->buf[l->cursor + n],
+		&l->buf[l->cursor],
+		l->len - l->cursor
+	);
+	memcpy(&l->buf[l->cursor], text, n);
+	l->len    += n;
+	l->cursor += n;
+	return 1;
+}
+
+static bool is_word_char(char c){
+	return  isalnum((unsigned char)c) || c == '_';
+}
+
+static size_t common_prefix_len(LineCompletions *c){
+	size_t n = strlen(c->items[0]);
+	for(size_t i = 0; i < c->count; i++){
+		size_t j = 0;
+		while(j < n && c->items[i][j] == c->items[0][j]) j++;
+		n = j;
+	}
+	return n;
+}
+
 char *line_read(const char *prompt){
 	Line l           = {0};
 	size_t hist_pos  = history_len;
@@ -199,6 +228,32 @@ char *line_read(const char *prompt){
 		int k = read_key();
 
 		if(k == KEY_ENTER) break;
+		if(k == KEY_TAB){
+			if(completion_fn == NULL) continue;
+
+			// Find word just before the cursor
+			size_t start = l.cursor;
+			while(start > 0 && is_word_char(l.buf[start - 1])) start--;
+			size_t prefix_len = l.cursor - start;
+
+			// Try to find matches
+			LineCompletions c = {0};
+			completion_fn(&l.buf[start], prefix_len, &c);
+
+			if(c.count >= 1){
+				size_t common = common_prefix_len(&c);
+				if(common > prefix_len){
+					line_insert(&l, c.items[0] + prefix_len, common - prefix_len);
+					refresh_line(prompt, &l);
+				}else if(c.count > 1){
+					printf("\r\n");
+					for(size_t i = 0; i < c.count; i++) printf("%s  ", c.items[i]);
+					printf("\r\n");
+					refresh_line(prompt, &l);
+				}
+			}
+			continue;
+		}
 		if(k == KEY_LEFT){
 			if(l.cursor > 0) l.cursor--;
 			refresh_line(prompt, &l);
@@ -306,23 +361,8 @@ char *line_read(const char *prompt){
 		}
 
 		if(k >= 32 && k < 127 && l.len < MAX_BUF_SIZE - 1){
-			// Inserting at cursor
-			//
-			// hello_    cursor @ 3, len = 5
-			//    ^
-			// helllo    copy "lo" one slot to the right (5 - 3 = 2 elements copied)
-			//    ^
-			// helXlo    buf[cursor] = X and then cursor++, len++
-			//     ^     
-
-			memmove(
-					    &l.buf[l.cursor + 1], // "to"
-					    &l.buf[l.cursor],     // "from"
-							l.len - l.cursor      // number of elements copied (see above)
-					);
-
-			l.buf[l.cursor++] = (char)k;
-			l.len++;
+			char c = (char)k;
+			line_insert(&l, &c, 1);
 			refresh_line(prompt, &l);
 		}
 	}
@@ -334,3 +374,19 @@ char *line_read(const char *prompt){
 	return strdup(l.buf);
 
 }
+
+//===============================
+//
+//  Line completion
+//
+//===============================
+
+void line_completions_add(LineCompletions *c, const char *name){
+	if(c->count >= LINE_COMPLETIONS_MAX) return;
+	c->items[c->count++] = name;
+}
+
+void line_set_completion(LineCompletionFn fn){
+	completion_fn = fn;
+}
+

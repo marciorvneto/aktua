@@ -7151,6 +7151,9 @@ int launch_repl(Arena *ta, Environment *e, char *script_path, bool quiet){
 	pending[0] = '\0';
 
 	if(!quiet && isatty(STDIN_FILENO)) print_repl_header();
+
+	// if(interactive)	line_set_completion(test_complete);
+
   while(1){
 		free(buffer);                  // free the previous line (free(NULL) does nothing)
 		const char *prompt = (pending_len == 0) ? "aktua> " : "...> ";
