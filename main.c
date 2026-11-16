@@ -6367,6 +6367,7 @@ void initialize_native_fns(Environment *e){
 
 static const NativeModule *native_modules[] = {
 	&hydraulics_module,
+	&orbital_module,
 };
 
 int import_native_module(Environment *e, const char *name){

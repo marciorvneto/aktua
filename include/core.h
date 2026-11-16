@@ -140,6 +140,11 @@ Value make_tensor(Tensor tens);
 Value make_function(Function fun);
 Value value_clone(Arena *a, Value *v);
 
+// ----------- Tensor helpers -----------------
+
+int as_real_vector(Arena *a, Value *v, double **data, size_t *n);
+Value make_real_vector(double *data, size_t n);
+Value make_tuple(Tuple tuple);
 
 //============================== 
 //
@@ -188,5 +193,6 @@ typedef struct {
 
 
 extern const NativeModule hydraulics_module;
+extern const NativeModule orbital_module;
 
 #endif // !AKTUA_CORE_H
