@@ -4894,11 +4894,11 @@ Value native_assert(Arena *a, Environment *e, char* script, size_t argc, Value *
 		(e->run_stats->failed_asserts)++;
 		return make_nan();
 	}
-	if(!cond.value.number){
+	if(!as_boolean(&cond)){
 		fprintf(stderr, "FAIL: %s: %s\n", script, msg.value.str);
 		(e->run_stats->failed_asserts)++;
 	}
-  return make_num(cond.value.number);
+  return make_boolean(as_boolean(&cond));
 }
 
 Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
