@@ -3,7 +3,7 @@
 CFLAGS = -Wall -ggdb -I./include/
 LDLIBS = -lm
 
-SRC = main.c $(wildcard native/*.c)
+SRC = main.c lineedit.c $(wildcard native/*.c)
 
 aktua: build/aktua stdlib
 

@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "lineedit.h"
 #include "core.h"
 
 #define AKTUA_VERSION "0.1.0"
@@ -7106,45 +7107,53 @@ void print_version(){
 }
 
 
+char *repl_read_line(const char *prompt, bool interactive){
+	if(interactive) return line_read(prompt);
+
+	// If this wasn't called from a terminal (e.g. from a pipe)
+	// we revert to plain getline.
+	// TODO: port this to support Windows
+
+	char   *line = NULL;
+	size_t  size = 0;
+	if(getline(&line, &size, stdin) == -1){
+		free(line);
+		return NULL;
+	}
+	line[strcspn(line, "\r\n")] = '\0';    // cut off the newline
+	return line;
+}
 
 int launch_repl(Arena *ta, Environment *e, char *script_path, bool quiet){
+	bool interactive   = isatty(STDIN_FILENO); // TODO: make this portable!
   int status         = 0;
   char *buffer       = NULL; // Null-terminated
-  size_t size        = 0;
-  ssize_t nread      = 0;
-  ssize_t last_good  = 0;
 
 	size_t pending_cap = 1024;
 	char *pending      = malloc(pending_cap); // This is for multi-line inputs
 	size_t pending_len = 0;
+
 	if(pending == NULL){
 		fprintf(stderr, "Out of memory\n");
 		return 1;
 	}
-	pending[0]         = '\0';
+	pending[0] = '\0';
 
 	if(!quiet && isatty(STDIN_FILENO)) print_repl_header();
   while(1){
+		free(buffer);                  // free the previous line (free(NULL) does nothing)
+		const char *prompt = (pending_len == 0) ? "aktua> " : "...> ";
+		buffer = repl_read_line(prompt, interactive);
 
-		if(pending_len == 0) printf("aktua> ");
-		else printf("...> ");
-		fflush(stdout);
-    nread = getline(&buffer, &size, stdin);
-    if(nread == -1){ // End of file, or Ctrl-D (Unix)
+		if(buffer == NULL){            // End of file, or Ctrl-D
 			if(pending_len == 0){
-				printf("\n");
 				break;
 			}
 			clearerr(stdin);
 			pending_len = 0;
 			pending[0]  = '\0';
-			printf("\n");
 			continue;
-    }
-
-    // Trimming the endline characters
-    last_good         = strcspn(buffer, "\r\n");
-    buffer[last_good] = '\0';
+		}
 
     trim_end(buffer);
 
@@ -7157,6 +7166,7 @@ int launch_repl(Arena *ta, Environment *e, char *script_path, bool quiet){
 				break;
 			}
 		}
+		if(interactive) line_history_add(buffer);
 
 		size_t line_len = strlen(buffer);
 		size_t needed = pending_len + line_len + 2; // '\n' + '\0'
