@@ -7124,6 +7124,26 @@ char *repl_read_line(const char *prompt, bool interactive){
 	return line;
 }
 
+
+static Environment *completion_env = NULL;
+void repl_complete(const char *prefix, size_t prefix_len, LineCompletions *out){
+	// Keywords
+	for(size_t i = 0; i < KEYWORDS_COUNT; i++){
+		if(strncmp(KEYWORDS[i], prefix, prefix_len) == 0){
+			line_completions_add(out, KEYWORDS[i]);
+		}
+	}
+ // Variables
+	for(Environment *env = completion_env; env != NULL; env = env->parent){
+		for(size_t i = 0; i < env->num_vars; i++){
+			const char *name = env->vars[i].name;
+			if(strncmp(name, prefix, prefix_len) == 0){
+				line_completions_add(out, name);
+			}
+		}
+	}
+}
+
 int launch_repl(Arena *ta, Environment *e, char *script_path, bool quiet){
 	bool interactive   = isatty(STDIN_FILENO); // TODO: make this portable!
   int status         = 0;
@@ -7152,7 +7172,10 @@ int launch_repl(Arena *ta, Environment *e, char *script_path, bool quiet){
 
 	if(!quiet && isatty(STDIN_FILENO)) print_repl_header();
 
-	// if(interactive)	line_set_completion(test_complete);
+	if(interactive)	{
+		completion_env = e;
+		line_set_completion(repl_complete);
+	}
 
   while(1){
 		free(buffer);                  // free the previous line (free(NULL) does nothing)
