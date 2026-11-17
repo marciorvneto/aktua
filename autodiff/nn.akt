@@ -1,0 +1,45 @@
+// I think Aktua could do a fantastic job designing and training
+// NNs that are used in process control and simulation. PINNs are
+// a good example because they're a pain to work with in, say,
+// PyTorch. Maybe we could incrementally support them so that
+// we could eventually have truly great support for them
+
+let nn = import("nn")
+
+// We could start simple by doing everything in the cpu and then
+// gradually generate cuda. Maybe we could begin by generating
+// raw .cu files, and then move on to NVIDIA's capabilities
+// of compiling those files on the fly.
+
+let y_obs = [1,2,3,4,5,6,7,8] // Our observed values
+
+
+let model = nn.mlp(
+    [2, 64, 64, 64, 1],
+    "tanh"
+)
+alpha = param(0.01)
+
+fn residual(x, t) {
+    let u = model(x, t)
+
+    let ut  = diff(u, t)
+    let uxx = diff(diff(u, x), x)
+
+    ut - alpha * uxx
+}
+
+
+fn loss() {
+	let data    = mean((model(x_obs, t_obs) - y_obs) ^ 2)
+	let physics = mean(residual(x_c, t_c) ^ 2)
+	data + 10 * physics
+}
+
+let solver = compile(
+    loss,
+    backend="cpu" // Later "cuda" as well. I know we don't currently support
+									// kwargs, but this is just a sketch
+)
+
+solver.train(epochs=10000)
