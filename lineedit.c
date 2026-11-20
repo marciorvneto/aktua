@@ -14,10 +14,52 @@
 #define HISTORY_MAX  1024
 static LineCompletionFn completion_fn = NULL;
 
-
 #define CTRL_KEY(x) ( ~((1 << 5) | (1 << 6)) & (x) )
 
+// Portability
 
+// Reads a line. The caller is responsible for freeing the buffer
+char *read_line(FILE *f){
+	size_t capacity = 128;
+	size_t len      = 0;
+	char *buf       = malloc(capacity);
+	if(!buf){
+		return NULL;
+	}
+	while(fgets(buf + len, capacity - len, f) != NULL){
+		len += strlen(buf + len);
+
+		if(len > 0 && buf[len - 1] == '\n'){
+			// Read a newline. Stop here;
+			break;
+		}
+
+		capacity *= 2;
+		char *new_buf = realloc(buf, capacity);
+		if(!new_buf){
+			free(buf);
+			return NULL;
+		}
+		buf = new_buf;
+	}
+
+	// If nothing was read at all, the while loop
+	// will exit immediately and we should clean up
+	// and return NULL
+	
+	if(len == 0){
+		free(buf);
+		return NULL;
+	}
+
+	// Stripping \n and \r\n
+	buf[strcspn(buf, "\r\n")] = '\0';
+
+	return buf;
+}
+
+
+// Core
 struct termios t_original;
 
 static void enable_raw_mode(void){
@@ -145,10 +187,9 @@ int line_history_load(const char* path){
 	if(f == NULL) return 1;
 	
 	char *line = NULL;
-	size_t size = 0;
-	while(getline(&line, &size, f) != -1){
-		line[strcspn(line, "\r\n")] = '\0';
+	while((line = read_line(f)) != NULL){
 		line_history_add(line);
+		free(line);
 	}
 
 	free(line);

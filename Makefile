@@ -1,23 +1,35 @@
 .PHONY: aktua stdlib clean test syntax repl
 
+# These variables are here to support cross-compilation
+# make PLATFORM=windows to cross-compile, otherwise it 
+# defaults to linux
+PLATFORM ?= linux
+
+ifeq ($(PLATFORM),windows)
+CC      = x86_64-w64-mingw32ucrt-gcc
+EXE     = .exe
+LDFLAGS = -static
+endif
+
+AKTUA = build/aktua$(EXE)
 CFLAGS = -Wall -ggdb -I./include/
 LDLIBS = -lm
 
 SRC = main.c lineedit.c $(wildcard native/*.c)
 
-aktua: build/aktua stdlib
+aktua: $(AKTUA) stdlib
 
 repl: build/repl
 
 build/repl: repl.c lineedit.c include/lineedit.h | build
 	$(CC) $(CFLAGS) repl.c lineedit.c -o build/repl
 
-build/aktua: $(SRC) include/core.h | build
-	$(CC) $(CFLAGS) $(SRC) -o build/aktua $(LDLIBS)
+$(AKTUA): $(SRC) include/core.h | build
+	$(CC) $(CFLAGS) $(SRC) -o $@ $(LDFLAGS) $(LDLIBS) 
 
 test: aktua
 	@for f in test/*.akt examples/*.akt; \
-		do ./build/aktua $$f > /dev/null || { echo "FAILED: $$f"; exit 1; }; \
+		do ./$(AKTUA) $$f > /dev/null || { echo "FAILED: $$f"; exit 1; }; \
 		done; \
 		echo "All tests passed"
 

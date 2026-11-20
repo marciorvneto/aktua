@@ -3,6 +3,14 @@
 
 #include <stdio.h>
 
+// Portability
+
+// Reads a line without its \n, or NULL at the end of the file.
+// The caller is responsible for freeing the buffer, as the line is mallocd
+char *read_line(FILE *f);
+
+// Core functions
+
 char *line_read(const char *prompt);
 void line_history_add(const char* line);
 int line_history_load(const char *path);

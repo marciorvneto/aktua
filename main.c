@@ -7154,17 +7154,9 @@ char *repl_read_line(const char *prompt, bool interactive){
 	if(interactive) return line_read(prompt);
 
 	// If this wasn't called from a terminal (e.g. from a pipe)
-	// we revert to plain getline.
-	// TODO: port this to support Windows
+	// we revert to plain fgets calls.
 
-	char   *line = NULL;
-	size_t  size = 0;
-	if(getline(&line, &size, stdin) == -1){
-		free(line);
-		return NULL;
-	}
-	line[strcspn(line, "\r\n")] = '\0';    // cut off the newline
-	return line;
+	return read_line(stdin);
 }
 
 
