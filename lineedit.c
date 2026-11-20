@@ -103,10 +103,13 @@ static int read_byte_timeout(unsigned char *c){
 
 static HANDLE in_handle;
 static DWORD  in_mode_original;
+static UINT   input_cp_original;
 
 static void enable_raw_mode(void){
+	input_cp_original = GetConsoleCP();
 	in_handle = GetStdHandle(STD_INPUT_HANDLE);
 	GetConsoleMode(in_handle, &in_mode_original);
+	SetConsoleCP(CP_UTF8);
 
 	DWORD mode = in_mode_original;
 	mode &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT);
@@ -118,6 +121,7 @@ static void enable_raw_mode(void){
 
 static void disable_raw_mode(void){
 	SetConsoleMode(in_handle, in_mode_original);
+	SetConsoleCP(input_cp_original);
 }
 
 static int read_byte_wait(unsigned char *c){
@@ -255,6 +259,32 @@ int line_history_save(const char *path){
 	return 0;
 }
 
+// UTF-8 helpers
+static bool utf8_is_continuation(unsigned char c){
+	// Explanation: UTF-8 chars may take more than 1 byte, and
+	// the top bits of the first byte tell us how many
+	//
+	// 0xxxxxxx   -> ASCII
+	// 110xxxxx   -> 2 bytes
+	// 1110xxxx   -> 3 bytes
+	// 11110xxx   -> 4 bytes
+	// 10xxxxxx   -> Continuation (middle or end)
+	//
+	// 11000000   -> 0xC0 mask. Anding with this mask tells us if it's a multi-byte char
+
+	return (c & 0xC0) == 0x80;
+}
+
+static size_t utf8_char_count(const char *buf, size_t n){
+	size_t count = 0;
+	for(size_t i = 0; i < n; i++){
+		if(!utf8_is_continuation((unsigned char)buf[i])) count++;
+	}
+	return count;
+}
+
+
+
 // We redraw the line every single time.
 static void refresh_line(const char *prompt, Line *l){
 	printf("\r");
@@ -262,7 +292,7 @@ static void refresh_line(const char *prompt, Line *l){
 	fwrite(l->buf, 1, l->len, stdout);
 	printf("\x1b[K"); // Erase whatever is left to the right
 	printf("\r");
-	size_t col = strlen(prompt) + l->cursor;
+	size_t col = strlen(prompt) + utf8_char_count(l->buf, l->cursor);
 	if(col > 0) printf("\x1b[%zuC", col); // Move right to the cursor
 	fflush(stdout);
 }
@@ -342,12 +372,17 @@ char *line_read(const char *prompt){
 			continue;
 		}
 		if(k == KEY_LEFT){
-			if(l.cursor > 0) l.cursor--;
+			if(l.cursor > 0){
+				do {l.cursor--;} while(l.cursor > 0 && utf8_is_continuation(l.buf[l.cursor]));
+			}
 			refresh_line(prompt, &l);
 			continue;
 		}
 		if(k == KEY_RIGHT){
-			if(l.cursor < l.len) l.cursor++;
+			if(l.cursor < l.len){
+				l.cursor++;
+				while(l.cursor < l.len && utf8_is_continuation(l.buf[l.cursor])) l.cursor++;
+			}
 			refresh_line(prompt, &l);
 			continue;
 		}
@@ -396,12 +431,14 @@ char *line_read(const char *prompt){
 			//     ^     
 
 			if(l.cursor < l.len){
+				size_t n = 1;
+				while(l.cursor + n < l.len && utf8_is_continuation(l.buf[l.cursor + n])) n++;
 				memmove(
 						&l.buf[l.cursor],         // "to"
-						&l.buf[l.cursor + 1],     // "from"
-						l.len - l.cursor - 1      // number of elements copied (see above)
+						&l.buf[l.cursor + n],     // "from"
+						l.len - l.cursor - n      // number of elements copied (see above)
 						);
-				l.len--;
+				l.len -= n;
 				refresh_line(prompt, &l);
 
 			}
@@ -418,19 +455,25 @@ char *line_read(const char *prompt){
 			//     ^     
 
 			if(l.cursor > 0){
+				size_t n = 1;
+				while(l.cursor - n > 0 && utf8_is_continuation(l.buf[l.cursor - n])) n++;
 				memmove(
-						&l.buf[l.cursor - 1], // "to"
+						&l.buf[l.cursor - n], // "to"
 						&l.buf[l.cursor],     // "from"
 						l.len - l.cursor      // number of elements copied (see above)
 						);
-				l.cursor--;
-				l.len--;
+				l.cursor -= n;
+				l.len    -= n;
 				refresh_line(prompt, &l);
 
 			}
 			continue;
 		}
-		if(k == CTRL_KEY('d')){
+  #ifdef _WIN32
+			if(k == CTRL_KEY('d') || k == CTRL_KEY('z')){
+  #else
+			if(k == CTRL_KEY('d')){
+  #endif
 			if(l.len == 0){
 				disable_raw_mode();
 				printf("\n");
@@ -447,7 +490,8 @@ char *line_read(const char *prompt){
 			continue;
 		}
 
-		if(k >= 32 && k < 127 && l.len < MAX_BUF_SIZE - 1){
+		if(k >= 32 && k != 127 && k < 256 && l.len < MAX_BUF_SIZE - 1){
+			// Won't accept control characters (< 32), DEL (127) or special keys (>=256)
 			char c = (char)k;
 			line_insert(&l, &c, 1);
 			refresh_line(prompt, &l);
