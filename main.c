@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "platform.h"
 #include "lineedit.h"
 #include "core.h"
 
@@ -6250,12 +6251,18 @@ void print_value(Arena *ta, Environment *e, Value *value){
 
 int run_program(Arena *ta, Environment *e, FILE *f, char *script_path);
 
+const char *last_sep(const char *file){
+	size_t pos = strlen(file);
+	while(pos > 0 && !is_path_sep(file[--pos])){}
+	return is_path_sep(file[pos]) ? file + pos : NULL;
+}
+
 char *path_join_dir(Arena *a, const char* file, const char *rel){
 	// Example:
 	// a/b/script.akt + x.akt -> a/b/x.akt
 	// script.tx -> current directory
 
-	const char *last_slash = file ? strrchr(file, '/') : NULL;
+	const char *last_slash = file ? last_sep(file) : NULL;
 	size_t dir_len         = last_slash ? (size_t)(last_slash - file) : 1;
 	const char *dir        = last_slash ? file : ".";
 
@@ -7119,10 +7126,11 @@ void print_usage(){
 	printf("    -h, --help       Show this message\n");
 }
 
-void cleanup(Arena *ta, Arena *a, Arena *fa){
+void cleanup(Arena *ta, Arena *a, Arena *fa, char *exe_path){
 	arena_destroy(a);
 	arena_destroy(ta);
 	arena_destroy(fa);
+	free(exe_path);
 }
 
 bool use_color(){
@@ -7352,39 +7360,41 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
 int main(int argc, char **argv){
 	RunStats run_stats = {0};
 
-	Arena ta      = arena_create(32 * 1024 * 1024); // 32 MB for now
-	Arena pa      = arena_create(32 * 1024 * 1024); // 32 MB for now
-	Arena fa      = arena_create(1 * 1024 * 1024);  // Frame arena
-	Environment e = env_create(&pa, &fa, &run_stats, argv[0]);
+	char *exe_path_owned = platform_exe_path();
+	char *exe_path       = exe_path_owned ? exe_path_owned : argv[0];
+	Arena ta             = arena_create(32 * 1024 * 1024); // 32 MB for now
+	Arena pa             = arena_create(32 * 1024 * 1024); // 32 MB for now
+	Arena fa             = arena_create(1 * 1024 * 1024);  // Frame arena
+	Environment e        = env_create(&pa, &fa, &run_stats, exe_path);
 
 	if(argc < 2){
 		// REPL
 		int code = launch_repl(&ta, &e, argv[0], false);
-		cleanup(&ta, &pa, &fa);
+		cleanup(&ta, &pa, &fa, exe_path_owned);
 		return code;
 	}else{
 
 		if(strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0){
 			print_usage();
-			cleanup(&ta, &pa, &fa);
+			cleanup(&ta, &pa, &fa, exe_path_owned);
 			exit(0);
 		}
 
 		if(strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0){
 			print_version();
-			cleanup(&ta, &pa, &fa);
+			cleanup(&ta, &pa, &fa, exe_path_owned);
 			exit(0);
 		}
 
 		if(strcmp(argv[1], "-q") == 0 || strcmp(argv[1], "--quiet") == 0){
 			int code = launch_repl(&ta, &e, argv[0], true);
-			cleanup(&ta, &pa, &fa);
+			cleanup(&ta, &pa, &fa, exe_path_owned);
 			return code;
 		}
 
 		if(strcmp(argv[1], "--builtins") == 0){
       for(size_t i = 0; i < LEN(natives); i++) printf("%s\n", natives[i].name);
-			cleanup(&ta, &pa, &fa);
+			cleanup(&ta, &pa, &fa, exe_path_owned);
 			exit(0);
 		}
 

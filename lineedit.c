@@ -1,10 +1,13 @@
+#ifndef _WIN32
+#include <termios.h>
+#endif
+
 #include <stddef.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdlib.h>
-#include <termios.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -60,6 +63,7 @@ char *read_line(FILE *f){
 
 
 // Core
+#ifndef _WIN32
 struct termios t_original;
 
 static void enable_raw_mode(void){
@@ -155,6 +159,8 @@ static int read_key(void){
 	return KEY_ESC;
 }
 
+#endif
+
 
 typedef struct {
 	char   buf[MAX_BUF_SIZE];
@@ -209,6 +215,7 @@ int line_history_save(const char *path){
 	return 0;
 }
 
+#ifndef _WIN32
 // We redraw the line every single time.
 static void refresh_line(const char *prompt, Line *l){
 	printf("\r");
@@ -415,6 +422,14 @@ char *line_read(const char *prompt){
 	return strdup(l.buf);
 
 }
+#else
+// Windows: no line editing yet, plain line input
+char *line_read(const char *prompt){ 
+	printf("%s", prompt);
+	fflush(stdout);
+	return read_line(stdin);
+}       
+#endif
 
 //===============================
 //

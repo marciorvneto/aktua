@@ -15,7 +15,7 @@ AKTUA = build/aktua$(EXE)
 CFLAGS = -Wall -ggdb -I./include/
 LDLIBS = -lm
 
-SRC = main.c lineedit.c $(wildcard native/*.c)
+SRC = main.c lineedit.c platform.c $(wildcard native/*.c)
 
 aktua: $(AKTUA) stdlib
 
