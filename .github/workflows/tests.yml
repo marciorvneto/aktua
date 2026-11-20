@@ -66,6 +66,7 @@ jobs:
 
       - name: Run tests
         run: |
+          chmod +x ./build/aktua
           for f in test/*.akt examples/*.akt; do
             ./build/aktua "$f" > /dev/null || { echo "FAILED: $f"; exit 1; }
           done
