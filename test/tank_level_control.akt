@@ -1,0 +1,43 @@
+import("test.akt")
+import("base.akt")
+
+// Theory checks for examples/tank_level_control.akt
+
+let s   = poly([0, 1])
+let K   = 0.2
+let tau = 100
+let H   = K / (tau * s + 1)
+
+fn closed_loop(C) { C * H / (1 + C * H) }
+fn disturbance(C) { H / (1 + C * H) }
+
+// Open loop reaches 63% of K at t = tau
+let t_open = linspace(0, 500, 251)
+assert_close(step(H, t_open)[50], K * (1 - exp(-1)), 1e-6)
+
+// P offset, final value theorem
+for gain in [5, 20, 100] {
+  let W = closed_loop(gain)
+  assert_close(W(0), K * gain / (1 + K * gain), 1e-12)
+}
+
+// Lambda-tuned PI: no offset, 63% at t = lambda
+let lambda = 25
+let kp     = tau / (K * lambda)
+let ki     = kp / tau
+let C_pi   = kp + ki / s
+let W_pi   = closed_loop(C_pi)
+let t      = linspace(0, 150, 151)
+assert_close(W_pi(0), 1, 1e-12)
+assert_close(step(W_pi, t)[25], 1 - exp(-1), 1e-6)
+
+// Ideal PID kick, filtered PID starts at 0
+let kd    = 250
+let W_pid = closed_loop(C_pi + kd * s)
+assert_close(W_pid(1e9), K * kd / (tau + K * kd), 1e-6)
+let tf = (kd / kp) / 10
+assert_close(step(closed_loop(C_pi + kd * s / (tf * s + 1)), t)[0], 0, 1e-12)
+
+// P disturbance offset
+let t_dist = linspace(0, 400, 201)
+assert_close(step(disturbance(20), t_dist)[200], K / (1 + K * 20), 1e-6)
