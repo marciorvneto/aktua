@@ -130,11 +130,31 @@ static int read_byte_wait(unsigned char *c){
 	return 1;
 }
 
-// Reads one byte, giving up after the VTIME timeout.
-static int read_byte_timeout(unsigned char *c){
-	if(WaitForSingleObject(in_handle, 100) != WAIT_OBJECT_0) return 0;
-	return read_byte_wait(c) == 1;
+// True if the next input event will produce a byte. Discards events that
+// won't (key releases, bare modifiers like Ctrl/Alt, mouse, resize, focus).
+static bool input_has_byte(void){
+	INPUT_RECORD rec;
+	DWORD n;
+	while(PeekConsoleInputW(in_handle, &rec, 1, &n) && n == 1){
+		if(rec.EventType == KEY_EVENT &&
+				rec.Event.KeyEvent.bKeyDown &&
+				rec.Event.KeyEvent.uChar.UnicodeChar != 0) return true;
+		ReadConsoleInputW(in_handle, &rec, 1, &n);     // junk: remove it
+	}
+	return false;                                      // queue is empty
 }
+
+// Reads one byte, giving up after 100 ms. Junk events don't count as input.
+static int read_byte_timeout(unsigned char *c){
+	DWORD start = GetTickCount();
+	for(;;){
+		if(input_has_byte()) return read_byte_wait(c) == 1;
+
+		DWORD elapsed = GetTickCount() - start;
+		if(elapsed >= 100) return 0;
+		if(WaitForSingleObject(in_handle, 100 - elapsed) != WAIT_OBJECT_0) return 0;
+	}       
+}               
 
 #endif
 
