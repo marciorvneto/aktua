@@ -1,0 +1,8 @@
+// An error inside a loop body stops the loop and the script
+for i in range(0, 3) {
+  print("iteration " + i)
+  if i == 1 {
+    print(nope)
+  }
+}
+print("after loop")

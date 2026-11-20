@@ -1,0 +1,4 @@
+// A runtime error stops the script
+print("before")
+print(nope)
+print("after")

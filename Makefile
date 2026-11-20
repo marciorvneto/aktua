@@ -53,10 +53,23 @@ $(AKTUA): $(SRC) include/core.h $(RES) | build
 	$(CC) $(CFLAGS) $(SRC) $(RES) -o $@ $(LDFLAGS) $(LDLIBS) 
 
 test: aktua
-	@for f in test/*.akt examples/*.akt; \
-		do ./$(AKTUA) $$f > /dev/null || { echo "FAILED: $$f"; exit 1; }; \
-		done; \
-		echo "All tests passed"
+	@for f in test/*.akt examples/*.akt; do \
+		./$(AKTUA) "$$f" > /dev/null || { \
+			echo "FAILED: $$f"; \
+			exit 1; \
+		}; \
+	done; \
+	for f in test/errors/*.akt; do \
+		./$(AKTUA) "$$f" > build/error_test.out 2>/dev/null && { \
+			echo "SHOULD HAVE FAILED: $$f"; \
+			exit 1; \
+		}; \
+		diff -u "$${f%.akt}.expected" build/error_test.out || { \
+			echo "WRONG OUTPUT: $$f"; \
+			exit 1; \
+		}; \
+	done; \
+	echo "All tests passed"
 
 build:
 	mkdir -p build

@@ -1,0 +1,10 @@
+// An error inside a function stops the function and the script
+fn f() {
+  print("in f")
+  print(nope)
+  print("rest of f")
+}
+
+print("before")
+f()
+print("after f")

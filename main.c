@@ -6464,16 +6464,26 @@ Value *eval_args(Arena *ta, Environment *e, char *script_path, AST *first_arg, s
 
 
 Value eval_call(Arena *ta, Environment *e, char *script_path, AST *call, int *silent){
+	size_t errors = e->run_stats->runtime_errors;
 	Value  callee = eval_expr(ta, e, script_path, call->as.call.callee, silent);
 	size_t argc   = call->as.call.num_arguments;
 	Value *args   = eval_args(ta, e, script_path, call->as.call.first_arg, argc, silent);
+	if(errors != e->run_stats->runtime_errors){
+		*silent = 1;
+		return make_nan();
+	}
 	return call_value(ta, e, script_path, "expression", &callee, argc, args, silent);
 }
 
 Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int *silent){
+	size_t errors = e->run_stats->runtime_errors;
   char *name  = fn->as.fn_call.fn_name;
   size_t argc = fn->as.fn_call.num_arguments;
 	Value *args = eval_args(ta, e, script_path, fn->as.fn_call.first_arg, argc, silent);
+	if(errors != e->run_stats->runtime_errors){
+		*silent = 1;
+		return make_nan();
+	}
 	Variable *var = env_find_variable(e, name);
 	if(!var){
 		runtime_error(e, "Undefined function %s", name);
@@ -6742,21 +6752,25 @@ ExecStatus eval_block(
     // are copied out, and their storage is untouched, so results stay valid.
     size_t mark = e->num_vars;
 
-    for (AST *stmt = block->as.statement_list.first; stmt != NULL; stmt = stmt->next) {
+		size_t errors = e->run_stats->runtime_errors;
+		for (AST *stmt = block->as.statement_list.first; stmt != NULL; stmt = stmt->next) {
+			if (stmt->statement_type == STATEMENT_EXPR) {
+				int silent = 1;
+				result = eval_expr( ta, e, script_path, stmt, &silent);
+			} else {
+				int err = eval_stmt(ta, e, script_path, stmt, result_out);
+				if (err != 0) {
+					e->num_vars = mark;
+					return err;
+				}
 
-        if (stmt->statement_type == STATEMENT_EXPR) {
-            int silent = 1;
-            result = eval_expr( ta, e, script_path, stmt, &silent);
-        } else {
-            int err = eval_stmt(ta, e, script_path, stmt, result_out);
-            if (err != 0) {
-                e->num_vars = mark;
-                return err;
-            }
-
-            result = make_num(0);
-        }
-    }
+				result = make_num(0);
+			}
+			if(e->run_stats->runtime_errors != errors){
+				e->num_vars = mark;
+				return EXEC_ERROR;
+			}
+		}
 
     if (result_out)
         *result_out = result;
@@ -6875,8 +6889,9 @@ ExecStatus eval_stmt(
 
 	if(stmt->statement_type == STATEMENT_EXPR){
     SCRATCH_SCOPE(ta){
-      Value result = eval_expr(ta, e, script_path, stmt, &silent);
-      if(!silent) print_value(ta, e, &result);
+			size_t errors = e->run_stats->runtime_errors;
+			Value result  = eval_expr(ta, e, script_path, stmt, &silent);
+			if(!silent && e->run_stats->runtime_errors == errors) print_value(ta, e, &result);
     }
 		return 0;
 	}
@@ -7020,7 +7035,9 @@ int run_ast(Arena* ta, AST *ast, Environment *e, char *script_path){
 	AST *stmt = ast->as.program.statement_list->as.statement_list.first;
 
 	while(stmt != NULL){
+		size_t errors_before = e->run_stats->runtime_errors;
 		ExecStatus status = eval_stmt(ta, e, script_path, stmt, NULL);
+		if(e->run_stats->runtime_errors != errors_before) return EXEC_ERROR;
 		if(status == EXEC_RETURN){
 			printf("Return outside function body\n");
 		}

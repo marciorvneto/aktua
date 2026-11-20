@@ -1,0 +1,4 @@
+// A failed import stops the script
+print("before")
+import("./does_not_exist.akt")
+print("after")
