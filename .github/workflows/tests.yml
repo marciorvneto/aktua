@@ -11,6 +11,8 @@ jobs:
     needs: [test-linux, test-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Download the Linux build
@@ -24,6 +26,41 @@ jobs:
         with:
           name: aktua-windows
           path: aktua-windows/
+
+      - name: Check out the code
+        uses: actions/checkout@v4
+        with:
+          path: src/
+
+      - name: Package
+        run: |
+          V=${{ github.ref_name }}
+          mkdir -p dist/aktua-$V-linux-x86_64 dist/aktua-$V-windows-x86_64
+
+          cp -r aktua-linux/aktua aktua-linux/libs src/LICENSE.md src/README.md \
+            dist/aktua-$V-linux-x86_64/
+          chmod +x dist/aktua-$V-linux-x86_64/aktua
+
+          cp -r aktua-windows/aktua.exe aktua-windows/libs src/LICENSE.md src/README.md \
+            dist/aktua-$V-windows-x86_64/
+
+          cd dist
+          tar -czf aktua-$V-linux-x86_64.tar.gz aktua-$V-linux-x86_64
+          zip -r aktua-$V-windows-x86_64.zip aktua-$V-windows-x86_64
+          ls -l
+
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=${{ github.ref_name }}
+          gh release create "$V" \
+            --repo "${{ github.repository }}" \
+            --draft \
+            --title "Aktua $V" \
+            --generate-notes \
+            dist/aktua-$V-linux-x86_64.tar.gz \
+            dist/aktua-$V-windows-x86_64.zip
 
   build-linux:
     runs-on: ubuntu-latest
