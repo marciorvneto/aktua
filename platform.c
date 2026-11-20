@@ -7,6 +7,11 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+
+static HANDLE original_std_handle;
+static UINT original_output_cp;
+static DWORD original_console_mode;
+
 #elif defined(__linux__)
 #include <unistd.h>
 #else
@@ -14,13 +19,19 @@
 
 void platform_init(void){
 #if defined(_WIN32)
+	original_output_cp = GetConsoleOutputCP();
 	SetConsoleOutputCP(CP_UTF8);
 
-	HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
-	DWORD mode;
-	if(GetConsoleMode(out, &mode)){
-		SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+	original_std_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+	if(GetConsoleMode(original_std_handle, &original_console_mode)){
+		SetConsoleMode(original_std_handle, original_console_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
 	}
+#endif
+}
+void platform_exit(void){
+#if defined(_WIN32)
+	SetConsoleMode(original_std_handle, original_console_mode);
+	SetConsoleOutputCP(original_output_cp);
 #endif
 }
 
