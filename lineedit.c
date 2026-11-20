@@ -1,4 +1,6 @@
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <termios.h>
 #endif
 
@@ -61,7 +63,6 @@ char *read_line(FILE *f){
 	return buf;
 }
 
-
 // Core
 #ifndef _WIN32
 struct termios t_original;
@@ -84,6 +85,54 @@ static void enable_raw_mode(void){
 void disable_raw_mode(void){
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &t_original);
 }
+
+static int read_byte_wait(unsigned char *c){
+	ssize_t n = 0;
+	while((n = read(STDIN_FILENO, c, 1)) != 1){
+		if(n == -1 && errno != EAGAIN && errno != EINTR) return -1;
+	}
+	return 1;
+}
+
+// Reads one byte, giving up after the VTIME timeout.
+static int read_byte_timeout(unsigned char *c){
+	return read(STDIN_FILENO, c, 1) == 1;
+}
+
+#else // ============= Windows ===========
+
+static HANDLE in_handle;
+static DWORD  in_mode_original;
+
+static void enable_raw_mode(void){
+	in_handle = GetStdHandle(STD_INPUT_HANDLE);
+	GetConsoleMode(in_handle, &in_mode_original);
+
+	DWORD mode = in_mode_original;
+	mode &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT);
+	mode |=   ENABLE_VIRTUAL_TERMINAL_INPUT;
+	
+	SetConsoleMode(in_handle, mode);
+
+}
+
+static void disable_raw_mode(void){
+	SetConsoleMode(in_handle, in_mode_original);
+}
+
+static int read_byte_wait(unsigned char *c){
+	DWORD n;
+	if(!ReadFile(in_handle, c, 1, &n, NULL) || n != 1) return -1;
+	return 1;
+}
+
+// Reads one byte, giving up after the VTIME timeout.
+static int read_byte_timeout(unsigned char *c){
+	if(WaitForSingleObject(in_handle, 100) != WAIT_OBJECT_0) return 0;
+	return read_byte_wait(c) == 1;
+}
+
+#endif
 
 //==============================
 //
@@ -108,32 +157,26 @@ typedef enum {
 	KEY_DELETE,
 } Key;
 
-// Reads one byte, giving up after the VTIME timeout.
-static int read_byte(unsigned char *c){
-	return read(STDIN_FILENO, c, 1) == 1;
-}
 
 // Returns a byte (0-255), a Key above 1000, or -1 on a read error.
 static int read_key(void){
 	unsigned char c;
-	ssize_t n;
 
 	// Wait for the first byte - returns 0 until something comes, 
 	// so we need to loop 
-	while((n = read(STDIN_FILENO, &c, 1)) != 1){
-		if(n == -1 && errno != EAGAIN && errno != EINTR) return -1;
-	}
+  int out = read_byte_wait(&c);
+	if(out == -1) return -1;
 
 	if(c != KEY_ESC) return c;
 
 	// An ESC arrived. If nothing follows quickly, it was the Esc key itself.
 	unsigned char seq[3];
-	if(!read_byte(&seq[0])) return KEY_ESC;
-	if(!read_byte(&seq[1])) return KEY_ESC;
+	if(!read_byte_timeout(&seq[0])) return KEY_ESC;
+	if(!read_byte_timeout(&seq[1])) return KEY_ESC;
 
 	if(seq[0] == '['){
 		if(isdigit(seq[1])){
-			if(!read_byte(&seq[2]) || seq[2] != '~') return KEY_ESC;
+			if(!read_byte_timeout(&seq[2]) || seq[2] != '~') return KEY_ESC;
 			switch(seq[1]){
 				case '1': case '7': return KEY_HOME;
 				case '4': case '8': return KEY_END;
@@ -158,9 +201,6 @@ static int read_key(void){
 
 	return KEY_ESC;
 }
-
-#endif
-
 
 typedef struct {
 	char   buf[MAX_BUF_SIZE];
@@ -215,7 +255,6 @@ int line_history_save(const char *path){
 	return 0;
 }
 
-#ifndef _WIN32
 // We redraw the line every single time.
 static void refresh_line(const char *prompt, Line *l){
 	printf("\r");
@@ -422,14 +461,6 @@ char *line_read(const char *prompt){
 	return strdup(l.buf);
 
 }
-#else
-// Windows: no line editing yet, plain line input
-char *line_read(const char *prompt){ 
-	printf("%s", prompt);
-	fflush(stdout);
-	return read_line(stdin);
-}       
-#endif
 
 //===============================
 //
