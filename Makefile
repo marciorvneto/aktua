@@ -31,7 +31,6 @@ RES     = build/aktua_res.o
 endif
 
 AKTUA  = build/aktua$(EXE)
-LDLIBS = -lm
 
 SRC = main.c lineedit.c platform.c $(wildcard native/*.c)
 
