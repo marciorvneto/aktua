@@ -3,6 +3,9 @@
 
 #include <stdbool.h>
 
+// Call once at startup
+void platform_init(void);
+
 bool is_path_sep(char c);
 bool is_path_absolute(const char *path);
 

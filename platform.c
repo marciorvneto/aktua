@@ -12,6 +12,17 @@
 #else
 #endif
 
+void platform_init(void){
+#if defined(_WIN32)
+	SetConsoleOutputCP(CP_UTF8);
+
+	HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+	DWORD mode;
+	if(GetConsoleMode(out, &mode)){
+		SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+	}
+#endif
+}
 
 bool is_path_sep(char c){
 	if(c == '/') return true;

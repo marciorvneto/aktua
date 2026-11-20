@@ -7358,6 +7358,7 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
 
 
 int main(int argc, char **argv){
+	platform_init();
 	RunStats run_stats = {0};
 
 	char *exe_path_owned = platform_exe_path();
