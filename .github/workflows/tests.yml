@@ -8,6 +8,7 @@ on:
 jobs:
   build-windows:
     runs-on: ubuntu-latest
+    container: debian:trixie
 
     steps:
       - name: Check out the code
