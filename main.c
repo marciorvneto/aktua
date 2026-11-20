@@ -1733,73 +1733,21 @@ AST *parse_array(Arena *pa, AST *parent, Parser *parser){
 	if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
 	return array;
 }
-// AST *parse_array(Arena *pa, AST *parent, Parser *parser){
-// 	if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
-// 	AST *array = ast_make_array(pa);
-// 	if(!parser_done(parser) && parser_peek(parser)->type == TOK_RBRACKET){
-// 		if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
-// 		return array;
-// 	}
 
-// 	AST *head = parse_expression(pa, parent, parser);
-// 	if(!head) return NULL;
-// 	if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
-
-// 	array->as.array.first = head;
-// 	AST *tail             = head;
-
-// 	size_t size = 1;
-
-// 	while(!parser_done(parser) && parser_peek(parser)->type != TOK_RBRACKET){
-// 		AST *expr   = parse_expression(pa, parent, parser);
-// 		if(!expr) return NULL;
-// 		if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
-// 		tail->next  = expr;
-// 		tail        = expr;
-// 		size       += 1;
-// 	}
-
-// 	if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
-// 	array->as.array.size = size;
-// 	return array;
-// }
-
+AST *parse_args_list(Arena *pa, AST *parent, Parser *parser);
 AST *parse_fn_call(Arena *pa, AST *parent, Parser *parser){
     Token *name = parser_eat(TOK_ID, parser);
     if(!name) return NULL;
-    char *fn_name = name->value;
 		if(parser_eat(TOK_LPAREN, parser) == NULL) return NULL;
-		AST *fn_call = ast_make_fn_call(pa, fn_name);
-		if(!parser_done(parser) && parser_peek(parser)->type == TOK_RPAREN){
-			if(parser_eat(TOK_RPAREN, parser) == NULL) return NULL;
-			fn_call->as.fn_call.num_arguments = 0;
-			return fn_call;
-		}
-
-		AST *head = parse_expression(pa, parent, parser);
-		if(!head) return NULL;
-		if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
-		AST *tail = NULL;
-		if(head == NULL){
-			if(parser_eat(TOK_RPAREN, parser) == NULL) return NULL;
-			fn_call->as.fn_call.num_arguments = 0;
-			return fn_call;
-		}
-		fn_call->as.fn_call.first_arg = head;
-		tail                          = head;
-		size_t num_args               = 1;
-
-		while(!parser_done(parser) && parser_peek(parser)->type != TOK_RPAREN){
-			AST *expr  = parse_expression(pa, parent, parser);
-			if(!expr) return NULL;
-			if(parser_peek(parser)->type == TOK_COMMA) parser_eat(TOK_COMMA, parser);
-			tail->next = expr;
-			tail       = expr;
-			num_args++;
-		}
-
+		AST *args_list = parse_args_list(pa, parent, parser);
 		if(parser_eat(TOK_RPAREN, parser) == NULL) return NULL;
-		fn_call->as.fn_call.num_arguments = num_args;
+
+		size_t argc  = 0;
+		AST *fn_call = ast_make_fn_call(pa, name->value);
+		for(AST *arg = args_list; arg != NULL; arg = arg->next) argc++;
+
+		fn_call->as.fn_call.num_arguments = argc;
+		fn_call->as.fn_call.first_arg     = args_list;
 		return fn_call;
 }
 
@@ -1836,7 +1784,6 @@ AST *parse_id(Arena *pa, AST *parent, Parser *parser) {
 		return id;
 }
 
-AST *parse_args_list(Arena *pa, AST *parent, Parser *parser);
 
 AST *parse_args_list_tail(Arena *pa, AST *parent, Parser *parser){
 	if(!parser_eat(TOK_COMMA, parser)) return NULL;
