@@ -9,6 +9,10 @@ ifeq ($(PLATFORM),windows)
 CC      = x86_64-w64-mingw32ucrt-gcc
 EXE     = .exe
 LDFLAGS = -static
+
+# Resources (manifest file)
+WINDRES = x86_64-w64-mingw32ucrt-windres
+RES     = build/aktua_res.o
 endif
 
 AKTUA = build/aktua$(EXE)
@@ -24,8 +28,12 @@ repl: build/repl
 build/repl: repl.c lineedit.c include/lineedit.h | build
 	$(CC) $(CFLAGS) repl.c lineedit.c -o build/repl
 
-$(AKTUA): $(SRC) include/core.h | build
-	$(CC) $(CFLAGS) $(SRC) -o $@ $(LDFLAGS) $(LDLIBS) 
+$(RES): ./platform-specific/windows/aktua.rc ./platform-specific/windows/aktua.manifest | build
+	$(WINDRES) $< -O coff -o $@
+
+
+$(AKTUA): $(SRC) include/core.h $(RES) | build
+	$(CC) $(CFLAGS) $(SRC) $(RES) -o $@ $(LDFLAGS) $(LDLIBS) 
 
 test: aktua
 	@for f in test/*.akt examples/*.akt; \
