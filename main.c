@@ -1262,6 +1262,7 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 	      X(AST_BINARY_OP)      \
 	      X(AST_POSTFIX_OP)     \
 	      X(AST_FN_CALL)        \
+	      X(AST_CALL)           \
 	      X(AST_ARGS_LIST)      \
 	      X(AST_NODE_TYPE_COUNT)
 				
@@ -1432,6 +1433,13 @@ struct AST {
 			AST  *target;
 			char *op;
 		} postfix_op;
+
+		struct {
+			AST    *callee;
+			size_t  num_arguments;
+			AST    *first_arg;
+		} call;
+
 	} as;
 };
 
@@ -1573,6 +1581,15 @@ AST *ast_make_indexing(Arena *pa){
 	expr->statement_type     = STATEMENT_EXPR;
 	expr->as.indexing.target = NULL;
 	expr->as.indexing.first  = NULL;
+	return expr;
+}
+
+AST *ast_make_call(Arena *pa){
+	AST *expr = ast_alloc(pa, AST_CALL);
+	expr->statement_type        = STATEMENT_EXPR;
+	expr->as.call.num_arguments = 0;
+	expr->as.call.callee        = NULL;
+	expr->as.call.first_arg     = NULL;
 	return expr;
 }
 
@@ -1953,13 +1970,28 @@ AST *parse_postfix_tail_lbrack(Arena *pa, AST *parent, Parser *parser, AST *targ
 	indexing->as.indexing.first  = args_list;
 	return parse_postfix_tail(pa, parent, parser, indexing);
 }
+AST *parse_postfix_tail_lparen(Arena *pa, AST *parent, Parser *parser, AST *target){
+	if(parser_eat(TOK_LPAREN, parser) == NULL) return NULL;
+	AST *args_list = parse_args_list(pa, parent, parser);
+	if(parser_eat(TOK_RPAREN, parser) == NULL) return NULL;
+
+	size_t argc = 0;
+	for(AST *arg = args_list; arg != NULL; arg = arg->next) argc++;
+
+	AST *call                   = ast_make_call(pa);
+	call->as.call.num_arguments = argc;
+	call->as.call.first_arg     = args_list;
+	call->as.call.callee        = target;
+	return parse_postfix_tail(pa, parent, parser, call);
+}
 
 AST *parse_postfix_tail(Arena *pa, AST *parent, Parser *parser, AST *target){
 	size_t save = parser->next;
 	AST *tail = NULL;
 	if(
-		(parser->next = save, tail = parse_postfix_tail_dot(pa, parent, parser, target)) ||
-		(parser->next = save, tail = parse_postfix_tail_lbrack(pa, parent, parser, target))
+		(parser->next = save, tail = parse_postfix_tail_dot(pa, parent, parser, target))    ||
+		(parser->next = save, tail = parse_postfix_tail_lbrack(pa, parent, parser, target)) ||
+		(parser->next = save, tail = parse_postfix_tail_lparen(pa, parent, parser, target))
 		)
 	{
 		return tail;
@@ -2537,6 +2569,16 @@ void ast_print(AST *ast, int level){
 			{
 				printf("%sFN[%s]:\n", buf, ast->as.fn_call.fn_name);
 				AST *arg = ast->as.fn_call.first_arg;
+				while(arg != NULL){
+					ast_print(arg, level + 1);
+					arg = arg->next;
+				}
+				break;
+			}
+		case AST_CALL:
+			{
+				printf("%sCALL:\n", buf);
+				AST *arg = ast->as.call.first_arg;
 				while(arg != NULL){
 					ast_print(arg, level + 1);
 					arg = arg->next;
@@ -5934,37 +5976,6 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 	return escaped;
 }
 
-Value eval_function(Arena *ta, Environment *e, AST *fn_call, char *script_path, int *silent){
-	int argc      = fn_call->as.fn_call.num_arguments;
-	char *fn_name = fn_call->as.fn_call.fn_name;
-
-	// Evaluating arguments in the base environment
-
-	Value *evaluated = arena_alloc(ta, argc * sizeof(Value));
-	if(argc > 0){
-		size_t i = 0;
-		for(
-			AST *arg  = fn_call->as.fn_call.first_arg;
-			arg      != NULL;
-			arg       = arg->next
-		){
-			Value val    = eval_expr(ta, e, script_path, arg, silent);
-			evaluated[i] = val;
-			i++;
-		}
-	}
-
-	// Get the function variable from the base environment
-
-	Variable *fun_var = env_find_variable(e, fn_name);
-	if(!fun_var) {
-		runtime_error(e, "Undefined function %s", fn_call->as.fn_call.fn_name);
-		return make_nan();
-	}
-	Value *fun = fun_var->value;
-	return call_function(ta, e, script_path, fn_name, fun, argc, evaluated, silent);
-}
-
 //============================== 
 //
 //    Printing
@@ -6405,51 +6416,70 @@ Value eval_postfix(Arena *ta, Environment *e, char *script_path, AST *postfix, i
 	return make_nan();
 }
 
-Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int *silent){
+Value call_value(
+		Arena *ta,
+		Environment *e,
+		char *script_path,
+		const char *name,
+		Value *callee,
+		size_t argc,
+		Value *args,
+    int *silent
+		)
+{
+	if(callee->valueType == VALUE_FUNCTION) return call_function(ta, e, script_path, name, callee, argc, args, silent);
 
-  char *name  = fn->as.fn_call.fn_name;
-  size_t argc = fn->as.fn_call.num_arguments;
-
-	// Check if it is a user-defined function
-
-	Variable *var = env_find_variable(e, name);
-	if(var && var->value->valueType == VALUE_FUNCTION){
-		return eval_function(ta, e, fn, script_path, silent);
+	if(argc != 1){
+		runtime_error(e, "%s takes one argument, got %zu", name, argc);
+		return make_nan();
 	}
 
+	if(callee->valueType >= VALUE_TYPE_COUNT ||
+			args[0].valueType >= VALUE_TYPE_COUNT)
+	{
+		runtime_error(e, "Unsupported operation!");
+		return make_nan();
+	}
 
-  if(argc == 1){
-		Value val = eval_expr(ta, e, script_path, fn->as.fn_call.first_arg, silent);
-
-    // ---------- Check if there's a suitable variable with name fn_name -----------
-
-    Variable *var = env_find_variable(e,  fn->as.fn_call.fn_name);
-    if(var != NULL){
-      if(var->value->valueType >= VALUE_TYPE_COUNT ||
-         val.valueType >= VALUE_TYPE_COUNT)
-      {
-				runtime_error(e, "Unsupported operation!");
-        return make_nan();
-      }
-
-      UnaryValueDispatch dispatch = 
-        callable_values_dispatch[var->value->valueType][val.valueType];
+	UnaryValueDispatch dispatch = 
+		callable_values_dispatch[callee->valueType][args[0].valueType];
 
 
-      if(!dispatch){
-				runtime_error(e, "Unsupported operation!");
-        return make_nan();
-      }
+	if(!dispatch){
+		runtime_error(e, "%s can't be called with that argument", name);
+		return make_nan();
+	}
 
-      return dispatch(ta, e, var->value, &val);
-       
-    }
+	return dispatch(ta, e, callee, &args[0]);
+}
 
-  }
+Value *eval_args(Arena *ta, Environment *e, char *script_path, AST *first_arg, size_t argc, int *silent) {
+	Value *args = arena_alloc(ta, argc * sizeof(Value));
+	size_t i = 0;
+	for(AST *arg = first_arg; arg != NULL; arg = arg->next){
+		args[i++] = eval_expr(ta, e, script_path, arg, silent);
+	}
+	return args;
+}
 
-	runtime_error(e, "Undefined function %s", name);
-	return make_nan();
 
+Value eval_call(Arena *ta, Environment *e, char *script_path, AST *call, int *silent){
+	Value  callee = eval_expr(ta, e, script_path, call->as.call.callee, silent);
+	size_t argc   = call->as.call.num_arguments;
+	Value *args   = eval_args(ta, e, script_path, call->as.call.first_arg, argc, silent);
+	return call_value(ta, e, script_path, "expression", &callee, argc, args, silent);
+}
+
+Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int *silent){
+  char *name  = fn->as.fn_call.fn_name;
+  size_t argc = fn->as.fn_call.num_arguments;
+	Value *args = eval_args(ta, e, script_path, fn->as.fn_call.first_arg, argc, silent);
+	Variable *var = env_find_variable(e, name);
+	if(!var){
+		runtime_error(e, "Undefined function %s", name);
+		return make_nan();
+	}
+	return call_value(ta, e, script_path, name, var->value, argc, args, silent);
 }
 
 // Resolves one index against a dimension of the given size; negatives count from the end
@@ -6671,6 +6701,11 @@ Value eval_expr(Arena *ta, Environment *e, char *script_path, AST *expr, int *si
 		case AST_FN_CALL:
 			{
 				value = eval_func_call(ta, e, script_path, expr, silent);
+				break;
+			}
+		case AST_CALL:
+			{
+				value = eval_call(ta, e, script_path, expr, silent);
 				break;
 			}
 		case AST_POSTFIX_OP:
