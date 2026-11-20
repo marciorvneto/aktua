@@ -6281,10 +6281,10 @@ char *resolve_path(Arena *a, char* script_path, char *exe_path, char *path){
   // Absolute paths are kept
 
 	// Absolute
-  if(path[0] == '/'){ return clone_string(a, path); }
+  if(is_path_absolute(path)){ return clone_string(a, path); }
 
-  if(path[0] == '~' && path[1] == '/'){
-    const char *home = getenv("HOME");
+  if(path[0] == '~' && is_path_sep(path[1])){
+		const char *home = platform_home_dir();
     if(!home) return NULL;
 
     // Example:
@@ -7194,7 +7194,7 @@ int launch_repl(Arena *ta, Environment *e, char *script_path, bool quiet){
 
 	// History file
 	char history_path[1024];
-	const char *home = getenv("HOME"); // TODO: Windows uses USERPROFILE
+	const char *home = platform_home_dir();
 	bool use_history = interactive && home != NULL;
 	if(use_history){
 		snprintf(history_path, sizeof(history_path), "%s/.aktua_history", home);
