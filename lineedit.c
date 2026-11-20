@@ -287,6 +287,7 @@ static size_t utf8_char_count(const char *buf, size_t n){
 
 // We redraw the line every single time.
 static void refresh_line(const char *prompt, Line *l){
+	printf("\x1b[?25l"); // This hides the cursor to prevent annoying flickering
 	printf("\r");
 	printf("%s", prompt);
 	fwrite(l->buf, 1, l->len, stdout);
@@ -294,6 +295,7 @@ static void refresh_line(const char *prompt, Line *l){
 	printf("\r");
 	size_t col = strlen(prompt) + utf8_char_count(l->buf, l->cursor);
 	if(col > 0) printf("\x1b[%zuC", col); // Move right to the cursor
+	printf("\x1b[?25h"); // Show the cursor again
 	fflush(stdout);
 }
 
