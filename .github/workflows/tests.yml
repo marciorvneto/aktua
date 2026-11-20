@@ -6,6 +6,28 @@ on:
   pull_request:
 
 jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    container: alpine:3.22
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Install make, musl, gcc, etc
+        run: apk add --no-cache build-base
+
+      - name: Build
+        run: make aktua BUILD=release STATIC=1
+
+      - name: Upload the generated executable as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aktua-linux
+          path: |
+            build/aktua
+            build/libs/
+
   build-windows:
     runs-on: ubuntu-latest
     container: debian:trixie
@@ -18,7 +40,7 @@ jobs:
         run: apt-get update && apt-get install -y make gcc-mingw-w64-ucrt64
 
       - name: Build
-        run: make aktua PLATFORM=windows
+        run: make aktua PLATFORM=windows BUILD=release
 
       - name: Upload the generated executable as an artifact
         uses: actions/upload-artifact@v4
@@ -27,6 +49,27 @@ jobs:
           path: |
             build/aktua.exe
             build/libs/
+
+  test-linux:
+    needs: build-linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Download the Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: aktua-linux
+          path: build/
+
+      - name: Run tests
+        run: |
+          for f in test/*.akt examples/*.akt; do
+            ./build/aktua.exe "$f" > /dev/null || { echo "FAILED: $f"; exit 1; }
+          done
+          echo "All tests passed"
 
   test-windows:
     needs: build-windows

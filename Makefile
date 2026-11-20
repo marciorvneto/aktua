@@ -13,6 +13,10 @@ LDFLAGS =
 LDLIBS  = -lm
 
 
+ifeq ($(STATIC),1)
+LDFLAGS += -static
+endif
+
 ifeq ($(BUILD),release)
 CFLAGS  += -O2
 LDFLAGS += -s
