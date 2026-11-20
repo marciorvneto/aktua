@@ -5,18 +5,32 @@
 # defaults to linux
 PLATFORM ?= linux
 
+BUILD ?= debug
+
+# Shared flags
+CFLAGS  = -Wall -I./include/
+LDFLAGS =
+LDLIBS  = -lm
+
+
+ifeq ($(BUILD),release)
+CFLAGS  += -O2
+LDFLAGS += -s
+else
+CFLAGS  += -ggdb
+endif
+
 ifeq ($(PLATFORM),windows)
-CC      = x86_64-w64-mingw32ucrt-gcc
-EXE     = .exe
-LDFLAGS = -static
+CC       = x86_64-w64-mingw32ucrt-gcc
+EXE      = .exe
+LDFLAGS += -static
 
 # Resources (manifest file)
 WINDRES = x86_64-w64-mingw32ucrt-windres
 RES     = build/aktua_res.o
 endif
 
-AKTUA = build/aktua$(EXE)
-CFLAGS = -Wall -ggdb -I./include/
+AKTUA  = build/aktua$(EXE)
 LDLIBS = -lm
 
 SRC = main.c lineedit.c platform.c $(wildcard native/*.c)

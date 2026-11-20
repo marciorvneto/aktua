@@ -61,7 +61,7 @@ void *arena_alloc(Arena *a, size_t size){
 	size_t aligned_offset = ALIGN_ALLOC(a->offset, ALIGNMENT);
 	if(aligned_offset + size > a->capacity){
 		fprintf(stderr, "Arena capacity exceeded. Currently at %zu, requested %zu\n", a->offset, size);
-		return NULL;
+		exit(1);
 	}
 	a->offset = aligned_offset + size;
 	memset(a->base + aligned_offset, 0, size);
