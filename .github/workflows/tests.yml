@@ -3,9 +3,28 @@ name: Tests
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 jobs:
+  release:
+    needs: [test-linux, test-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download the Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: aktua-linux
+          path: aktua-linux/
+
+      - name: Download the Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: aktua-windows
+          path: aktua-windows/
+
   build-linux:
     runs-on: ubuntu-latest
     container: alpine:3.22
