@@ -1,5 +1,12 @@
-// Newton-Raphson, and a use for it: the phase margin of the leaky tank loop.
-// By: Marcio R. V. Neto, 2026
+// -----------------------------------------------------
+//
+//  NEWTON-RAPHSON
+//  By: Marcio R. V. Neto, 2026
+//
+//  Newton-Raphson with a numerical derivative, used
+//  for the phase margin of the leaky tank under P control.
+//
+// -----------------------------------------------------
 
 // Centered difference
 fn derivative(f, x, h) {
@@ -24,16 +31,15 @@ fn to_solve(x) { x * x - 5 }
 
 print("sqrt(5) = " + nr(to_solve, 5))
 
-// Convergence is quadratic: the error is roughly squared at each step
+// Quadratic convergence, the error is squared at each step
 let x = 1
 for i in range(1, 6) {
   x = x - (x * x - 2) / (2 * x)
   print("sqrt(2), step " + i + ", error " + abs(x - sqrt(2)))
 }
 
-// Phase margin of the tank under P control.
-// Crossover is where |L(jw)| = 1. Solving in log(w) instead of w
-// makes the function almost linear, so nr only needs a few steps.
+// Phase margin. Crossover at |L(jw)| = 1, solved in u = log(w),
+// where log|L| is almost linear
 
 let s  = poly([0, 1])
 let j  = complex(0, 1)
@@ -51,6 +57,6 @@ let pm = 180 + arg(L(j * wc)) * 180 / pi
 
 print("wc = " + wc + " rad/s, PM = " + pm + " deg")
 
-// First order, so we can check: wc = sqrt((K kp)^2 - 1) / tau
+// Exact for first order: wc = sqrt((K kp)^2 - 1) / tau
 let wc_exact = sqrt((K * kp) ^ 2 - 1) / tau
 print("exact: wc = " + wc_exact + " rad/s, PM = " + (180 - atan(tau * wc_exact) * 180 / pi) + " deg")

@@ -3,8 +3,8 @@
 //  QUADROTOR
 //  By: Marcio R. V. Neto, 2026
 //
-//  Tiny 2D quadrotor: x/z motion and pitch.
-//  Idealized model: no drag, motor lag, or thrust limits.
+//  2D quadrotor: x/z motion and pitch.
+//  No drag, motor lag or thrust limits.
 //
 // -----------------------------------------------------
 
@@ -20,16 +20,16 @@ fn dynamics(t, s) {
   let theta = s[4]
   let omega = s[5]
 
-  // Pitch forward between 1 and 3 seconds, then return to level.
+  // Pitch setpoint [rad], 0.18 between t = 1 and 3 s
   let target = 0
   if t > 1 and t < 3 {
-		target = 0.18
+    target = 0.18
   }
 
-  // Ideal differential rotor thrust produces this pitch acceleration.
+  // PD pitch control, ideal differential thrust
   let alpha = kp * (target - theta) - kd * omega
 
-  // Total thrust is held at hover thrust, m*g.
+  // Total thrust held at hover, m g
   let thrust = m * g
 
   [
@@ -42,7 +42,7 @@ fn dynamics(t, s) {
   ]
 }
 
-// Classic fourth-order Runge-Kutta step.
+// One step of classic Runge-Kutta
 fn rk4(f, t, s, dt) {
   let k1 = f(t,         s)
   let k2 = f(t + dt/2,  s + dt/2 * k1)

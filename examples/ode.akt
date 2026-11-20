@@ -50,9 +50,8 @@ fn backward_euler(fun, y0, tmax, num_points){
 	let ys = zeros([num_points])
 	ys[0]  = y0
 
-	// Slope at the end of each step, so ys[i] is on both sides:
-	// solve g(y) = y - ys[i-1] - h f(t[i], y) = 0 with Newton.
-	// For f = -y, g is linear and Newton gets it in one step.
+	// Slope at the end of each step, implicit in ys[i]:
+	// g(y) = y - ys[i-1] - h f(t[i], y) = 0, solved with Newton
 	for i in range(1, num_points){
 		let y  = ys[i - 1]
 		let dy = 1

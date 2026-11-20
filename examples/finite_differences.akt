@@ -3,84 +3,44 @@
 //  FINITE DIFFERENCES
 //  By: Marcio R. V. Neto, 2026
 //
-//  Differentiating a sampled signal with a matrix.
-//  If y holds the samples of y(t), then D @ y holds
-//  the samples of an approximation of dy/dt. We build
-//  D out of diagonals with diag() and check it on
-//  y = sin(t), whose derivative is cos(t).
+//  Differentiation matrices built with diag(),
+//  tested on y = sin(t), dy/dt = cos(t).
 //
 // -----------------------------------------------------
 
 let N    = 200
 let t    = linspace(0, 10, N)
 let dt   = t[1] - t[0]
-
 let ysin = sin(t)
 
-print("Grid: " + N + " points, dt = " + dt)
-
-// --- What the matrix looks like ----------------------
-//
-// The forward difference (y[i+1] - y[i]) / dt has
-// -1 on the main diagonal and +1 just above it.
-// A small 5x5 version, without the 1/dt factor:
-
-print("")
-print("Forward difference stencil (5x5):")
+// Forward difference, (y[i+1] - y[i]) / dt: -1 on the diagonal, +1 above it
 print(-eye(5) + diag(ones([4]), 1))
-
-// --- Forward difference ------------------------------
 
 let D = 1/dt * (-eye(N) + diag(ones([N-1]), 1))
 
-print("")
-print("Number of elements in the matrix: " + len(D))
-
-// The last row has no y[i+1] to use, so we replace it
-// with a backward difference, (y[N-1] - y[N-2]) / dt
-
+// No y[N] for the last row, backward difference there
 D[N-1, N-2] = -1/dt
 D[N-1, N-1] =  1/dt
 
-let ycos_approx = D @ ysin
+let ycos_fwd = D @ ysin
+print("Forward, max error:  " + max(abs(ycos_fwd - cos(t))))
 
-let err_fwd = max(abs(ycos_approx - cos(t)))
-print("Forward difference, max error:  " + err_fwd)
-
-// --- Centered difference -----------------------------
-//
-// (y[i+1] - y[i-1]) / (2 dt) puts +1 above the main
-// diagonal and -1 below it (diagonal index -1). Its
-// error shrinks like dt^2 instead of dt. Here both
-// the first and the last rows are incomplete.
-
+// Centered difference, (y[i+1] - y[i-1]) / (2 dt), error ~ dt^2
 let Dc = 1/(2*dt) * (diag(ones([N-1]), 1) - diag(ones([N-1]), -1))
 
-// One-sided stencils that are also second order:
-//   first row: (-3 y[0] + 4 y[1] - y[2]) / (2 dt)
-//   last row:  (3 y[N-1] - 4 y[N-2] + y[N-3]) / (2 dt)
-
+// Second-order one-sided rows at both ends
+//   first: (-3 y[0] + 4 y[1] - y[2]) / (2 dt)
+//   last:  (3 y[N-1] - 4 y[N-2] + y[N-3]) / (2 dt)
 Dc[0, 0]     = -3/(2*dt)
 Dc[0, 1]     =  4/(2*dt)
 Dc[0, 2]     = -1/(2*dt)
-
 Dc[N-1, N-1] =  3/(2*dt)
 Dc[N-1, N-2] = -4/(2*dt)
 Dc[N-1, N-3] =  1/(2*dt)
 
-let ycos_centered = Dc @ ysin
+let ycos_ctr = Dc @ ysin
+print("Centered, max error: " + max(abs(ycos_ctr - cos(t))))
 
-let err_ctr = max(abs(ycos_centered - cos(t)))
-print("Centered difference, max error: " + err_ctr)
-
-// --- Plots -------------------------------------------
-
-print("")
-print("y = sin(t):")
 plot(t, ysin)
-
-print("dy/dt, forward difference:")
-plot(t, ycos_approx)
-
-print("dy/dt, centered difference:")
-plot(t, ycos_centered)
+plot(t, ycos_fwd)
+plot(t, ycos_ctr)
