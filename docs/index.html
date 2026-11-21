@@ -29,6 +29,30 @@
       You write transfer functions the way you would on paper and look at
       their responses without leaving the terminal.
     </p>
+
+    <div class="download">
+      <div class="download-buttons">
+        <a class="button" data-os="windows" href="https://github.com/marciorvneto/aktua/releases/latest/download/aktua-windows-x86_64.zip">
+          Download for Windows
+          <small>x86-64 · about 100 KB · Windows 10 or later</small>
+        </a>
+        <a class="button" data-os="linux" href="https://github.com/marciorvneto/aktua/releases/latest/download/aktua-linux-x86_64.tar.gz">
+          Download for Linux
+          <small>x86-64 · about 130 KB · no dependencies</small>
+        </a>
+      </div>
+      <ol class="get-started">
+        <li>Unpack it and open a terminal in the folder</li>
+        <li>Run an example: <code class="cmd">./aktua examples/leaky_tank.akt</code></li>
+        <li>Or start the REPL: <code class="cmd">./aktua</code></li>
+      </ol>
+
+      <p class="download-note">
+        On macOS, <a href="#building-it">build it from source</a> ·
+        <a href="https://github.com/marciorvneto/aktua/releases">All releases</a>
+      </p>
+    </div>
+
     <nav>
       <a href="https://github.com/marciorvneto/aktua">Source on GitHub</a>
       <a href="https://github.com/marciorvneto/aktua/tree/main/examples">Examples</a>
@@ -191,7 +215,7 @@ plot(t, h)</code></pre>
     </section>
 
     <section>
-      <h2>Building it</h2>
+      <h2 id="building-it">Building it</h2>
       <p>You need a C compiler and <code>make</code>.</p>
 
 <pre class="code"><code>git clone https://github.com/marciorvneto/aktua
@@ -208,9 +232,32 @@ make
     <p>
       Aktua is written by Marcio R. V. Neto and released under the MIT license.
       If you use it in your work, the repository has a
-      <a href="https://github.com/marciorvneto/aktua/blob/main/CITATION.cff">citation file</a>.
+      <a href="https://github.com/marciorvneto/aktua/blob/main/CITATION.cff">citation file</a>
+      and a DOI, <a href="https://doi.org/10.5281/zenodo.24408749">10.5281/zenodo.24408749</a>.
     </p>
   </footer>
+
+  <script>
+    // Put the download for the visitor's OS first and highlight it.
+    (function () {
+      var p  = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.userAgent;
+      var os = /win/i.test(p) ? "windows"
+             : /linux|x11/i.test(p) && !/android/i.test(p) ? "linux"
+             : null;
+      if (!os) return;
+      var button = document.querySelector('.download [data-os="' + os + '"]');
+      if (!button) return;
+      button.classList.add("primary");
+      button.parentNode.insertBefore(button, button.parentNode.firstChild);
+
+      // Windows (cmd and PowerShell) runs programs in the current folder as .\name
+      if (os === "windows") {
+        document.querySelectorAll(".get-started .cmd").forEach(function (cmd) {
+          cmd.textContent = cmd.textContent.replace(/\//g, "\\");
+        });
+      }
+    })();
+  </script>
 
 </body>
 </html>

@@ -17,7 +17,7 @@
 #include "lineedit.h"
 #include "core.h"
 
-#define AKTUA_VERSION "0.1.0"
+#define AKTUA_VERSION "0.1.1"
 #define DISPLAY_SIG 6
 
 #define POLY_CANCEL_TOL (64 * DBL_EPSILON)

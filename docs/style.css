@@ -117,6 +117,81 @@ code {
   font-size: 0.9em;
 }
 
+.download {
+  margin: 1.75rem 0 1.5rem;
+}
+
+.download-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.button {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.7rem 1.2rem;
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.button small {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--graphite-light);
+}
+
+.button:hover {
+  background: var(--sheet);
+}
+
+.button.primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.button.primary small {
+  color: var(--paper);
+  opacity: 0.85;
+}
+
+.button.primary:hover {
+  filter: brightness(1.1);
+}
+
+.get-started {
+  margin: 1.25rem 0 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.get-started li + li {
+  margin-top: 0.4rem;
+}
+
+.get-started li::marker {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.cmd {
+  padding: 0.1rem 0.4rem;
+  background: var(--sheet);
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.download-note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--graphite-light);
+}
+
 nav {
   display: flex;
   flex-wrap: wrap;
@@ -175,6 +250,10 @@ pre.output samp {
 
   h1 {
     font-size: 2.5rem;
+  }
+
+  .button {
+    flex: 1 1 100%;
   }
 
   pre {
