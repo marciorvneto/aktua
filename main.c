@@ -1520,6 +1520,7 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 	      X(AST_POSTFIX_OP)     \
 	      X(AST_FN_CALL)        \
 	      X(AST_CALL)           \
+	      X(AST_KWARG)          \
 	      X(AST_ARGS_LIST)      \
 	      X(AST_NODE_TYPE_COUNT)
 				
@@ -1666,7 +1667,8 @@ struct AST {
 
 		struct   {
 			char   *fn_name;
-			size_t num_arguments;
+			size_t  num_arguments;
+			size_t  num_kwargs;
 			AST    *first_arg;
 		} fn_call;
 
@@ -1694,8 +1696,15 @@ struct AST {
 		struct {
 			AST    *callee;
 			size_t  num_arguments;
+			size_t  num_kwargs;
 			AST    *first_arg;
 		} call;
+
+		struct {
+			char   *name;
+			AST    *value;
+		} call_arg;
+
 
 	} as;
 };
@@ -1717,12 +1726,14 @@ void ast_node_print(AST *ast){
 }
 
 typedef struct {
-	Token    *tokens;
-	size_t   num_tokens;
-	size_t   next;
+	Token      *tokens;
+	size_t      num_tokens;
+	size_t      next;
 	// For debugging
-	size_t   furthest;
-	uint64_t expected; // This might need to change if we have more than 64 token types
+	size_t      furthest;
+	uint64_t    expected; // This might need to change if we have more than 64 token types
+	const char *message;
+	size_t      message_at;
 } Parser;
 static_assert(TOK_TYPE_COUNT <= 64, "Too many token types");
 
@@ -1751,6 +1762,13 @@ void parser_fail(Parser *parser, TokenType expected){
 	}
 	if(parser->next == parser->furthest){
 		parser->expected |= (uint64_t)1 << expected;
+	}
+}
+
+void parser_error(Parser *parser, size_t at, const char *message){
+	if(parser->message == NULL){
+		parser->message    = message;
+		parser->message_at = at;
 	}
 }
 
@@ -1845,6 +1863,7 @@ AST *ast_make_call(Arena *pa){
 	AST *expr = ast_alloc(pa, AST_CALL);
 	expr->statement_type        = STATEMENT_EXPR;
 	expr->as.call.num_arguments = 0;
+	expr->as.call.num_kwargs    = 0;
 	expr->as.call.callee        = NULL;
 	expr->as.call.first_arg     = NULL;
 	return expr;
@@ -1879,6 +1898,7 @@ AST *ast_make_fn_call(Arena *pa, const char *fn_name){
 	AST *fn_call = ast_alloc(pa, AST_FN_CALL);
 	fn_call->statement_type           = STATEMENT_EXPR;
 	fn_call->as.fn_call.num_arguments = 0;
+	fn_call->as.fn_call.num_kwargs    = 0;
 	fn_call->as.fn_call.fn_name       = arena_alloc(pa, strlen(fn_name) + 1);
 	fn_call->as.fn_call.first_arg     = NULL;
 	strcpy(fn_call->as.fn_call.fn_name, fn_name);
@@ -1927,6 +1947,30 @@ AST *ast_make_statement_list(Arena *pa){
 	return stmt_list;
 }
 
+AST *ast_make_kwarg(Arena *pa, const char* kwarg){
+	size_t len                  = strlen(kwarg);
+	char *kwarg_str             = arena_alloc(pa, len + 1);
+	AST *call_arg               = ast_alloc(pa, AST_KWARG);
+	call_arg->as.call_arg.name  = kwarg_str;
+	call_arg->as.call_arg.value = NULL;
+	memcpy(kwarg_str, kwarg, len);
+	kwarg_str[len] = '\0';
+	return call_arg;
+}
+
+bool count_call_args(AST *list, size_t *argc, size_t *kwargc){
+	bool has_seen_kwarg = false;
+	for(AST *arg = list; arg != NULL; arg = arg->next){
+		if(arg->type == AST_KWARG){
+			has_seen_kwarg = true;
+			(*kwargc)++;
+			continue;
+		}
+		if(has_seen_kwarg) return false;
+		(*argc)++;
+	}
+	return true;
+}
 
 
 AST *parse_expression(Arena *pa, AST *parent, Parser *parser); // Forward declaration
@@ -2009,18 +2053,24 @@ AST *parse_array(Arena *pa, AST *parent, Parser *parser){
 }
 
 AST *parse_args_list(Arena *pa, AST *parent, Parser *parser);
+AST *parse_call_args_list(Arena *pa, AST *parent, Parser *parser);
 AST *parse_fn_call(Arena *pa, AST *parent, Parser *parser){
     Token *name = parser_eat(TOK_ID, parser);
     if(!name) return NULL;
 		if(parser_eat(TOK_LPAREN, parser) == NULL) return NULL;
-		AST *args_list = parse_args_list(pa, parent, parser);
+		AST *args_list = parse_call_args_list(pa, parent, parser);
 		if(parser_eat(TOK_RPAREN, parser) == NULL) return NULL;
 
-		size_t argc  = 0;
+		size_t argc   = 0;
+		size_t kwargc = 0;
 		AST *fn_call = ast_make_fn_call(pa, name->value);
-		for(AST *arg = args_list; arg != NULL; arg = arg->next) argc++;
+		if(!count_call_args(args_list, &argc, &kwargc)){
+			parser_error(parser, name - parser->tokens, "positional argument after keyword argument");
+			return NULL;
+		}
 
 		fn_call->as.fn_call.num_arguments = argc;
+		fn_call->as.fn_call.num_kwargs    = kwargc;
 		fn_call->as.fn_call.first_arg     = args_list;
 		return fn_call;
 }
@@ -2072,6 +2122,58 @@ AST *parse_args_list(Arena *pa, AST *parent, Parser *parser){
 	return first;
 }
 
+
+// CALL_ARGS_LIST  = CALL_ARG CALL_ARGS_TAIL
+//                 | eps
+//
+// CALL_ARGS_TAIL  = "," CALL_ARG CALL_ARGS_TAIL
+//                 | eps
+//
+// CALL_ARG        = id "=" EXPRESSION
+//                 | EXPRESSION
+
+AST *parse_kwarg(Arena *pa, AST *parent, Parser *parser){
+	Token *id = parser_eat(TOK_ID, parser);
+	if(!id) return NULL;
+	if(parser_eat(TOK_EQ, parser) == NULL) return NULL;
+	AST *expr                 = parse_expression(pa, parent, parser);
+	if(expr == NULL) return NULL;
+	AST *kwarg                = ast_make_kwarg(pa, id->value);
+	kwarg->as.call_arg.value  = expr;
+	return kwarg;
+}
+
+AST *parse_call_arg(Arena *pa, AST *parent, Parser *parser){
+	size_t save = parser->next;
+	AST *arg    = NULL;
+
+	if( 
+			(parser->next = save, (arg = parse_kwarg(pa, parent, parser)) != NULL) ||
+			(parser->next = save, (arg = parse_expression(pa, parent, parser)) != NULL)
+		)
+	{
+		return arg;
+	}
+	parser->next = save;
+	return NULL;
+}
+
+AST *parse_call_args_tail(Arena *pa, AST *parent, Parser *parser){ 
+	if(parser_eat(TOK_COMMA, parser) == NULL) return NULL;
+	AST *first = parse_call_arg(pa, parent, parser); // Restores parser if not successful
+	if(first == NULL) return NULL;
+	AST *tail   = parse_call_args_tail(pa, parent, parser); // Restores parser if not successful
+	first->next = tail;
+	return first;
+}
+
+AST *parse_call_args_list(Arena *pa, AST *parent, Parser *parser){ // This one allows for kwargs
+	AST *first = parse_call_arg(pa, parent, parser); // Restores parser if not successful
+	if(first == NULL) return NULL;
+	AST *tail   = parse_call_args_tail(pa, parent, parser); // Restores parser if not successful
+	first->next = tail;
+	return first;
+}
 
 AST *parse_string(Arena *pa, AST *parent, Parser *parser) {
     Token *current = NULL;
@@ -2228,15 +2330,21 @@ AST *parse_postfix_tail_lbrack(Arena *pa, AST *parent, Parser *parser, AST *targ
 	return parse_postfix_tail(pa, parent, parser, indexing);
 }
 AST *parse_postfix_tail_lparen(Arena *pa, AST *parent, Parser *parser, AST *target){
+	size_t save = parser->next;
 	if(parser_eat(TOK_LPAREN, parser) == NULL) return NULL;
-	AST *args_list = parse_args_list(pa, parent, parser);
+	AST *args_list = parse_call_args_list(pa, parent, parser);
 	if(parser_eat(TOK_RPAREN, parser) == NULL) return NULL;
 
-	size_t argc = 0;
-	for(AST *arg = args_list; arg != NULL; arg = arg->next) argc++;
+	size_t argc   = 0;
+	size_t kwargc = 0;
+	if(!count_call_args(args_list, &argc, &kwargc)){
+		parser_error(parser, save, "positional argument after keyword argument");
+		return NULL;
+	}
 
 	AST *call                   = ast_make_call(pa);
 	call->as.call.num_arguments = argc;
+	call->as.call.num_kwargs    = kwargc;
 	call->as.call.first_arg     = args_list;
 	call->as.call.callee        = target;
 	return parse_postfix_tail(pa, parent, parser, call);
@@ -2666,14 +2774,21 @@ typedef enum {
 } ParseResult;
 
 void report_parse_error(const char *source, Token *tokens, Parser *parser){
+
 	Token furthest = tokens[parser->furthest];
-	size_t line    = furthest.line;
+	Token at       = parser->message ? tokens[parser->message_at] : furthest;
+	size_t line    = at.line;
 
 	// Calculate column
-	size_t start = furthest.offset;
+	size_t start = at.offset;
 	while(start > 0 && source[start - 1] != '\n') start--;
-	size_t col   = furthest.offset - start + 1;
-	fprintf(stderr, "line %zu, col %zu: unexpected %s\n", line, col, TOKEN_NAMES[furthest.type]);
+	size_t col = at.offset - start + 1;
+
+	if(parser->message){
+		fprintf(stderr, "line %zu, col %zu: %s\n", line, col, parser->message);
+	}else{
+		fprintf(stderr, "line %zu, col %zu: unexpected %s\n", line, col, TOKEN_NAMES[furthest.type]);
+	}
 }
 
 
@@ -2686,6 +2801,8 @@ ParseResult parse_tokens(Arena *pa, AST *ast, Parser *parser, Token *tokens, siz
 	parser->next       = 0;
 	parser->furthest   = 0;
 	parser->expected   = 0;
+	parser->message    = NULL;
+	parser->message_at = 0;
 
 	AST *list = parse_statement_list(pa, ast, parser);
 	ast->as.program.statement_list = list;
@@ -2840,6 +2957,12 @@ void ast_print(AST *ast, int level){
 					ast_print(arg, level + 1);
 					arg = arg->next;
 				}
+				break;
+			}
+		case AST_KWARG:
+			{
+        printf("%sKWARG: %s\n", buf, ast->as.call_arg.name);
+				ast_print(ast->as.call_arg.value, level + 1);
 				break;
 			}
 		case AST_BINARY_OP:

@@ -1,0 +1,11 @@
+import("test.akt")
+
+fn my_fun(x, y, z){
+  x * y + z
+}
+
+let result         = my_fun(z=1, x=2, y=3)
+let partial_result = my_fun(2,   z=1, y=3)
+
+assert_eq(result, 2 * 3 + 1)
+assert_eq(partial_result, 2 * 3 + 1)
