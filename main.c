@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <complex.h>
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,6 +39,8 @@
 
 // Integer exponent check shared by polynomial and transfer function powers
 #define POW_MAX_EXP 1000
+
+#define SVG_ATTR(fp, name, fmt, ...) (fprintf(fp, name "=\"" fmt "\" ", __VA_ARGS__))
 
 //============================== 
 //
@@ -237,12 +240,38 @@ void put_braille(FILE *out, uint8_t bits){
 	fputc(0x80 | (cp & 0x3F),        out);
 }
 
+
 long to_px(double x, const PlotAxis *ax, size_t width){
 	return lround((x - ax->lo) / (ax->hi - ax->lo) * (width - 1));
 }
+
 long to_py(double y, const PlotAxis *ay, size_t height){
 	return lround((ay->hi - y) / (ay->hi - ay->lo) * (height - 1));
 }
+
+// Maps the x coordinate of a point to a rectangle
+// with bottom-left corner at (0,0) and given width
+double canvas_map_x(double x, const PlotAxis *ax, size_t width){
+	// ax->lo   -->  0
+	// x        -->  mapped_x (want this)
+	// ax->hi   -->  width
+	//--------------------
+	// (x - ax->lo)/(ax->hi - ax->lo) = mapped_x / width
+	return width * (x - ax->lo)/(ax->hi - ax->lo);
+}
+
+// Maps the y coordinate of a point to a rectangle
+// with bottom-left corner at (0,0) and given height
+double canvas_map_y(double y, const PlotAxis *ay, size_t height){
+	// ay->lo   -->  height 
+	// y        -->  mapped_y (want this)
+	// ay->hi   -->  0
+	//--------------------
+	// (y - ay->lo)/(ay->hi - ay->lo) = -(mapped_y - height) / height
+	return height * (1.0 - (y - ay->lo)/(ay->hi - ay->lo));
+}
+
+
 
 // Bresenham
 void canvas_line(BrailleCanvas *c, long x0, long y0, long x1, long y1){
@@ -256,6 +285,41 @@ void canvas_line(BrailleCanvas *c, long x0, long y0, long x1, long y1){
 		if(e2 >= dy){ err += dy; x0 += sx; }
 		if(e2 <= dx){ err += dx; y0 += sy; }
 	} 
+}
+
+void canvas_svg_polyline_begin(
+		FILE *out,
+		const char *stroke,
+		double stroke_width)
+{
+
+	fprintf(out, "<polyline ");
+		SVG_ATTR(out, "fill", "%s", "none");
+		SVG_ATTR(out, "stroke", "%s", stroke);
+		SVG_ATTR(out, "stroke-width", "%g", stroke_width);
+		fprintf(out, "points=\"");
+}
+void canvas_svg_polyline_point(
+		FILE *out,
+		double x,
+		double y)
+{
+		fprintf(out, " %f,%f",x,y);
+}
+
+void canvas_svg_polyline_end(FILE *out)
+{
+		fprintf(out, "\" />\n");
+}
+
+void canvas_svg_circle(FILE *out, double cx, double cy, double r, const char *fill)
+{
+	fprintf(out, "<circle ");
+	SVG_ATTR(out, "cx",   "%.2f", cx);
+	SVG_ATTR(out, "cy",   "%.2f", cy);
+	SVG_ATTR(out, "r",    "%g",   r);
+	SVG_ATTR(out, "fill", "%s",   fill);
+	fprintf(out, "/>\n");
 }
 
 // Number of decimals needed to print every multiple of step exactly
@@ -432,6 +496,149 @@ void plot_braille(Arena *a, FILE *out, const PlotData *data,
 	arena_restore(a, scratch);
 }
 
+// SVG
+
+void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
+							double width, double height){
+
+	double margin_left   = 50;
+	double margin_right  = 50;
+	double margin_top    = 50;
+	double margin_bottom = 50;
+
+	double rect_width  = width - margin_left - margin_right;
+	double rect_height = height - margin_top - margin_bottom;
+
+	fprintf(out, "<svg xmlns=\"http://www.w3.org/2000/svg\" ");
+		SVG_ATTR(out, "width",       "%g",          width);
+		SVG_ATTR(out, "height",      "%g",          height);
+		SVG_ATTR(out, "viewBox",     "%g %g %g %g", 0.0, 0.0, width, height);
+		SVG_ATTR(out, "font-family", "%s",          "sans-serif");
+		SVG_ATTR(out, "font-size",   "%g",          12.0);
+	fprintf(out, ">\n");
+
+
+	// Plot area rectangle (first test)
+
+	fprintf(out, "<rect ");
+		SVG_ATTR(out, "x",      "%g", margin_left);
+		SVG_ATTR(out, "y",      "%g", margin_top);
+		SVG_ATTR(out, "width",  "%g", rect_width);
+		SVG_ATTR(out, "height", "%g", rect_height);
+		SVG_ATTR(out, "fill",   "%s", "none");
+		SVG_ATTR(out, "stroke", "%s", "black");
+	fprintf(out, " />\n");
+
+
+	// Plot the series
+
+	for(size_t s = 0; s < data->num_series; s++){
+		const PlotSeries *ser = &data->series[s];
+		bool open             = false;
+		double my_prev        = 0;
+
+		for(size_t i = 0; i < ser->num_points; i++){
+			double x = ser->x_data[i], y = ser->y_data[i];
+			if(!isfinite(x) || !isfinite(y)){ 
+				if(open) canvas_svg_polyline_end(out);
+				open = false;
+				continue; 
+			}
+			double mx = canvas_map_x(x, &layout->x, rect_width) + margin_left;
+			double my = canvas_map_y(y, &layout->y, rect_height) + margin_top;
+
+			if(ser->style == PLOT_DOTS){
+				canvas_svg_circle(out, mx, my, 2, "#007589");
+				continue;
+			}
+
+			if(!open) {
+				canvas_svg_polyline_begin(out, "#007589", 1.5);
+				canvas_svg_polyline_point(out, mx, my);
+				open = true;
+			}else{
+				if(ser->style == PLOT_DOTS) continue;
+				if(ser->style == PLOT_STAIRS){
+					canvas_svg_polyline_point(out, mx, my_prev);
+					canvas_svg_polyline_point(out, mx, my);
+				}else if(ser->style == PLOT_LINES){
+					canvas_svg_polyline_point(out, mx, my);
+				}
+			}
+
+			my_prev = my;
+		}
+		if(open) canvas_svg_polyline_end(out);
+	}
+
+	// Plot the ticks
+
+	size_t nx = num_ticks(&layout->x);
+	for(size_t k = 0; k < nx; k++){
+		double t      = tick_value(&layout->x, k);
+		int dec       = tick_decimals(layout->x.step);
+		double tick_x = canvas_map_x(t, &layout->x, rect_width) + margin_left;
+		fprintf(out, "<line ");
+		SVG_ATTR(out, "stroke", "%s", "#e0e0e0");
+		SVG_ATTR(out, "x1",     "%g", tick_x);
+		SVG_ATTR(out, "y1",     "%g", margin_top);
+		SVG_ATTR(out, "x2",     "%g", tick_x);
+		SVG_ATTR(out, "y2",     "%g", margin_top + rect_height);
+		fprintf(out, " />\n");
+
+		fprintf(out, "<line ");
+		SVG_ATTR(out, "stroke", "%s", "black");
+		SVG_ATTR(out, "x1",     "%g", tick_x);
+		SVG_ATTR(out, "y1",     "%g", margin_top + rect_height);
+		SVG_ATTR(out, "x2",     "%g", tick_x);
+		SVG_ATTR(out, "y2",     "%g", margin_top + rect_height + 5);
+		fprintf(out, " />\n");
+
+		fprintf(out, "<text ");
+		SVG_ATTR(out, "text-anchor", "%s", "middle");
+		SVG_ATTR(out, "x",           "%g", tick_x);
+		SVG_ATTR(out, "y",           "%g", margin_top + rect_height + 18);
+		fprintf(out, " >");
+		fprintf(out, "%.*f", dec, t);
+		fprintf(out, "</text>\n");
+	}
+
+	size_t ny = num_ticks(&layout->y);
+	for(size_t k = 0; k < ny; k++){
+		double t      = tick_value(&layout->y, k);
+		int dec       = tick_decimals(layout->y.step);
+		double tick_y = canvas_map_y(t, &layout->y, rect_height) + margin_top;
+		fprintf(out, "<line ");
+		SVG_ATTR(out, "stroke", "%s", "#e0e0e0");
+		SVG_ATTR(out, "x1",     "%g", margin_left);
+		SVG_ATTR(out, "y1",     "%g", tick_y);
+		SVG_ATTR(out, "x2",     "%g", margin_left + rect_width);
+		SVG_ATTR(out, "y2",     "%g", tick_y);
+		fprintf(out, " />\n");
+
+
+		fprintf(out, "<line ");
+		SVG_ATTR(out, "stroke", "%s", "black");
+		SVG_ATTR(out, "x1",     "%g", margin_left);
+		SVG_ATTR(out, "y1",     "%g", tick_y);
+		SVG_ATTR(out, "x2",     "%g", margin_left - 5);
+		SVG_ATTR(out, "y2",     "%g", tick_y);
+		fprintf(out, " />\n");
+
+		fprintf(out, "<text ");
+		SVG_ATTR(out, "text-anchor", "%s", "end");
+		SVG_ATTR(out, "dominant-baseline", "%s", "middle");
+		SVG_ATTR(out, "x",           "%g", margin_left - 8);
+		SVG_ATTR(out, "y",           "%g", tick_y);
+		fprintf(out, " >");
+		fprintf(out, "%.*f", dec, t);
+		fprintf(out, "</text>\n");
+	}
+
+
+
+	fprintf(out, "</svg>");
+}
 //============================== 
 //
 //    Data structures
@@ -5227,56 +5434,94 @@ Value native_push(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 
 // ------------- Plotting ------------
 
-Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
-	*silent = 1;
+bool plot_prepare(
+		Arena *a,
+		Environment *e,
+		const char *fn,
+		size_t argc,
+		Value *argv,
+		size_t style_idx,
+		PlotSeries *series,
+		PlotData *data,
+		PlotLayout *layout
+	)
+{
 	Value x_val = argv[0];
 	Value y_val = argv[1];
 	if(x_val.valueType != VALUE_TENSOR || y_val.valueType != VALUE_TENSOR){
-		runtime_error(e, "plot requires two arrays");
-		return make_nan();
+		runtime_error(e, "%s requires two arrays", fn);
+		return false;
 	}
 	if(x_val.value.tensor.dtype != DTYPE_REAL || y_val.value.tensor.dtype != DTYPE_REAL){
-		runtime_error(e, "plot: complex values are not supported");
-		return make_nan();
+		runtime_error(e, "%s: complex values are not supported", fn);
+		return false;
 	}
 
-	size_t style_idx;
-	if(!get_opt_choice(e, "plot", argc, argv, 2, "style", PLOT_STYLES, PLOT_LINES, &style_idx) ) return make_nan();
+	size_t selected_style_idx;
+	if(!get_opt_choice(e, fn, argc, argv, style_idx, "style", PLOT_STYLES, PLOT_LINES, &selected_style_idx) ) return false;
 
 	double *xs, *ys;
 	size_t  nx,  ny;
 	if(!as_real_vector(a, &x_val, &xs, &nx)){
-		runtime_error(e, "plot: expected both arguments to be 1D arrays");
-		return make_nan();
+		runtime_error(e, "%s: expected both arguments to be 1D arrays", fn);
+		return false;
 	}
 	if(!as_real_vector(a, &y_val, &ys, &ny)){
-		runtime_error(e, "plot: expected both arguments to be 1D arrays");
-		return make_nan();
+		runtime_error(e, "%s: expected both arguments to be 1D arrays", fn);
+		return false;
 	}
 
 	if(nx != ny){
-		runtime_error(e, "plot: arrays have different lengths (%zu and %zu)",
-				x_val.value.tensor.count, y_val.value.tensor.count);
-		return make_nan();
+		runtime_error(e, "%s: arrays have different lengths (%zu and %zu)",
+				fn, x_val.value.tensor.count, y_val.value.tensor.count);
+		return false;
 	}
 
-	PlotSeries series = {
+	*series = (PlotSeries) {
 		.x_data     = xs,
 		.y_data     = ys,
 		.num_points = nx,
-		.style      = (PlotStyle)style_idx,
+		.style      = (PlotStyle)selected_style_idx,
 	};
-	PlotData data = { .series = &series, .num_series = 1 };
+	*data = (PlotData) { .series = series, .num_series = 1 };
 
-	PlotLayout layout;
-	if(!plot_layout(&data, &layout)){
-		runtime_error(e, "plot: no finite points to plot");
-		return make_nan();
+	if(!plot_layout(data, layout)){
+		runtime_error(e, "%s: no finite points to plot", fn);
+		return false;
 	}
 
+	return true;
+}
+
+Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+	*silent = 1;
+	PlotSeries series; PlotData data; PlotLayout layout;
+	if(!plot_prepare(a, e, "plot", argc, argv, 2, &series, &data, &layout)) return make_nan();
 	plot_braille(a, stdout, &data, &layout, 60, 15);
 	return make_num(0);
 }
+
+Value native_plot_svg(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+	*silent = 1;
+	PlotSeries series; PlotData data; PlotLayout layout;
+
+	if(argv[2].valueType != VALUE_STRING){
+		runtime_error(e, "plot_svg: expected third argument to be a string");
+		return make_nan();
+	}
+	if(!plot_prepare(a, e, "plot_svg", argc, argv, 3, &series, &data, &layout)) return make_nan();
+
+	const char *path = argv[2].value.str;
+  FILE *f = fopen(path, "w");
+	if(f == NULL){
+		runtime_error(e, "plot_svg: cannot open '%s': %s", path, strerror(errno));
+		return make_nan();
+	}
+	plot_svg(f, &data, &layout, 640, 400);
+	fclose(f);
+	return make_num(0);
+}
+
 
 // ------------- Arrays and Tensors ------------
 
@@ -5681,32 +5926,33 @@ Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value 
 
 
 #define NATIVE_FNS_LIST         \
-        N(assert,   2)          \
-        N(apply,    2)          \
-        N(ls,       0)          \
-        N(print,    1)          \
-        N(import,   1)          \
-        N(complex,  2)          \
+        N(assert,    2)         \
+        N(apply,     2)         \
+        N(ls,        0)         \
+        N(print,     1)         \
+        N(import,    1)         \
+        N(complex,   2)         \
         UNARY_NATIVE_MATHS_LIST \
         NATIVE_REDUCER_LIST     \
-        N(range,    2)          \
+        N(range,     2)         \
         NV(linspace, 2, 3)      \
-        N(len,      1)          \
-        N(push,     2)          \
-        N(mean,     1)          \
-        N(eye,      1)          \
-        NV(diag,    1, 2)       \
-        N(zeros,    1)          \
-        N(ones,     1)          \
+        N(len,       1)         \
+        N(push,      2)         \
+        N(mean,      1)         \
+        N(eye,       1)         \
+        NV(diag,     1, 2)      \
+        N(zeros,     1)         \
+        N(ones,      1)         \
         NV(plot,     2, 3)      \
-        N(poly,     1)          \
-        N(polymod,  2)          \
-        N(polydiv,  2)          \
-        N(polygcd,  2)          \
-        N(poles,    1)          \
-        N(impulse,  2)          \
-        N(step,     2)          \
-        N(zvar,     1)
+        NV(plot_svg, 3, 4)      \
+        N(poly,      1)         \
+        N(polymod,   2)         \
+        N(polydiv,   2)         \
+        N(polygcd,   2)         \
+        N(poles,     1)         \
+        N(impulse,   2)         \
+        N(step,      2)         \
+        N(zvar,      1)
 #define N(name, argc) { #name, native_##name, argc, argc },
 #define NV(name, argc_min, argc_max) { #name, native_##name, argc_min, argc_max },
 #define M(name, rf, cf, rcf) N(name, 1)

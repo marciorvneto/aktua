@@ -158,6 +158,7 @@ Next:
 - Tuple unpacking
 - Linear algebra: solve, eigen, qr, etc.
 - Plot to SVG files
+- Keyword arguments
 
 Later:
 

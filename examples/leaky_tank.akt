@@ -12,4 +12,5 @@ print(W)
 print(poles(W))
 
 let t = linspace(0, 150, 151)
-plot(t, step(W, t))
+plot(t, step(W, t), "lines")                   // Plot to console
+plot_svg(t, step(W, t), "output.svg", "lines") // Generate an SVG output
