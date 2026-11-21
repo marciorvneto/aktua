@@ -5,6 +5,7 @@
 
 ![Tests](https://github.com/marciorvneto/aktua/actions/workflows/tests.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24408749.svg)](https://doi.org/10.5281/zenodo.24408749)
 
 **Aktua** is a small, experimental programming language for control systems and numerical computing, written in C.
 
@@ -171,6 +172,7 @@ If you use Aktua in your work, please cite it. GitHub's "Cite this repository" b
   author = {Vianna Neto, M{\'a}rcio Ribeiro},
   title  = {Aktua: a small programming language for control systems},
   year   = {2026},
+  doi    = {10.5281/zenodo.24408749},
   url    = {https://github.com/marciorvneto/aktua}
 }
 ```

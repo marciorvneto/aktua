@@ -11,6 +11,7 @@ authors:
   - given-names: "Márcio Ribeiro"
     family-names: "Vianna Neto"
     orcid: "https://orcid.org/0000-0003-4574-9173"
+doi: "10.5281/zenodo.24408749"
 repository-code: "https://github.com/marciorvneto/aktua"
 url: "https://aktua.dev"
 license: MIT
