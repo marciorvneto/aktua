@@ -151,8 +151,6 @@ Aktua is under active development. Expect bugs, missing features, and breaking c
 
 ### Roadmap
 
-The features below are planned but not yet implemented:
-
 Next:
 
 - Module scoping and dependency resolution
