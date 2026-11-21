@@ -39,6 +39,15 @@ Output:
 
 <img src="docs/img/leaky-tank-terminal.png" width="569" alt="Closed-loop transfer function 400 / (10000 s + 400), pole at -0.04, and its step response rising from 0 to 1 in about 100 s">
 
+The same plot can be saved as an SVG file, or opened in your browser:
+
+```rust
+plot_svg(t, step(W, t), "leaky_tank.svg")   // Save to a file
+show(t, step(W, t))                         // Open in the browser
+```
+
+<img src="docs/img/leaky-tank.svg" width="640" alt="Step response of the closed loop as an SVG plot: the level rises from 0 to 1, settling in about 100 s">
+
 The tank modelled from first principles, under P, PI and PID control: [`examples/tank_level_control.akt`](examples/tank_level_control.akt).
 
 ## Quick start
@@ -157,8 +166,8 @@ Next:
 - Module scoping and dependency resolution
 - Tuple unpacking
 - Linear algebra: solve, eigen, qr, etc.
-- Plot to SVG files
 - Keyword arguments
+- Plots with several series, log axes and labels
 
 Later:
 

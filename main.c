@@ -511,10 +511,10 @@ static const char *const PALETTE_COLORS[] = {
 void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 							double width, double height){
 
-	double margin_left   = 50;
-	double margin_right  = 50;
-	double margin_top    = 50;
-	double margin_bottom = 50;
+  double margin_left   = 48;
+  double margin_right  = 24;
+  double margin_top    = 16;
+  double margin_bottom = 36;
 
 	double rect_width  = width - margin_left - margin_right;
 	double rect_height = height - margin_top - margin_bottom;
@@ -523,17 +523,18 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		SVG_ATTR(out, "width",       "%g",          width);
 		SVG_ATTR(out, "height",      "%g",          height);
 		SVG_ATTR(out, "viewBox",     "%g %g %g %g", 0.0, 0.0, width, height);
-		SVG_ATTR(out, "font-family", "%s",          "sans-serif");
+		SVG_ATTR(out, "font-family", "%s",          "system-ui, sans-serif");
 		SVG_ATTR(out, "font-size",   "%g",          12.0);
+		SVG_ATTR(out, "style",       "%s",          "font-variant-numeric: tabular-nums");
 	fprintf(out, ">\n");
 
 	// Plot rectangle background
 
 	fprintf(out, "<rect ");
-		SVG_ATTR(out, "x",      "%g", margin_left);
-		SVG_ATTR(out, "y",      "%g", margin_top);
-		SVG_ATTR(out, "width",  "%g", rect_width);
-		SVG_ATTR(out, "height", "%g", rect_height);
+		SVG_ATTR(out, "x",      "%g", 0.0);
+		SVG_ATTR(out, "y",      "%g", 0.0);
+		SVG_ATTR(out, "width",  "%g", width);
+		SVG_ATTR(out, "height", "%g", height);
 		SVG_ATTR(out, "fill",   "%s", "#ffffff");
 	fprintf(out, " />\n");
 
@@ -543,82 +544,52 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 	size_t nx = num_ticks(&layout->x);
 	for(size_t k = 0; k < nx; k++){
 		double t      = tick_value(&layout->x, k);
-		int dec       = tick_decimals(layout->x.step);
 		double tick_x = canvas_map_x(t, &layout->x, rect_width) + margin_left;
-		fprintf(out, "<line ");
-		SVG_ATTR(out, "stroke", "%s", "#e0e0e0");
-		SVG_ATTR(out, "x1",     "%g", tick_x);
-		SVG_ATTR(out, "y1",     "%g", margin_top);
-		SVG_ATTR(out, "x2",     "%g", tick_x);
-		SVG_ATTR(out, "y2",     "%g", margin_top + rect_height);
-		fprintf(out, " />\n");
 
-		fprintf(out, "<line ");
-		SVG_ATTR(out, "stroke", "%s", "black");
-		SVG_ATTR(out, "x1",     "%g", tick_x);
-		SVG_ATTR(out, "y1",     "%g", margin_top + rect_height);
-		SVG_ATTR(out, "x2",     "%g", tick_x);
-		SVG_ATTR(out, "y2",     "%g", margin_top + rect_height + 5);
-		fprintf(out, " />\n");
-
-		fprintf(out, "<text ");
-		SVG_ATTR(out, "text-anchor", "%s", "middle");
-		SVG_ATTR(out, "x",           "%g", tick_x);
-		SVG_ATTR(out, "y",           "%g", margin_top + rect_height + 18);
-		fprintf(out, " >");
-		fprintf(out, "%.*f", dec, t);
-		fprintf(out, "</text>\n");
+		fprintf(out,  "<line ");
+		SVG_ATTR(out, "stroke",          "%s", "#e0e0e0");
+		SVG_ATTR(out, "shape-rendering", "%s", "crispEdges");
+		SVG_ATTR(out, "x1",              "%g", tick_x);
+		SVG_ATTR(out, "y1",              "%g", margin_top);
+		SVG_ATTR(out, "x2",              "%g", tick_x);
+		SVG_ATTR(out, "y2",              "%g", margin_top + rect_height);
+		fprintf(out,  " />\n");
 	}
 
 	size_t ny = num_ticks(&layout->y);
 	for(size_t k = 0; k < ny; k++){
 		double t      = tick_value(&layout->y, k);
-		int dec       = tick_decimals(layout->y.step);
 		double tick_y = canvas_map_y(t, &layout->y, rect_height) + margin_top;
-		fprintf(out, "<line ");
-		SVG_ATTR(out, "stroke", "%s", "#e0e0e0");
-		SVG_ATTR(out, "x1",     "%g", margin_left);
-		SVG_ATTR(out, "y1",     "%g", tick_y);
-		SVG_ATTR(out, "x2",     "%g", margin_left + rect_width);
-		SVG_ATTR(out, "y2",     "%g", tick_y);
-		fprintf(out, " />\n");
 
-
-		fprintf(out, "<line ");
-		SVG_ATTR(out, "stroke", "%s", "black");
-		SVG_ATTR(out, "x1",     "%g", margin_left);
-		SVG_ATTR(out, "y1",     "%g", tick_y);
-		SVG_ATTR(out, "x2",     "%g", margin_left - 5);
-		SVG_ATTR(out, "y2",     "%g", tick_y);
-		fprintf(out, " />\n");
-
-		fprintf(out, "<text ");
-		SVG_ATTR(out, "text-anchor", "%s", "end");
-		SVG_ATTR(out, "dominant-baseline", "%s", "middle");
-		SVG_ATTR(out, "x",           "%g", margin_left - 8);
-		SVG_ATTR(out, "y",           "%g", tick_y);
-		fprintf(out, " >");
-		fprintf(out, "%.*f", dec, t);
-		fprintf(out, "</text>\n");
+		fprintf(out,  "<line ");
+		SVG_ATTR(out, "stroke",          "%s", "#e0e0e0");
+		SVG_ATTR(out, "shape-rendering", "%s", "crispEdges");
+		SVG_ATTR(out, "x1",              "%g", margin_left);
+		SVG_ATTR(out, "y1",              "%g", tick_y);
+		SVG_ATTR(out, "x2",              "%g", margin_left + rect_width);
+		SVG_ATTR(out, "y2",              "%g", tick_y);
+		fprintf(out,  " />\n");
 	}
 
 	// Plot rectangle open frame
 
-	fprintf(out, "<line ");
-	SVG_ATTR(out, "stroke", "%s", "#333");
-	SVG_ATTR(out, "x1",     "%g", margin_left);
-	SVG_ATTR(out, "y1",     "%g", margin_top);
-	SVG_ATTR(out, "x2",     "%g", margin_left);
-	SVG_ATTR(out, "y2",     "%g", margin_top + rect_height);
-	fprintf(out, " />\n");
+	fprintf(out,  "<line ");
+	SVG_ATTR(out, "stroke",          "%s", "#333");
+	SVG_ATTR(out, "shape-rendering", "%s", "crispEdges");
+	SVG_ATTR(out, "x1",              "%g", margin_left);
+	SVG_ATTR(out, "y1",              "%g", margin_top);
+	SVG_ATTR(out, "x2",              "%g", margin_left);
+	SVG_ATTR(out, "y2",              "%g", margin_top + rect_height);
+	fprintf(out,  " />\n");
 
-	fprintf(out, "<line ");
-	SVG_ATTR(out, "stroke", "%s", "#333");
-	SVG_ATTR(out, "x1",     "%g", margin_left);
-	SVG_ATTR(out, "y1",     "%g", margin_top + rect_height);
-	SVG_ATTR(out, "x2",     "%g", margin_left + rect_width);
-	SVG_ATTR(out, "y2",     "%g", margin_top + rect_height);
-	fprintf(out, " />\n");
+	fprintf(out,  "<line ");
+	SVG_ATTR(out, "stroke",          "%s", "#333");
+	SVG_ATTR(out, "shape-rendering", "%s", "crispEdges");
+	SVG_ATTR(out, "x1",              "%g", margin_left);
+	SVG_ATTR(out, "y1",              "%g", margin_top + rect_height);
+	SVG_ATTR(out, "x2",              "%g", margin_left + rect_width);
+	SVG_ATTR(out, "y2",              "%g", margin_top + rect_height);
+	fprintf(out,  " />\n");
 
 
 	// Plot the series
@@ -645,7 +616,7 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 			}
 
 			if(!open) {
-				canvas_svg_polyline_begin(out, color, 1.5);
+				canvas_svg_polyline_begin(out, color, 2.0);
 				canvas_svg_polyline_point(out, mx, my);
 				open = true;
 			}else{
@@ -671,15 +642,17 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		int dec       = tick_decimals(layout->x.step);
 		double tick_x = canvas_map_x(t, &layout->x, rect_width) + margin_left;
 
-		fprintf(out, "<line ");
-		SVG_ATTR(out, "stroke", "%s", "#333");
-		SVG_ATTR(out, "x1",     "%g", tick_x);
-		SVG_ATTR(out, "y1",     "%g", margin_top + rect_height);
-		SVG_ATTR(out, "x2",     "%g", tick_x);
-		SVG_ATTR(out, "y2",     "%g", margin_top + rect_height + 5);
+		fprintf(out,  "<line ");
+		SVG_ATTR(out, "stroke",          "%s", "#333");
+		SVG_ATTR(out, "shape-rendering", "%s", "crispEdges");
+		SVG_ATTR(out, "x1",              "%g", tick_x);
+		SVG_ATTR(out, "y1",              "%g", margin_top + rect_height);
+		SVG_ATTR(out, "x2",              "%g", tick_x);
+		SVG_ATTR(out, "y2",              "%g", margin_top + rect_height + 5);
 		fprintf(out,  " />\n");
 
 		fprintf(out, "<text ");
+		SVG_ATTR(out, "fill",        "%s", "#555");
 		SVG_ATTR(out, "text-anchor", "%s", "middle");
 		SVG_ATTR(out, "x",           "%g", tick_x);
 		SVG_ATTR(out, "y",           "%g", margin_top + rect_height + 18);
@@ -694,19 +667,21 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		int dec       = tick_decimals(layout->y.step);
 		double tick_y = canvas_map_y(t, &layout->y, rect_height) + margin_top;
 
-		fprintf(out, "<line ");
-		SVG_ATTR(out, "stroke", "%s", "#333");
-		SVG_ATTR(out, "x1",     "%g", margin_left);
-		SVG_ATTR(out, "y1",     "%g", tick_y);
-		SVG_ATTR(out, "x2",     "%g", margin_left - 5);
-		SVG_ATTR(out, "y2",     "%g", tick_y);
+		fprintf(out,  "<line ");
+		SVG_ATTR(out, "stroke",          "%s", "#333");
+		SVG_ATTR(out, "shape-rendering", "%s", "crispEdges");
+		SVG_ATTR(out, "x1",              "%g", margin_left);
+		SVG_ATTR(out, "y1",              "%g", tick_y);
+		SVG_ATTR(out, "x2",              "%g", margin_left - 5);
+		SVG_ATTR(out, "y2",              "%g", tick_y);
 		fprintf(out,  " />\n");
 
 		fprintf(out, "<text ");
-		SVG_ATTR(out, "text-anchor", "%s", "end");
+		SVG_ATTR(out, "fill",              "%s", "#555");
+		SVG_ATTR(out, "text-anchor",       "%s", "end");
 		SVG_ATTR(out, "dominant-baseline", "%s", "middle");
-		SVG_ATTR(out, "x",           "%g", margin_left - 8);
-		SVG_ATTR(out, "y",           "%g", tick_y);
+		SVG_ATTR(out, "x",                 "%g", margin_left - 8);
+		SVG_ATTR(out, "y",                 "%g", tick_y);
 		fprintf(out, " >");
 		fprintf(out, "%.*f", dec, t);
 		fprintf(out, "</text>\n");
