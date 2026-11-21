@@ -112,6 +112,8 @@ jobs:
   test-linux:
     needs: build-linux
     runs-on: ubuntu-latest
+    env:
+      AKTUA_NO_VIEWER: 1
 
     steps:
       - name: Check out the code
@@ -134,6 +136,8 @@ jobs:
   test-windows:
     needs: build-windows
     runs-on: windows-latest
+    env:
+      AKTUA_NO_VIEWER: 1
 
     defaults:
       run:

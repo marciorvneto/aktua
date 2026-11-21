@@ -54,17 +54,17 @@ $(AKTUA): $(SRC) include/core.h $(RES) | build
 
 test: aktua
 	@for f in test/*.akt examples/*.akt; do \
-		./$(AKTUA) "$$f" > /dev/null || { \
+		AKTUA_NO_VIEWER=1 WSLENV=AKTUA_NO_VIEWER ./$(AKTUA) "$$f" > /dev/null || { \
 			echo "FAILED: $$f"; \
 			exit 1; \
 		}; \
 	done; \
 	for f in test/errors/*.akt; do \
-		./$(AKTUA) "$$f" > build/error_test.out 2>/dev/null && { \
+		AKTUA_NO_VIEWER=1 WSLENV=AKTUA_NO_VIEWER ./$(AKTUA) "$$f" > build/error_test.out 2>/dev/null && { \
 			echo "SHOULD HAVE FAILED: $$f"; \
 			exit 1; \
 		}; \
-		diff -u "$${f%.akt}.expected" build/error_test.out || { \
+		diff -u --strip-trailing-cr "$${f%.akt}.expected" build/error_test.out || { \
 			echo "WRONG OUTPUT: $$f"; \
 			exit 1; \
 		}; \

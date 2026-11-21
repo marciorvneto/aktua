@@ -499,6 +499,15 @@ void plot_braille(Arena *a, FILE *out, const PlotData *data,
 
 // SVG
 
+static const char *const PALETTE_COLORS[] = {
+"#007589",
+"#9a8202",
+"#a74449",
+"#005fd6",
+"#9e5598",
+"#3f842e",
+};
+
 void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 							double width, double height){
 
@@ -604,6 +613,7 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		double my_prev        = 0;
 
 		for(size_t i = 0; i < ser->num_points; i++){
+			const char *color = PALETTE_COLORS[s % LEN(PALETTE_COLORS)];
 			double x = ser->x_data[i], y = ser->y_data[i];
 			if(!isfinite(x) || !isfinite(y)){ 
 				if(open) canvas_svg_polyline_end(out);
@@ -614,12 +624,12 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 			double my = canvas_map_y(y, &layout->y, rect_height) + margin_top;
 
 			if(ser->style == PLOT_DOTS){
-				canvas_svg_circle(out, mx, my, 2, "#007589");
+				canvas_svg_circle(out, mx, my, 2, color);
 				continue;
 			}
 
 			if(!open) {
-				canvas_svg_polyline_begin(out, "#007589", 1.5);
+				canvas_svg_polyline_begin(out, color, 1.5);
 				canvas_svg_polyline_point(out, mx, my);
 				open = true;
 			}else{
@@ -5573,6 +5583,28 @@ Value native_plot_svg(Arena *a, Environment *e, char* script, size_t argc, Value
 	return make_num(0);
 }
 
+Value native_show(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+	*silent = 1;
+	PlotSeries series; PlotData data; PlotLayout layout;
+	char path[1024];
+	FILE *out;
+	if(!plot_prepare(a, e, "show", argc, argv, 2, &series, &data, &layout)) return make_nan();
+
+	if((out = platform_temp_file(".svg", path, sizeof(path))) == NULL){
+		runtime_error(e, "show: cannot create temporary file.");
+		return make_nan();
+	}
+
+	plot_svg(out, &data, &layout, 640, 400);
+	fclose(out);
+
+	if(getenv("AKTUA_NO_VIEWER")) return make_num(0);
+	if(!platform_open_file(path)){
+		runtime_error(e, "show: could not open a viewer for %s", path);
+	}
+	return make_num(0);
+}
+
 
 // ------------- Arrays and Tensors ------------
 
@@ -5996,6 +6028,7 @@ Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value 
         N(ones,      1)         \
         NV(plot,     2, 3)      \
         NV(plot_svg, 3, 4)      \
+        NV(show,     2, 3)      \
         N(poly,      1)         \
         N(polymod,   2)         \
         N(polydiv,   2)         \

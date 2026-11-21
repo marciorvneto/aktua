@@ -1,4 +1,5 @@
 #include "platform.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -14,6 +15,7 @@ static DWORD original_console_mode;
 
 #elif defined(__linux__)
 #include <unistd.h>
+#include <sys/wait.h>
 #else
 #endif
 
@@ -83,3 +85,75 @@ char exe_path[4096];
 	return strdup(exe_path);
 }
 
+bool platform_open_file(const char *path){
+#if defined(_WIN32)
+	HINSTANCE hout = ShellExecuteA(NULL, "open", path, NULL, NULL, SW_SHOWNORMAL);
+	return (INT_PTR)hout > 32;
+#elif defined(__linux__)
+	pid_t pid = fork();
+	if(pid == -1) return false;
+	if(pid == 0){ // Child
+		execlp("xdg-open", "xdg-open", path, (char *)NULL);
+		_exit(127);
+	}
+	int status;
+	if(waitpid(pid, &status, 0) == -1) return false;
+	return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#else
+	#error "platform_open_file: unsupported platform"
+#endif
+}
+
+FILE *platform_temp_file(const char *suffix, char *path_out, size_t path_size){
+#if defined(_WIN32)
+	char dir[MAX_PATH + 1];
+	char tmp[MAX_PATH + 1];
+
+	DWORD n = GetTempPathA(sizeof(dir), dir);
+	if(n == 0 || n >= sizeof(dir)) return NULL;
+
+	// Creates an empty temporary file
+	if(!GetTempFileNameA(dir, "akt", 0, tmp)) return NULL;
+
+	// Replace .tmp with the requested suffix
+	char *ext = strrchr(tmp, '.');
+	if(!ext){
+		DeleteFileA(tmp);
+		return NULL;
+	}
+
+	size_t stem_len = (size_t)(ext - tmp);
+	size_t suffix_len = strlen(suffix);
+
+	if(stem_len + suffix_len + 1 > path_size){
+		DeleteFileA(tmp);
+		return NULL;
+	}
+
+	memcpy(path_out, tmp, stem_len);
+	memcpy(path_out + stem_len, suffix, suffix_len + 1);
+
+	if(!MoveFileExA(tmp, path_out, MOVEFILE_REPLACE_EXISTING)){
+		DeleteFileA(tmp);
+		return NULL;
+	}
+
+	FILE *f = fopen(path_out, "wb");
+	if(!f) DeleteFileA(path_out);
+	return f;
+#elif defined(__linux__)
+	int len = snprintf(path_out, path_size, "/tmp/aktua-XXXXXX%s", suffix);
+	if(len < 0 || (size_t) len >= path_size) return NULL;
+	int fd = mkstemps(path_out, (int)strlen(suffix));
+	if(fd == -1) return NULL;
+	FILE *temp = fdopen(fd, "w");
+	if(temp == NULL){
+		close(fd);
+		unlink(path_out);
+		return NULL;
+	}
+	return temp;
+#else
+	#error "platform_temp_file: unsupported platform"
+#endif
+}

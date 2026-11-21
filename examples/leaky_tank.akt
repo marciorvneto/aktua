@@ -13,4 +13,8 @@ print(poles(W))
 
 let t = linspace(0, 150, 151)
 plot(t, step(W, t), "lines")                   // Plot to console
-plot_svg(t, step(W, t), "output.svg", "lines") // Generate an SVG output
+show(t, step(W, t), "lines")                   // Opens the plot in your browser
+
+// You can also use this function to save the plot to a file of your choice.
+// Uncomment the line below to save the plot to "output.svg":
+// plot_svg(t, step(W, t), "output.svg", "lines")
