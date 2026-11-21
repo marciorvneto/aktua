@@ -527,6 +527,17 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		SVG_ATTR(out, "font-size",   "%g",          12.0);
 	fprintf(out, ">\n");
 
+	// Plot rectangle background
+
+	fprintf(out, "<rect ");
+		SVG_ATTR(out, "x",      "%g", margin_left);
+		SVG_ATTR(out, "y",      "%g", margin_top);
+		SVG_ATTR(out, "width",  "%g", rect_width);
+		SVG_ATTR(out, "height", "%g", rect_height);
+		SVG_ATTR(out, "fill",   "%s", "#ffffff");
+	fprintf(out, " />\n");
+
+
 	// Plot the grid lines
 
 	size_t nx = num_ticks(&layout->x);
@@ -591,17 +602,22 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		fprintf(out, "</text>\n");
 	}
 
+	// Plot rectangle open frame
 
+	fprintf(out, "<line ");
+	SVG_ATTR(out, "stroke", "%s", "#333");
+	SVG_ATTR(out, "x1",     "%g", margin_left);
+	SVG_ATTR(out, "y1",     "%g", margin_top);
+	SVG_ATTR(out, "x2",     "%g", margin_left);
+	SVG_ATTR(out, "y2",     "%g", margin_top + rect_height);
+	fprintf(out, " />\n");
 
-	// Plot area rectangle
-
-	fprintf(out, "<rect ");
-		SVG_ATTR(out, "x",      "%g", margin_left);
-		SVG_ATTR(out, "y",      "%g", margin_top);
-		SVG_ATTR(out, "width",  "%g", rect_width);
-		SVG_ATTR(out, "height", "%g", rect_height);
-		SVG_ATTR(out, "fill",   "%s", "none");
-		SVG_ATTR(out, "stroke", "%s", "#333");
+	fprintf(out, "<line ");
+	SVG_ATTR(out, "stroke", "%s", "#333");
+	SVG_ATTR(out, "x1",     "%g", margin_left);
+	SVG_ATTR(out, "y1",     "%g", margin_top + rect_height);
+	SVG_ATTR(out, "x2",     "%g", margin_left + rect_width);
+	SVG_ATTR(out, "y2",     "%g", margin_top + rect_height);
 	fprintf(out, " />\n");
 
 
