@@ -247,6 +247,14 @@ pre.output samp {
   font-family: inherit;
 }
 
+img.plot {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 0 1.25rem;
+  border: 1px solid var(--grid);
+}
+
 @media (max-width: 36rem) {
   body {
     padding-top: 2.5rem;
