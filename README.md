@@ -155,6 +155,7 @@ Aktua is under active development. Expect bugs, missing features, and breaking c
 Next:
 
 - Module scoping and dependency resolution
+- Tuple unpacking
 - Linear algebra: solve, eigen, qr, etc.
 - Plot to SVG files
 
