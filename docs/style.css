@@ -186,6 +186,10 @@ code {
   white-space: nowrap;
 }
 
+.download-note + .download-note {
+  margin-top: 0.25rem;
+}
+
 .download-note {
   margin: 0;
   font-size: 0.9rem;
