@@ -1,0 +1,26 @@
+import("test.akt")
+import("base.akt")
+
+// Numbers and polynomials are accepted wherever a system is expected
+
+// A gain's step response is the gain itself
+let y = step(2, [0, 1, 5])
+assert_eq(y[0], 2)
+assert_eq(y[1], 2)
+assert_eq(y[2], 2)
+
+// Shifting time delays the step
+let u = step(1, [-1, 0, 1])
+assert_eq(u[0], 0)
+assert_eq(u[1], 1)
+assert_eq(u[2], 1)
+
+// Same as the transfer function 1
+let v = step(s / s, [-1, 0, 1])
+assert_eq(u[0], v[0])
+assert_eq(u[2], v[2])
+
+// Gains and polynomials have no poles
+assert_eq(len(poles(5)), 0)
+assert_eq(len(poles(s + 1)), 0)
+assert_eq(len(poles(1 / (s + 1))), 1)

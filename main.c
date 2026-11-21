@@ -4295,6 +4295,19 @@ Value pow_tf_scalar(Arena *a, Environment *e, Value *left, Value *right){
 
 // ------------- Transfer Functions --------------------
 
+bool as_tf(Arena *a, Value *v, TransferFunction *out){
+	if(v->valueType == VALUE_TRANSFER_FUNCTION) {
+		*out = v->value.tf; return true;
+	}
+	if(v->valueType == VALUE_POLYNOMIAL) {
+		*out = tf_from_poly(a, &v->value.poly); return true;
+	}
+	if(v->valueType == VALUE_NUMBER) {
+		*out = tf_from_num(a, v->value.number); return true;
+	}
+	return false;
+}
+
 bool tf_same_domain(Environment *e, const char *op, TransferFunction *a, TransferFunction *b){
 	if(a->Ts == b->Ts) return true;
 	runtime_error(e, "%s: can't combine systems with different sample times (%g and %g)",
@@ -5616,7 +5629,7 @@ Value native_show(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 
 	if(getenv("AKTUA_NO_VIEWER")) return make_num(0);
 	if(!platform_open_file(path)){
-		runtime_error(e, "show: could not open a viewer for %s", path);
+		fprintf(stderr, "show: plot saved to %s, but no viewer could be opened\n", path);
 	}
 	return make_num(0);
 }
@@ -5898,36 +5911,46 @@ Value native_polygcd(Arena *a, Environment *e, char* script, size_t argc, Value 
 }
 
 Value native_poles(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
-  Value first = argv[0];
-  if(first.valueType == VALUE_TRANSFER_FUNCTION){
-		TransferFunction tf = first.value.tf;
-		double complex *roots = tf_poles(a, tf);
+	TransferFunction tf;
+	if(!as_tf(a, &argv[0], &tf)){
+		runtime_error(e, "poles: expected a transfer function or a number");
+		return make_nan();
+	}
+	double complex *roots = tf_poles(a, tf);
 
-		Value *values = arena_alloc(a, tf.den.deg * sizeof(Value));
-		for(size_t i = 0; i < tf.den.deg; i++){ values[i] = make_complex(roots[i]); }
+	Value *values = arena_alloc(a, tf.den.deg * sizeof(Value));
+	for(size_t i = 0; i < tf.den.deg; i++){ values[i] = make_complex(roots[i]); }
 
-		Tuple t = {
-			.size = tf.den.deg,
-			.items = values,
-		};
-		return make_tuple(t);
-  }
-	runtime_error(e, "Unsupported operation, expected a transfer function.");
-  return make_nan();
+	Tuple t = {
+		.size = tf.den.deg,
+		.items = values,
+	};
+	return make_tuple(t);
 }
 
 // Checks the (G, t) arguments shared by impulse() and step().
 // t must be an array of non-decreasing times.
-static int check_response_args(Arena *a, Environment *e, const char *name, Value *argv){
-	double *ts;
-	size_t  n;
-	if(argv[0].valueType != VALUE_TRANSFER_FUNCTION || !as_real_vector(a, &argv[1], &ts, &n)){
-		runtime_error(e, "%s expects a transfer function and an array of times. Example: %s(1/(s+1), linspace(0, 10, 200))", name, name);
+static int check_response_args(
+		Arena *a,
+		Environment *e,
+		const char *name,
+		Value *argv,
+		TransferFunction *tf,
+		double **ts,
+		size_t *n
+	)
+{
+	if(!as_tf(a, &argv[0], tf)){
+		runtime_error(e, "%s expects a system (transfer function, polynomial or number) and an array of times", name);
 		return 0;
 	}
-	for(size_t i = 1; i < n; i++){
-		if(!(ts[i] >= ts[i - 1])){
-			runtime_error(e, "%s: times must be non-decreasing (t[%zu] = %g comes after %g)", name, i, ts[i], ts[i - 1]);
+	if(!as_real_vector(a, &argv[1], ts, n)){
+		runtime_error(e, "%s expects a system (transfer function, polynomial or number) and an array of times", name);
+		return 0;
+	}
+	for(size_t i = 1; i < *n; i++){
+		if(!((*ts)[i] >= (*ts)[i - 1])){
+			runtime_error(e, "%s: times must be non-decreasing (t[%zu] = %g comes after %g)", name, i, (*ts)[i], (*ts)[i - 1]);
 			return 0;
 		}
 	}
@@ -5935,17 +5958,10 @@ static int check_response_args(Arena *a, Environment *e, const char *name, Value
 }
 
 Value native_impulse(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
-	if(!check_response_args(a, e, "impulse", argv)) return make_nan();
-
+	TransferFunction tf;
 	double *ts;
 	size_t n;
-
-	if(!as_real_vector(a, &argv[1], &ts, &n)){
-		runtime_error(e, "impulse: expected a real vector");
-		return make_nan();
-	}
-
-	TransferFunction tf = argv[0].value.tf;
+	if(!check_response_args(a, e, "impulse", argv, &tf, &ts, &n)) return make_nan();
 
 	// DT response
 	if(tf.Ts > 0){
@@ -5960,16 +5976,15 @@ Value native_impulse(Arena *a, Environment *e, char* script, size_t argc, Value 
 }
 
 Value native_step(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
-	if(!check_response_args(a, e, "step", argv)) return make_nan();
+	TransferFunction tf;
 	double *ts;
 	size_t n;
+	if(!check_response_args(a, e, "step", argv, &tf, &ts, &n)) return make_nan();
 
 	if(!as_real_vector(a, &argv[1], &ts, &n)){
 		runtime_error(e, "step: expected a real vector");
 		return make_nan();
 	}
-
-	TransferFunction tf = argv[0].value.tf;
 
 	// DT response
 	if(tf.Ts > 0){

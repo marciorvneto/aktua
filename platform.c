@@ -98,7 +98,9 @@ bool platform_open_file(const char *path){
 	}
 	int status;
 	if(waitpid(pid, &status, 0) == -1) return false;
-	return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+  // Only trust "could not run xdg-open" (our _exit(127)): xdg-open's own
+  // exit codes are unreliable, e.g. under WSL explorer.exe returns 1 on success
+	return WIFEXITED(status) && WEXITSTATUS(status) != 127;
 #else
 	#error "platform_open_file: unsupported platform"
 #endif
