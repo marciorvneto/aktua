@@ -5491,18 +5491,16 @@ bool plot_prepare(
 		size_t argc,
 		Value *argv,
 		size_t style_idx,
-		PlotSeries *series,
 		PlotData *data,
 		PlotLayout *layout
 	)
 {
 	Value x_val = argv[0];
-	Value y_val = argv[1];
-	if(x_val.valueType != VALUE_TENSOR || y_val.valueType != VALUE_TENSOR){
-		runtime_error(e, "%s requires two arrays", fn);
+	if(x_val.valueType != VALUE_TENSOR){
+		runtime_error(e, "%s requires the x value to be an array", fn);
 		return false;
 	}
-	if(x_val.value.tensor.dtype != DTYPE_REAL || y_val.value.tensor.dtype != DTYPE_REAL){
+	if(x_val.value.tensor.dtype != DTYPE_REAL){
 		runtime_error(e, "%s: complex values are not supported", fn);
 		return false;
 	}
@@ -5513,27 +5511,56 @@ bool plot_prepare(
 	double *xs, *ys;
 	size_t  nx,  ny;
 	if(!as_real_vector(a, &x_val, &xs, &nx)){
-		runtime_error(e, "%s: expected both arguments to be 1D arrays", fn);
-		return false;
-	}
-	if(!as_real_vector(a, &y_val, &ys, &ny)){
-		runtime_error(e, "%s: expected both arguments to be 1D arrays", fn);
+		runtime_error(e, "%s: expected x to be a 1D array", fn);
 		return false;
 	}
 
-	if(nx != ny){
-		runtime_error(e, "%s: arrays have different lengths (%zu and %zu)",
-				fn, x_val.value.tensor.count, y_val.value.tensor.count);
+
+	Value *y_vals = NULL;
+	size_t n = 0;
+	if(argv[1].valueType == VALUE_TUPLE){
+		y_vals = argv[1].value.tuple.items;
+		n      = argv[1].value.tuple.size;
+	}else if(argv[1].valueType == VALUE_TENSOR){
+		y_vals = &argv[1];
+		n      = 1;
+	}else{
+		runtime_error(e, "%s requires the y value to be a tuple of arrays or an array", fn);
 		return false;
 	}
 
-	*series = (PlotSeries) {
-		.x_data     = xs,
-		.y_data     = ys,
-		.num_points = nx,
-		.style      = (PlotStyle)selected_style_idx,
-	};
-	*data = (PlotData) { .series = series, .num_series = 1 };
+	PlotSeries *series = arena_alloc(a, n * sizeof(PlotSeries));
+	for(size_t i = 0; i < n; i++){
+		// Helpful error messages
+		char who[32];
+		if(n > 1) snprintf(who, sizeof(who), "y element %zu", i);
+		else      snprintf(who, sizeof(who), "y");
+
+		Value y_val = y_vals[i];
+		if(y_val.valueType != VALUE_TENSOR){
+			runtime_error(e, "%s: %s is not an array", fn, who);
+			return false;
+		}
+		if(y_val.value.tensor.dtype != DTYPE_REAL){
+			runtime_error(e, "%s: %s contains complex values", fn, who);
+			return false;
+		}
+		if(!as_real_vector(a, &y_val, &ys, &ny)){
+			runtime_error(e, "%s: %s must be a 1D array", fn, who);
+			return false;
+		}
+		if(nx != ny){
+			runtime_error(e, "%s: %s has length %zu, expected %zu",
+					fn, who, y_val.value.tensor.count, x_val.value.tensor.count);
+			return false;
+		}
+		series[i].x_data     = xs;
+		series[i].y_data     = ys;
+		series[i].num_points = nx;
+		series[i].style      = (PlotStyle)selected_style_idx;
+	}
+
+	*data = (PlotData) { .series = series, .num_series = n };
 
 	if(!plot_layout(data, layout)){
 		runtime_error(e, "%s: no finite points to plot", fn);
@@ -5545,21 +5572,21 @@ bool plot_prepare(
 
 Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
 	*silent = 1;
-	PlotSeries series; PlotData data; PlotLayout layout;
-	if(!plot_prepare(a, e, "plot", argc, argv, 2, &series, &data, &layout)) return make_nan();
+	PlotData data; PlotLayout layout;
+	if(!plot_prepare(a, e, "plot", argc, argv, 2, &data, &layout)) return make_nan();
 	plot_braille(a, stdout, &data, &layout, 60, 15);
 	return make_num(0);
 }
 
 Value native_plot_svg(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
 	*silent = 1;
-	PlotSeries series; PlotData data; PlotLayout layout;
+	PlotData data; PlotLayout layout;
 
 	if(argv[2].valueType != VALUE_STRING){
 		runtime_error(e, "plot_svg: expected third argument to be a string");
 		return make_nan();
 	}
-	if(!plot_prepare(a, e, "plot_svg", argc, argv, 3, &series, &data, &layout)) return make_nan();
+	if(!plot_prepare(a, e, "plot_svg", argc, argv, 3, &data, &layout)) return make_nan();
 
 	const char *path = argv[2].value.str;
   FILE *f = fopen(path, "w");
@@ -5574,10 +5601,10 @@ Value native_plot_svg(Arena *a, Environment *e, char* script, size_t argc, Value
 
 Value native_show(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
 	*silent = 1;
-	PlotSeries series; PlotData data; PlotLayout layout;
+	PlotData data; PlotLayout layout;
 	char path[1024];
 	FILE *out;
-	if(!plot_prepare(a, e, "show", argc, argv, 2, &series, &data, &layout)) return make_nan();
+	if(!plot_prepare(a, e, "show", argc, argv, 2, &data, &layout)) return make_nan();
 
 	if((out = platform_temp_file(".svg", path, sizeof(path))) == NULL){
 		runtime_error(e, "show: cannot create temporary file.");
@@ -6247,18 +6274,18 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
     size_t argc_max = fun->value.fun.native_data.argc_max;
 		if((size_t)argc < argc_min || (size_t)argc > argc_max){
 			if(argc_max == ARGS_VARIADIC){
-				runtime_error(e, "%s expects at least %zu arguments, got %d", name, argc_min, argc);
+				runtime_error(e, "%s expects at least %zu arguments, got %zu", name, argc_min, argc);
 			}else if(argc_min == argc_max){
-				runtime_error(e, "%s expects %zu arguments, got %d", name, argc_min, argc);
+				runtime_error(e, "%s expects %zu arguments, got %zu", name, argc_min, argc);
 			}else{
-				runtime_error(e, "%s expects between %zu and %zu arguments, got %d", name, argc_min, argc_max, argc);
+				runtime_error(e, "%s expects between %zu and %zu arguments, got %zu", name, argc_min, argc_max, argc);
 			}
 			return make_nan();
 		}
   }else{
     size_t num_args = fun->value.fun.definition->as.fn_def.num_args;
 		if((size_t)argc != num_args){
-			runtime_error(e, "%s expects %zu arguments, got %d", name, num_args, argc);
+			runtime_error(e, "%s expects %zu arguments, got %zu", name, num_args, argc);
 			return make_nan();
 		}
   }
@@ -7152,7 +7179,7 @@ int eval_tensor_assignment(Arena *ta, Environment *e, char *script_path, AST *st
 
 	Value expr_value = eval_expr(ta, e, script_path, stmt->as.statement.expr, silent);
 	if(expr_value.valueType != VALUE_NUMBER && expr_value.valueType != VALUE_COMPLEX){
-		runtime_error(e, "Can only assign numbers to tensors.", index_count);
+		runtime_error(e, "Can only assign numbers to tensors.");
 		return 1;
 	}
 

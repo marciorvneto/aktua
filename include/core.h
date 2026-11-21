@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <complex.h>
 
-#define LEN(x) sizeof((x))/sizeof((x)[0])
+#define LEN(x) (sizeof((x))/sizeof((x)[0]))
 
 //============================== 
 //
@@ -175,8 +175,14 @@ struct Environment {
 	char        *exe_path;
 };
 
+#ifdef __MINGW_PRINTF_FORMAT
+#define AKTUA_PRINTF __MINGW_PRINTF_FORMAT
+#else
+#define AKTUA_PRINTF printf
+#endif
 
-void runtime_error(Environment *e, const char *fmt, ...);
+void runtime_error(Environment *e, const char *fmt, ...)
+	__attribute__((format(AKTUA_PRINTF, 2, 3)));
 
 
 //============================== 

@@ -1,0 +1,8 @@
+let x = linspace(0, 4, 5)
+
+// Palette order teal, ochre, brick
+plot_svg(x, ([0, 1, 2, 3, 4], [4, 3, 2, 1, 0], [2, 2, 2, 2, 2]), "build/svg/multi_three.svg")
+
+// Series wrapping
+let u = [0, 1]
+plot_svg(u, (u, u + 1, u + 2, u + 3, u + 4, u + 5, u + 6), "build/svg/multi_wrap.svg")
