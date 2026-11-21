@@ -687,9 +687,7 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		fprintf(out, "</text>\n");
 	}
 
-
-
-	fprintf(out, "</svg>");
+	fprintf(out, "</svg>\n");
 }
 //============================== 
 //

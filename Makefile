@@ -1,4 +1,5 @@
-.PHONY: aktua stdlib clean test syntax repl
+.PHONY: aktua stdlib clean syntax repl \
+	      test test-errors test-scripts test-svg
 
 # These variables are here to support cross-compilation
 # make PLATFORM=windows to cross-compile, otherwise it 
@@ -38,6 +39,8 @@ AKTUA  = build/aktua$(EXE)
 
 SRC = main.c lineedit.c platform.c $(wildcard native/*.c)
 
+TEST_RUN = AKTUA_NO_VIEWER=1 WSLENV=AKTUA_NO_VIEWER ./$(AKTUA)
+
 aktua: $(AKTUA) stdlib
 
 repl: build/repl
@@ -52,24 +55,36 @@ $(RES): ./platform-specific/windows/aktua.rc ./platform-specific/windows/aktua.m
 $(AKTUA): $(SRC) include/core.h $(RES) | build
 	$(CC) $(CFLAGS) $(SRC) $(RES) -o $@ $(LDFLAGS) $(LDLIBS) 
 
-test: aktua
+test: test-scripts test-errors test-svg
+	@echo "All tests passed"
+
+test-scripts: aktua
 	@for f in test/*.akt examples/*.akt; do \
-		AKTUA_NO_VIEWER=1 WSLENV=AKTUA_NO_VIEWER ./$(AKTUA) "$$f" > /dev/null || { \
-			echo "FAILED: $$f"; \
-			exit 1; \
-		}; \
-	done; \
-	for f in test/errors/*.akt; do \
-		AKTUA_NO_VIEWER=1 WSLENV=AKTUA_NO_VIEWER ./$(AKTUA) "$$f" > build/error_test.out 2>/dev/null && { \
-			echo "SHOULD HAVE FAILED: $$f"; \
-			exit 1; \
-		}; \
+		$(TEST_RUN) "$$f" > /dev/null || { echo "FAILED: $$f"; exit 1; }; \
+	done;
+
+test-errors: aktua
+	@for f in test/errors/*.akt; do \
+		$(TEST_RUN) "$$f" > build/error_test.out 2>/dev/null && { echo "SHOULD HAVE FAILED: $$f"; exit 1; }; \
 		diff -u --strip-trailing-cr "$${f%.akt}.expected" build/error_test.out || { \
 			echo "WRONG OUTPUT: $$f"; \
 			exit 1; \
 		}; \
-	done; \
-	echo "All tests passed"
+	done;
+
+test-svg: aktua
+	@rm -rf build/svg; mkdir -p build/svg
+	@for f in test/svg/*.akt; do                                        \
+		$(TEST_RUN) "$$f" > /dev/null || { echo "FAILED: $$f"; exit 1; }; \
+	done;
+	@for e in test/svg/*.expected; do                                   \
+		out=build/svg/$$(basename "$${e%.expected}").svg;                 \
+		diff -u --strip-trailing-cr "$$e" "$$out" || {                    \
+			echo "WRONG SVG: $$out";                                        \
+			exit 1;                                                         \
+		};                                                                \
+	done
+
 
 build:
 	mkdir -p build
@@ -84,3 +99,4 @@ clean:
 syntax: build/aktua
 	@names=$$(./build/aktua --builtins | tr '\n' ' ' | sed 's/ $$//'); \
 	sed -i "s/^\(  syntax keyword aktuaBuiltin\).*/\1 $$names/" editors/nvim/syntax/aktua.lua
+

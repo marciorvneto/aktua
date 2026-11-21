@@ -1,0 +1,7 @@
+let x  = linspace(-1, 5)
+let y1 = sqrt(x)
+plot_svg(x, y1, "build/svg/edge_partial.svg")
+
+let x = linspace(-2, 2, 9)
+plot_svg(x, sqrt(x^2 - 1), "build/svg/edge_gap.svg") // NaN
+plot_svg(x, x^3 - x, "build/svg/edge_negative.svg")  // Negative ticks
