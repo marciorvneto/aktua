@@ -1,0 +1,31 @@
+// -----------------------------------------------------
+//
+//  Second-order system
+//  By: Marcio R. V. Neto, 2026
+//
+//  Step response of a series RLC circuit, under-, critically
+//  and overdamped in Aktua
+//
+// -----------------------------------------------------
+
+let s = poly([0, 1])
+
+let L = 0.01                       // Inductance [H]
+let C = 10e-6                      // Capacitance [F]
+
+let t = linspace(0, 8e-3, 401)     // Plotting for 8ms
+let u = step(1, t - 2e-3)          // The input: a unit step at 2 ms
+
+let wn = 1 / sqrt(L * C)           // Natural frequency [rad/s]
+
+fn response(R) {                   // Resistance [ohm]
+	let zeta = R / 2 * sqrt(C / L)   // Damping ratio
+	step(wn^2 / (s^2 + 2*zeta*wn*s + wn^2), t - 2e-3)
+}
+
+let Rc = 2 * sqrt(L/C)
+print("Critical damping at R = 2 * sqrt(L/C) = " + Rc + "ohm")
+	
+let y = (response(20), response(63), response(120), u)
+show(t*1e3, y)
+plot(t*1e3, y)
