@@ -250,8 +250,8 @@ long to_py(double y, const PlotAxis *ay, size_t height){
 }
 
 // Maps the x coordinate of a point to a rectangle
-// with bottom-left corner at (0,0) and given width
-double canvas_map_x(double x, const PlotAxis *ax, size_t width){
+// with top-left corner at (0,0) and given width
+double canvas_map_x(double x, const PlotAxis *ax, double width){
 	// ax->lo   -->  0
 	// x        -->  mapped_x (want this)
 	// ax->hi   -->  width
@@ -261,8 +261,8 @@ double canvas_map_x(double x, const PlotAxis *ax, size_t width){
 }
 
 // Maps the y coordinate of a point to a rectangle
-// with bottom-left corner at (0,0) and given height
-double canvas_map_y(double y, const PlotAxis *ay, size_t height){
+// with top-left corner at (0,0) and given height
+double canvas_map_y(double y, const PlotAxis *ay, double height){
 	// ay->lo   -->  height 
 	// y        -->  mapped_y (want this)
 	// ay->hi   -->  0
@@ -294,17 +294,18 @@ void canvas_svg_polyline_begin(
 {
 
 	fprintf(out, "<polyline ");
-		SVG_ATTR(out, "fill", "%s", "none");
-		SVG_ATTR(out, "stroke", "%s", stroke);
-		SVG_ATTR(out, "stroke-width", "%g", stroke_width);
-		fprintf(out, "points=\"");
+		SVG_ATTR(out, "fill",            "%s", "none");
+		SVG_ATTR(out, "stroke",          "%s", stroke);
+		SVG_ATTR(out, "stroke-width",    "%g", stroke_width);
+		SVG_ATTR(out, "stroke-linejoin", "%s", "round");
+		fprintf(out,  "points=\"");
 }
 void canvas_svg_polyline_point(
 		FILE *out,
 		double x,
 		double y)
 {
-		fprintf(out, " %f,%f",x,y);
+		fprintf(out, " %.2f,%.2f",x,y);
 }
 
 void canvas_svg_polyline_end(FILE *out)
@@ -517,61 +518,7 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		SVG_ATTR(out, "font-size",   "%g",          12.0);
 	fprintf(out, ">\n");
 
-
-	// Plot area rectangle (first test)
-
-	fprintf(out, "<rect ");
-		SVG_ATTR(out, "x",      "%g", margin_left);
-		SVG_ATTR(out, "y",      "%g", margin_top);
-		SVG_ATTR(out, "width",  "%g", rect_width);
-		SVG_ATTR(out, "height", "%g", rect_height);
-		SVG_ATTR(out, "fill",   "%s", "none");
-		SVG_ATTR(out, "stroke", "%s", "black");
-	fprintf(out, " />\n");
-
-
-	// Plot the series
-
-	for(size_t s = 0; s < data->num_series; s++){
-		const PlotSeries *ser = &data->series[s];
-		bool open             = false;
-		double my_prev        = 0;
-
-		for(size_t i = 0; i < ser->num_points; i++){
-			double x = ser->x_data[i], y = ser->y_data[i];
-			if(!isfinite(x) || !isfinite(y)){ 
-				if(open) canvas_svg_polyline_end(out);
-				open = false;
-				continue; 
-			}
-			double mx = canvas_map_x(x, &layout->x, rect_width) + margin_left;
-			double my = canvas_map_y(y, &layout->y, rect_height) + margin_top;
-
-			if(ser->style == PLOT_DOTS){
-				canvas_svg_circle(out, mx, my, 2, "#007589");
-				continue;
-			}
-
-			if(!open) {
-				canvas_svg_polyline_begin(out, "#007589", 1.5);
-				canvas_svg_polyline_point(out, mx, my);
-				open = true;
-			}else{
-				if(ser->style == PLOT_DOTS) continue;
-				if(ser->style == PLOT_STAIRS){
-					canvas_svg_polyline_point(out, mx, my_prev);
-					canvas_svg_polyline_point(out, mx, my);
-				}else if(ser->style == PLOT_LINES){
-					canvas_svg_polyline_point(out, mx, my);
-				}
-			}
-
-			my_prev = my;
-		}
-		if(open) canvas_svg_polyline_end(out);
-	}
-
-	// Plot the ticks
+	// Plot the grid lines
 
 	size_t nx = num_ticks(&layout->x);
 	for(size_t k = 0; k < nx; k++){
@@ -624,6 +571,110 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		SVG_ATTR(out, "x2",     "%g", margin_left - 5);
 		SVG_ATTR(out, "y2",     "%g", tick_y);
 		fprintf(out, " />\n");
+
+		fprintf(out, "<text ");
+		SVG_ATTR(out, "text-anchor", "%s", "end");
+		SVG_ATTR(out, "dominant-baseline", "%s", "middle");
+		SVG_ATTR(out, "x",           "%g", margin_left - 8);
+		SVG_ATTR(out, "y",           "%g", tick_y);
+		fprintf(out, " >");
+		fprintf(out, "%.*f", dec, t);
+		fprintf(out, "</text>\n");
+	}
+
+
+
+	// Plot area rectangle
+
+	fprintf(out, "<rect ");
+		SVG_ATTR(out, "x",      "%g", margin_left);
+		SVG_ATTR(out, "y",      "%g", margin_top);
+		SVG_ATTR(out, "width",  "%g", rect_width);
+		SVG_ATTR(out, "height", "%g", rect_height);
+		SVG_ATTR(out, "fill",   "%s", "none");
+		SVG_ATTR(out, "stroke", "%s", "#333");
+	fprintf(out, " />\n");
+
+
+	// Plot the series
+
+	for(size_t s = 0; s < data->num_series; s++){
+		const PlotSeries *ser = &data->series[s];
+		bool open             = false;
+		double my_prev        = 0;
+
+		for(size_t i = 0; i < ser->num_points; i++){
+			double x = ser->x_data[i], y = ser->y_data[i];
+			if(!isfinite(x) || !isfinite(y)){ 
+				if(open) canvas_svg_polyline_end(out);
+				open = false;
+				continue; 
+			}
+			double mx = canvas_map_x(x, &layout->x, rect_width) + margin_left;
+			double my = canvas_map_y(y, &layout->y, rect_height) + margin_top;
+
+			if(ser->style == PLOT_DOTS){
+				canvas_svg_circle(out, mx, my, 2, "#007589");
+				continue;
+			}
+
+			if(!open) {
+				canvas_svg_polyline_begin(out, "#007589", 1.5);
+				canvas_svg_polyline_point(out, mx, my);
+				open = true;
+			}else{
+				if(ser->style == PLOT_DOTS) continue;
+				if(ser->style == PLOT_STAIRS){
+					canvas_svg_polyline_point(out, mx, my_prev);
+					canvas_svg_polyline_point(out, mx, my);
+				}else if(ser->style == PLOT_LINES){
+					canvas_svg_polyline_point(out, mx, my);
+				}
+			}
+
+			my_prev = my;
+		}
+		if(open) canvas_svg_polyline_end(out);
+	}
+
+	// Plot the tick marks and labels
+
+	nx = num_ticks(&layout->x);
+	for(size_t k = 0; k < nx; k++){
+		double t      = tick_value(&layout->x, k);
+		int dec       = tick_decimals(layout->x.step);
+		double tick_x = canvas_map_x(t, &layout->x, rect_width) + margin_left;
+
+		fprintf(out, "<line ");
+		SVG_ATTR(out, "stroke", "%s", "#333");
+		SVG_ATTR(out, "x1",     "%g", tick_x);
+		SVG_ATTR(out, "y1",     "%g", margin_top + rect_height);
+		SVG_ATTR(out, "x2",     "%g", tick_x);
+		SVG_ATTR(out, "y2",     "%g", margin_top + rect_height + 5);
+		fprintf(out,  " />\n");
+
+		fprintf(out, "<text ");
+		SVG_ATTR(out, "text-anchor", "%s", "middle");
+		SVG_ATTR(out, "x",           "%g", tick_x);
+		SVG_ATTR(out, "y",           "%g", margin_top + rect_height + 18);
+		fprintf(out,  " >");
+		fprintf(out,  "%.*f", dec, t);
+		fprintf(out,  "</text>\n");
+	}
+
+	ny = num_ticks(&layout->y);
+	for(size_t k = 0; k < ny; k++){
+		double t      = tick_value(&layout->y, k);
+		int dec       = tick_decimals(layout->y.step);
+		double tick_y = canvas_map_y(t, &layout->y, rect_height) + margin_top;
+
+		fprintf(out, "<line ");
+		SVG_ATTR(out, "stroke", "%s", "#333");
+		SVG_ATTR(out, "x1",     "%g", margin_left);
+		SVG_ATTR(out, "y1",     "%g", tick_y);
+		SVG_ATTR(out, "x2",     "%g", margin_left - 5);
+		SVG_ATTR(out, "y2",     "%g", tick_y);
+		fprintf(out,  " />\n");
 
 		fprintf(out, "<text ");
 		SVG_ATTR(out, "text-anchor", "%s", "end");
