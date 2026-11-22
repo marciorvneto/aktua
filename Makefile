@@ -1,5 +1,5 @@
 .PHONY: aktua stdlib clean syntax repl \
-	      test test-errors test-scripts test-svg
+	      test test-errors test-scripts test-svg test-repl
 
 # These variables are here to support cross-compilation
 # make PLATFORM=windows to cross-compile, otherwise it 
@@ -55,7 +55,7 @@ $(RES): ./platform-specific/windows/aktua.rc ./platform-specific/windows/aktua.m
 $(AKTUA): $(SRC) include/core.h $(RES) | build
 	$(CC) $(CFLAGS) $(SRC) $(RES) -o $@ $(LDFLAGS) $(LDLIBS) 
 
-test: test-scripts test-errors test-svg
+test: test-scripts test-errors test-svg test-repl
 	@echo "All tests passed"
 
 test-scripts: aktua
@@ -84,6 +84,15 @@ test-svg: aktua
 			exit 1;                                                         \
 		};                                                                \
 	done
+
+test-repl: aktua 
+	@for f in test/repl/*.akt; do                                                \
+		$(TEST_RUN) -q < "$$f" 2> build/repl_test.out > /dev/null;                 \
+		diff -u --strip-trailing-cr "$${f%.akt}.expected" build/repl_test.out || { \
+			echo "WRONG OUTPUT: $$f";                                                \
+			exit 1;                                                                  \
+		};                                                                         \
+		done;
 
 
 build:

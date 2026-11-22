@@ -5285,14 +5285,15 @@ Value native_assert(Arena *a, Environment *e, char* script, size_t argc, Value *
 }
 
 Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
-                      Value *fun, size_t argc, Value *args, int *silent);
+										Value *fun, size_t argc, Value *args, size_t kwargc,
+										KwArg *kwargs, int *silent);
 Value native_apply(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
 	Value fn = argv[0];
 	if(fn.valueType != VALUE_FUNCTION){
 		runtime_error(e, "apply: first argument must be a function");
 		return make_nan();
 	}
-	return call_function(a, e, script, fn_name(&fn), &fn, 1, &argv[1], silent);
+	return call_function(a, e, script, fn_name(&fn), &fn, 1, &argv[1], 0, NULL, silent);
 }
 
 
@@ -6399,7 +6400,8 @@ Environment *push_env(Environment *e){
 }
 
 Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
-                      Value *fun, size_t argc, Value *args, int *silent){
+										Value *fun, size_t argc, Value *args, size_t kwargc,
+										KwArg *kwargs, int *silent){
 	// Sanity checks
 
 	if (fun->valueType != VALUE_FUNCTION) {
@@ -6408,6 +6410,10 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 	}
 
   if(fun->value.fun.kind == FN_NATIVE){
+		if(kwargc > 0){
+			runtime_error(e, "%s does not take keyword arguments", name);
+			return make_nan();
+		}
     size_t argc_min = fun->value.fun.native_data.argc_min;
     size_t argc_max = fun->value.fun.native_data.argc_max;
 		if((size_t)argc < argc_min || (size_t)argc > argc_max){
@@ -6420,19 +6426,64 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 			}
 			return make_nan();
 		}
-  }else{
-    size_t num_args = fun->value.fun.definition->as.fn_def.num_args;
-		if((size_t)argc != num_args){
-			runtime_error(e, "%s expects %zu arguments, got %zu", name, num_args, argc);
-			return make_nan();
-		}
-  }
 
-  if(fun->value.fun.kind == FN_NATIVE){
     NativeValueDispatch dispatch = fun->value.fun.native_data.native->fn;
     Value result = dispatch(ta, e, script_path, argc, args, silent);
     return result;
+
   }
+
+	// User-defined
+
+	size_t num_params = fun->value.fun.definition->as.fn_def.num_args;
+	Value *bound = arena_alloc(ta, num_params * sizeof(Value));
+	bool *filled = arena_alloc(ta, num_params * sizeof(bool));
+
+	if((size_t)argc > num_params){
+		runtime_error(e, "%s expects %zu arguments, got %zu", name, num_params, argc);
+		return make_nan();
+	}
+
+
+	// Positional
+	for(size_t i = 0; i < argc; i++){
+		bound[i]  = args[i];
+		filled[i] = true;
+	}
+
+	// Kwargs
+	// Fist pass: fill the slots
+	for(size_t i = 0; i < kwargc; i++){
+		KwArg kwarg = kwargs[i];
+		AST *param  = fun->value.fun.definition->as.fn_def.params;
+		bool found  = false;
+		for(size_t j = 0; j < num_params && param != NULL; j++, param = param->next){
+			if(strcmp(kwarg.name, param->as.literal.value.id) == 0){
+				if(filled[j]){
+					runtime_error(e, "%s got parameter '%s' twice", name, kwarg.name);
+					return make_nan();
+				}
+				bound[j]  = kwarg.value;
+				filled[j] = true;
+				found     = true;
+				break;
+			}
+		}
+		if(!found){
+			runtime_error(e, "%s does not take parameter '%s'", name, kwarg.name);
+			return make_nan();
+		}
+	}
+	// Second pass: check if all required slots have been filled
+	AST *param = fun->value.fun.definition->as.fn_def.params;
+	for(size_t j = 0; j < num_params && param != NULL; j++, param = param->next){
+		if(!filled[j]){
+			runtime_error(e, "%s is missing parameter '%s'", name, param->as.literal.value.id);
+			return make_nan();
+		}
+	}
+
+
 	// Push a new environment for the function scope
 
   size_t scratch = arena_save(e->frame);
@@ -6441,8 +6492,8 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 	// Set its argument values to those evaluated before
 
   AST *arg_def = fun->value.fun.definition->as.fn_def.params;
-  for(size_t i = 0; i < argc; i++, arg_def = arg_def->next){
-      Value owned = value_clone(env_storage(new_env), &args[i]);
+  for(size_t i = 0; i < num_params; i++, arg_def = arg_def->next){
+      Value owned = value_clone(env_storage(new_env), &bound[i]);
       env_set_variable(new_env, arg_def->as.literal.value.id, &owned);
   }
 
@@ -6908,10 +6959,18 @@ Value call_value(
 		Value *callee,
 		size_t argc,
 		Value *args,
+		size_t kwargc,
+		KwArg *kwargs,
     int *silent
 		)
 {
-	if(callee->valueType == VALUE_FUNCTION) return call_function(ta, e, script_path, name, callee, argc, args, silent);
+	if(callee->valueType == VALUE_FUNCTION) 
+		return call_function(ta, e, script_path, name, callee, argc, args, kwargc, kwargs, silent);
+
+	if(kwargc > 0){
+		runtime_error(e, "Only functions can take keyword arguments");
+		return make_nan();
+	}
 
 	if(argc != 1){
 		runtime_error(e, "%s takes one argument, got %zu", name, argc);
@@ -6937,10 +6996,23 @@ Value call_value(
 	return dispatch(ta, e, callee, &args[0]);
 }
 
+KwArg *eval_kwargs(Arena *ta, Environment *e, char *script_path, AST *first_arg, size_t argc, size_t kwargc, int *silent) {
+	if(kwargc == 0) return NULL;
+	KwArg *kwargs = arena_alloc(ta, kwargc * sizeof(KwArg));
+
+	AST *arg = first_arg;
+	for(size_t j = 0; j < argc && arg != NULL; j++) arg = arg->next; // skips positionals
+	for(size_t i = 0; i < kwargc && arg != NULL; i++, arg = arg->next){
+		kwargs[i].name  = arg->as.call_arg.name;
+		kwargs[i].value = eval_expr(ta, e, script_path, arg->as.call_arg.value, silent);
+	}
+	return kwargs;
+}
+
 Value *eval_args(Arena *ta, Environment *e, char *script_path, AST *first_arg, size_t argc, int *silent) {
 	Value *args = arena_alloc(ta, argc * sizeof(Value));
 	size_t i = 0;
-	for(AST *arg = first_arg; arg != NULL; arg = arg->next){
+	for(AST *arg = first_arg; arg != NULL && i < argc; arg = arg->next){
 		args[i++] = eval_expr(ta, e, script_path, arg, silent);
 	}
 	return args;
@@ -6951,12 +7023,14 @@ Value eval_call(Arena *ta, Environment *e, char *script_path, AST *call, int *si
 	size_t errors = e->run_stats->runtime_errors;
 	Value  callee = eval_expr(ta, e, script_path, call->as.call.callee, silent);
 	size_t argc   = call->as.call.num_arguments;
+	size_t kwargc = call->as.call.num_kwargs;
 	Value *args   = eval_args(ta, e, script_path, call->as.call.first_arg, argc, silent);
+	KwArg *kwargs = eval_kwargs(ta, e, script_path, call->as.call.first_arg, argc, kwargc, silent);
 	if(errors != e->run_stats->runtime_errors){
 		*silent = 1;
 		return make_nan();
 	}
-	return call_value(ta, e, script_path, "expression", &callee, argc, args, silent);
+	return call_value(ta, e, script_path, "expression", &callee, argc, args, kwargc, kwargs, silent);
 }
 
 Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int *silent){
@@ -6964,6 +7038,8 @@ Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int 
   char *name  = fn->as.fn_call.fn_name;
   size_t argc = fn->as.fn_call.num_arguments;
 	Value *args = eval_args(ta, e, script_path, fn->as.fn_call.first_arg, argc, silent);
+  size_t kwargc = fn->as.fn_call.num_kwargs;
+	KwArg *kwargs = eval_kwargs(ta, e, script_path, fn->as.fn_call.first_arg, argc, kwargc, silent);
 	if(errors != e->run_stats->runtime_errors){
 		*silent = 1;
 		return make_nan();
@@ -6973,7 +7049,7 @@ Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int 
 		runtime_error(e, "Undefined function %s", name);
 		return make_nan();
 	}
-	return call_value(ta, e, script_path, name, var->value, argc, args, silent);
+	return call_value(ta, e, script_path, name, var->value, argc, args, kwargc, kwargs, silent);
 }
 
 // Resolves one index against a dimension of the given size; negatives count from the end

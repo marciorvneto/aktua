@@ -74,9 +74,10 @@ typedef struct {
 
 typedef struct Value Value;
 typedef struct {
-	Value*  items;
-	size_t size;
+	Value   *items;
+	size_t   size;
 } Tuple;
+
 
 typedef enum {
   FN_NATIVE,
@@ -130,6 +131,11 @@ struct Value {
     Function         fun;
 	} value;
 };
+
+typedef struct {
+	const char *name;
+	Value      value;
+} KwArg;
 
 // ----------- Factories -----------------
 

@@ -1,0 +1,5 @@
+Error: f does not take parameter 'w'
+Error: f got parameter 'x' twice
+Error: f is missing parameter 'z'
+Error: sin does not take keyword arguments
+line 1, col 1: positional argument after keyword argument
