@@ -37,7 +37,7 @@ endif
 
 AKTUA  = build/aktua$(EXE)
 
-SRC = main.c lineedit.c platform.c $(wildcard native/*.c)
+SRC = main.c interpreter.c lineedit.c platform.c $(wildcard native/*.c)
 
 TEST_RUN = AKTUA_NO_VIEWER=1 WSLENV=AKTUA_NO_VIEWER ./$(AKTUA)
 TEST_DEPS ?= aktua
@@ -53,7 +53,7 @@ $(RES): ./platform-specific/windows/aktua.rc ./platform-specific/windows/aktua.m
 	$(WINDRES) $< -O coff -o $@
 
 
-$(AKTUA): $(SRC) include/core.h $(RES) | build
+$(AKTUA): $(SRC) $(wildcard include/*.h) $(RES) | build
 	$(CC) $(CFLAGS) $(SRC) $(RES) -o $@ $(LDFLAGS) $(LDLIBS) 
 
 test: test-scripts test-errors test-svg test-repl
