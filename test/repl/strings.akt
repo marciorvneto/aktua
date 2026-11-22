@@ -1,0 +1,5 @@
+import("test.akt")
+// The right-hand side holds a literal tab
+assert_eq("a\tb" == "a	b", true)
+assert_eq("say \"hi\"" == "say", false)
+print("bad \q")

@@ -546,6 +546,7 @@ int tokenizer_eat_string(Arena *a, Tokenizer *tokenizer, Token *out){
 	while(tokenizer->offset < tokenizer->size &&
 			tokenizer->source[tokenizer->offset] != '"'  &&
 			tokenizer->source[tokenizer->offset] != '\n'){
+    if(tokenizer->source[tokenizer->offset] == '\\') tokenizer->offset++;
 		tokenizer->offset++;
 	}
 
@@ -559,8 +560,27 @@ int tokenizer_eat_string(Arena *a, Tokenizer *tokenizer, Token *out){
 
 	out->type  = TOK_STRING;
 	out->value = arena_alloc(a, num_chars + 1);
-	memcpy(out->value, tokenizer->source + first, num_chars);
-	out->value[num_chars] = '\0';
+
+  size_t j = 0; // <- Where the next character will be inserted
+
+  for(size_t i = first; i < first + num_chars; i++){
+    char c = tokenizer->source[i];
+    if(c != '\\') {
+      out->value[j++] = c;
+      continue;
+    }
+    i++;
+    switch(tokenizer->source[i]){
+      case '"':  out->value[j++] = '"';  break;
+      case '\\': out->value[j++] = '\\'; break;
+      case 'n':  out->value[j++] = '\n'; break;
+      case 't':  out->value[j++] = '\t'; break;
+      default:
+         fprintf(stderr, "Unknown escape '\\%c' in string at offset %zu\n", tokenizer->source[i], i - 1);
+         return 1;
+    }
+  }
+	out->value[j] = '\0';
 	return 0;
 }
 
