@@ -93,7 +93,7 @@ assert_tf(s - G, rp)
 fn neg(x) { -1 / (x + 1) }
 assert_tf(-G, neg)
 
-// ---------- pid, feedback, closedloop ----------
+// ---------- pid, feedback ----------
 
 fn epid(x) { 2 + 3 / x + 0.5 * x }
 assert_tf(pid(2, 3, 0.5), epid)
@@ -107,10 +107,10 @@ assert_pole(feedback(G, 2), -3, 0)
 assert_pole(feedback(1 / (s * s), 1), 0, 1)
 assert_pole(feedback(1 / (s * s), 1), 0, -1)
 
-// closedloop(G) = G / (1 + G)
+// H defaults to 1: unity feedback
 fn ecl(x) { 1 / (x + 2) }
-assert_tf(closedloop(G), ecl)
-assert_pole(closedloop(G), -2, 0)
+assert_tf(feedback(G), ecl)
+assert_pole(feedback(G), -2, 0)
 
 // ---------- stable ----------
 
@@ -149,4 +149,4 @@ assert_eq(stable(feedback(10 * plant, 1)), 0)
 // loop stabilizes it
 let loop = pid(1, 1, 0) / (s + 1)
 assert_eq(stable(loop), 0)
-assert_eq(stable(closedloop(loop)), 1)
+assert_eq(stable(feedback(loop)), 1)

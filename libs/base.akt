@@ -14,7 +14,7 @@ let s = poly([0, 1])
 
 // Control-specific functions
 
-fn feedback(G, H) {
+fn feedback(G, H=1) {
   G / (1 + G * H)
 }
 
@@ -25,10 +25,6 @@ fn pid(kp, ki, kd) {
 // PID with derivative filtering
 fn pidf(kp, ki, kd, Tf) {
 	kp + ki/s + kd*s / (1 + Tf * s)
-}
-
-fn closedloop(G) {
-  G / (1 + G)
 }
 
 fn stable(G) {
