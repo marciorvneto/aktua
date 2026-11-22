@@ -57,6 +57,9 @@ show(t*1e3, y, title="Series RLC circuit", xlabel="Time (ms)", ylabel="Voltage (
 The full example, with the damping ratio and the critical resistance:
 [`examples/second_order.akt`](examples/second_order.akt).
 
+For frequency responses, `xscale="log"` gives a log axis:
+[`examples/bode_plots.akt`](examples/bode_plots.akt).
+
 ## Quick start
 
 Build the project and start the REPL:
@@ -173,7 +176,7 @@ Next:
 - Module scoping and dependency resolution
 - Tuple unpacking
 - Linear algebra: solve, eigen, qr, etc.
-- Plots: log axes, markers and a style per series
+- Plots: markers and a style per series
 
 Later:
 
