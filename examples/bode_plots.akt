@@ -22,4 +22,4 @@ let MagdB = 20 * log10(abs(W(ws*I)))
 let Arg   = arg(W(ws*I)) * 180 / pi    // [deg]
 
 plot(ws, MagdB, xscale="log")
-plot(ws, Arg,   yscale="log")
+plot(ws, Arg,   xscale="log")
