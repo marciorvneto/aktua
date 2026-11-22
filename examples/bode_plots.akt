@@ -21,5 +21,5 @@ let ws = 10 ^ linspace(-4, 1, 201)    // [rad/s]
 let MagdB = 20 * log10(abs(W(ws*I)))
 let Arg   = arg(W(ws*I)) * 180 / pi    // [deg]
 
-plot(ws, MagdB, xscale="log")
-plot(ws, Arg,   xscale="log")
+plot(ws, MagdB, xscale="log", title="Closed loop, magnitude", xlabel="ω (rad/s)", ylabel="|W| (dB)")
+plot(ws, Arg,   xscale="log", title="Closed loop, phase",     xlabel="ω (rad/s)", ylabel="∠W (deg)")

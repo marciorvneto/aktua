@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "core.h"
@@ -69,6 +70,33 @@ static PlotAxis compute_axis(double min, double max, size_t target_ticks){
     
   };
 
+  return axis;
+}
+
+static PlotAxis compute_log_axis(double min, double max, size_t target_ticks){
+  if(target_ticks < 2) target_ticks = 2;
+  if(!(isfinite(min) && isfinite(max))){ min = 0; max = 1; }
+
+  double lo = floor(min);
+  double hi = ceil(max);
+  if(lo == hi) hi = lo + 1; // Plot at least one decade
+
+  double step = 1;
+  if((hi - lo)/step + 1 > target_ticks){
+    step = ceil((hi - lo) / (target_ticks - 1));
+    lo   = floor(lo / step) * step;
+    hi   = ceil(hi / step) * step;
+  }
+
+  size_t num_ticks = (size_t)round((hi - lo)/step) + 1;
+
+  PlotAxis axis = {
+    .lo        = lo,
+    .hi        = hi,
+    .num_ticks = num_ticks,
+    .step      = step,
+    .log       = true
+  };
   return axis;
 }
 
@@ -215,11 +243,33 @@ static void svg_write_text(FILE *out, const char *s){
 
 // Number of decimals needed to print every multiple of step exactly
 static int tick_decimals(double step){
-        for(int d = 0; d < 10; d++){
-                double scaled = step * pow(10.0, d);
-                if(fabs(scaled - round(scaled)) < 1e-6 * scaled) return d;
-        }
-        return 10;
+  for(int d = 0; d < 10; d++){
+    double scaled = step * pow(10.0, d);
+    if(fabs(scaled - round(scaled)) < 1e-6 * scaled) return d;
+  }
+  return 10;
+}
+
+static const char *const SUPERSCRIPT[10] = { "⁰","¹","²","³","⁴","⁵","⁶","⁷","⁸","⁹" };
+// Writes the label for tick value t: "0.25" on a linear axis, "10⁻⁴" on a log one
+static void format_tick(const PlotAxis *axis, double t, char *buf, size_t size){
+  if(axis->log){
+    // The tick is always a whole number exponent
+    long k = lround(t);
+    long kabs = labs(k);
+
+    char digits[24];
+    snprintf(digits, sizeof(digits), "%ld", kabs);
+    size_t len = 0;
+    len += snprintf(buf + len, size - len, "10");
+    if(k < 0) len += snprintf(buf + len, size - len, "⁻");
+    for(char *d = digits; *d; d++){
+      size_t idx = *d - '0';
+      len += snprintf(buf + len, size - len, "%s", SUPERSCRIPT[idx]);
+    }
+    return;
+  }
+  snprintf(buf, size, "%.*f", tick_decimals(axis->step) ,t);
 }
 
 // k-th tick: the first multiple of step inside [lo, hi], then every step after
@@ -260,15 +310,14 @@ static void plot_braille_frame(
 	char  (*row_label)[TICK_LABEL_MAX] = arena_alloc(a, c->rows * TICK_LABEL_MAX);
 	memset(row_label, 0, c->rows * TICK_LABEL_MAX);
 
-	int    y_dec  = tick_decimals(ay->step);
 	size_t width  = 0;
 	size_t ny     = num_ticks(ay);
 	for(size_t k = 0; k < ny; k++){
 		double t   = tick_value(ay, k);
 		long   row = to_py(t, ay, 4 * c->rows) / 4;
 		if(row < 0 || (size_t)row >= c->rows) continue;
-		snprintf(row_label[row], TICK_LABEL_MAX, "%.*f", y_dec, t);
-		width = MAX(width, strlen(row_label[row]));
+    format_tick(ay, t, row_label[row], TICK_LABEL_MAX);
+		width = MAX(width, utf8_width(row_label[row]));
 	}
 
 	// ---- Title ----
@@ -288,7 +337,7 @@ static void plot_braille_frame(
 
 	for(size_t r = 0; r < c->rows; r++){
 		bool has_label = row_label[r][0] != '\0';
-		fprintf(out, "%*s %s", (int)width, row_label[r], has_label ? "┤" : "│");
+  fprintf(out, "%*s%s %s", (int)(width - utf8_width(row_label[r])), "", row_label[r], has_label ? "┤" : "│");
 		for(size_t col = 0; col < c->cols; col++){
 			put_braille(out, c->cells[r * c->cols + col]);
 		}
@@ -315,33 +364,25 @@ static void plot_braille_frame(
 	// ---- x labels, centered under their tick ----
 
 	// Labels are ASCII, so one byte is one terminal column here
-	size_t offset   = width + 2;         
-	size_t line_len = offset + c->cols + TICK_LABEL_MAX;
-	char  *line     = arena_alloc(a, line_len + 1);
-	memset(line, ' ', line_len);
-	line[line_len]  = '\0';
+	size_t offset = width + 2;
+  long cur      = 0;
 
-	int  x_dec    = tick_decimals(ax->step);
-	long last_end = -1;                    // column after the previous label
 	for(size_t k = 0; k < nx; k++){
 		double t   = tick_value(ax, k);
 		long   col = to_px(t, ax, 2 * c->cols) / 2;
 		if(col < 0 || (size_t)col >= c->cols) continue;
 
 		char label[TICK_LABEL_MAX];
-		int  len   = snprintf(label, sizeof(label), "%.*f", x_dec, t);
-		long start = (long)offset + col - len / 2;
-		if(start < 0) start = 0;
-		if(start <= last_end) continue;    // would touch the previous label
-		memcpy(line + start, label, len);
-		last_end = start + len;
+    format_tick(ax, t, label, TICK_LABEL_MAX);
+    size_t w   = (long)utf8_width(label);
+		long start = (long)offset + col - w / 2;
+    if(start < 0) start = 0;
+    if(cur > 0 && start <= cur) continue; // would touch the previous label
+
+    fprintf(out, "%*s%s", (int)(start - cur), "", label);
+    cur = start + w;
 	}
-
-
-	// Trim trailing spaces
-	size_t end = line_len;
-	while(end > 0 && line[end - 1] == ' ') end--;
-	fprintf(out, "%.*s\n", (int)end, line);
+  fputc('\n', out);
 
 	// ---- X label ----
 
@@ -366,12 +407,11 @@ int plot_layout(const PlotData *data, PlotLayout *out){
 		}
 	}
 	if(x_min > x_max) return 0;
-	out->x     = compute_axis(x_min, x_max, 6);
-	out->y     = compute_axis(y_min, y_max, 5);
-  out->x.log = data->x_log;
-  out->y.log = data->y_log;
+	out->x     = data->x_log ? compute_log_axis(x_min, x_max, 6) : compute_axis(x_min, x_max, 6);
+	out->y     = data->y_log ? compute_log_axis(y_min, y_max, 5) : compute_axis(y_min, y_max, 5);
 	return 1;
 }
+
 
 void plot_braille(Arena *a, FILE *out, const PlotData *data,
 		const PlotLayout *layout, size_t cols, size_t rows){
