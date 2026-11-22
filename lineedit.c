@@ -82,7 +82,7 @@ static void enable_raw_mode(void){
 
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &t);
 }
-void disable_raw_mode(void){
+static void disable_raw_mode(void){
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &t_original);
 }
 

@@ -1,5 +1,6 @@
 .PHONY: aktua stdlib clean syntax repl \
-	      test test-errors test-scripts test-svg test-repl
+	      test test-errors test-scripts test-svg test-repl \
+				lint
 
 # These variables are here to support cross-compilation
 # make PLATFORM=windows to cross-compile, otherwise it 
@@ -37,7 +38,7 @@ endif
 
 AKTUA  = build/aktua$(EXE)
 
-SRC = main.c interpreter.c lineedit.c platform.c $(wildcard native/*.c)
+SRC = main.c interpreter.c lineedit.c platform.c plot.c $(wildcard native/*.c)
 
 TEST_RUN = AKTUA_NO_VIEWER=1 WSLENV=AKTUA_NO_VIEWER ./$(AKTUA)
 TEST_DEPS ?= aktua
@@ -55,6 +56,12 @@ $(RES): ./platform-specific/windows/aktua.rc ./platform-specific/windows/aktua.m
 
 $(AKTUA): $(SRC) $(wildcard include/*.h) $(RES) | build
 	$(CC) $(CFLAGS) $(SRC) $(RES) -o $@ $(LDFLAGS) $(LDLIBS) 
+
+# This is for helping pinpoint functions that should be static
+# and other warnings
+lint:
+	@$(CC) -Wall -Wmissing-prototypes -I./include -fsyntax-only \
+		$(filter-out interpreter.c,$(SRC))
 
 test: test-scripts test-errors test-svg test-repl
 	@echo "All tests passed"

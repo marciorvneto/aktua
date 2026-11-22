@@ -6,6 +6,9 @@
 #include <complex.h>
 
 #define LEN(x) (sizeof((x))/sizeof((x)[0]))
+#define UNREACHABLE(x) do { fprintf(stderr, "Unreachable: " x); exit(1); } while(0);
+#define MAX(x,y) ((x) > (y) ? (x) : (y))
+#define MIN(x,y) ((x) < (y) ? (x) : (y))
 
 //============================== 
 //
@@ -19,6 +22,8 @@ typedef struct {
 	size_t capacity;
 } Arena;
 void *arena_alloc(Arena *a, size_t size);
+size_t arena_save(Arena *a);
+void   arena_restore(Arena *a, size_t offset);
 
 //============================== 
 //
