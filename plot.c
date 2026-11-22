@@ -516,8 +516,48 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		SVG_ATTR(out, "fill",   "%s", "#ffffff");
 	fprintf(out, " />\n");
 
+	// Plot the minor grid lines (log scale)
 
-	// Plot the grid lines
+  if(layout->x.log && layout->x.step == 1){
+    size_t nx = num_ticks(&layout->x);
+    for(size_t k = 0; k + 1 < nx ; k++){
+      for(size_t m = 2; m <= 9; m++){
+        double t      = tick_value(&layout->x, k);
+        double tick_x = canvas_map_x(t + log10(m), &layout->x, rect_width) + margin_left;
+
+        fprintf(out,  "<line ");
+        SVG_ATTR(out, "stroke",          "%s", "#f0f0f0");
+        SVG_ATTR(out, "shape-rendering", "%s", "crispEdges");
+        SVG_ATTR(out, "x1",              "%g", tick_x);
+        SVG_ATTR(out, "y1",              "%g", margin_top);
+        SVG_ATTR(out, "x2",              "%g", tick_x);
+        SVG_ATTR(out, "y2",              "%g", margin_top + rect_height);
+        fprintf(out,  " />\n");
+      }
+    }
+  }
+
+  if(layout->y.log && layout->y.step == 1){
+    size_t ny = num_ticks(&layout->y);
+    for(size_t k = 0; k + 1 < ny ; k++){
+      for(size_t m = 2; m <= 9; m++){
+        double t      = tick_value(&layout->y, k);
+        double tick_y = canvas_map_y(t + log10(m), &layout->y, rect_height) + margin_top;
+
+        fprintf(out,  "<line ");
+        SVG_ATTR(out, "stroke",          "%s", "#f0f0f0");
+        SVG_ATTR(out, "shape-rendering", "%s", "crispEdges");
+        SVG_ATTR(out, "x1",              "%g", margin_left);
+        SVG_ATTR(out, "y1",              "%g", tick_y);
+        SVG_ATTR(out, "x2",              "%g", margin_left + rect_width);
+        SVG_ATTR(out, "y2",              "%g", tick_y);
+        fprintf(out,  " />\n");
+      }
+    }
+  }
+
+
+	// Plot the major grid lines
 
 	size_t nx = num_ticks(&layout->x);
 	for(size_t k = 0; k < nx; k++){
