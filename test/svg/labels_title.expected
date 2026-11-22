@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400" font-family="system-ui, sans-serif" font-size="12" style="font-variant-numeric: tabular-nums" >
+<rect x="0" y="0" width="640" height="400" fill="#ffffff"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="40" x2="48" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="190" y1="40" x2="190" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="332" y1="40" x2="332" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="474" y1="40" x2="474" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="616" y1="40" x2="616" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="364" x2="616" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="283" x2="616" y2="283"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="202" x2="616" y2="202"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="121" x2="616" y2="121"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="40" x2="616" y2="40"  />
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="40" x2="48" y2="364"  />
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="364" x2="616" y2="364"  />
+<polyline fill="none" stroke="#007589" stroke-width="2" stroke-linejoin="round" points=" 48.00,364.00 190.00,347.80 332.00,299.20 474.00,218.20 616.00,104.80" />
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="364" x2="48" y2="369"  />
+<text fill="#555" text-anchor="middle" x="48" y="382"  >0</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="190" y1="364" x2="190" y2="369"  />
+<text fill="#555" text-anchor="middle" x="190" y="382"  >1</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="332" y1="364" x2="332" y2="369"  />
+<text fill="#555" text-anchor="middle" x="332" y="382"  >2</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="474" y1="364" x2="474" y2="369"  />
+<text fill="#555" text-anchor="middle" x="474" y="382"  >3</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="616" y1="364" x2="616" y2="369"  />
+<text fill="#555" text-anchor="middle" x="616" y="382"  >4</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="364" x2="43" y2="364"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="364"  >0</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="283" x2="43" y2="283"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="283"  >5</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="202" x2="43" y2="202"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="202"  >10</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="121" x2="43" y2="121"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="121"  >15</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="40" x2="43" y2="40"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="40"  >20</text>
+<text x="332" y="20" fill="#222" text-anchor="middle" dominant-baseline="middle"  >Step</text>
+</svg>

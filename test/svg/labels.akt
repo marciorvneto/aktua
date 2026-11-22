@@ -1,0 +1,8 @@
+let x = linspace(0, 4, 5)
+let y = [0, 1, 4, 9, 16]
+
+// All three labels; the title needs escaping
+plot_svg(x, y, "build/svg/labels_all.svg", title="0 < R < 2 & L > 0", xlabel="Time (ms)", ylabel="Voltage (V)")
+
+// Title only: only the top margin grows
+plot_svg(x, y, "build/svg/labels_title.svg", title="Step")

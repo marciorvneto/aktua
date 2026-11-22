@@ -323,6 +323,27 @@ void canvas_svg_circle(FILE *out, double cx, double cy, double r, const char *fi
 	fprintf(out, "/>\n");
 }
 
+void svg_write_text(FILE *out, const char *s){
+	for(const char *p = s; *p; p++){
+		switch(*p){
+			case '<':
+				fprintf(out, "&lt;");
+				break;
+			case '>':
+				fprintf(out, "&gt;");
+				break;
+			case '&':
+				fprintf(out, "&amp;");
+				break;
+			case '"':
+				fprintf(out, "&quot;");
+				break;
+			default:
+				fputc(*p, out);
+		}
+	}
+}
+
 // Number of decimals needed to print every multiple of step exactly
 int tick_decimals(double step){
         for(int d = 0; d < 10; d++){
@@ -516,6 +537,10 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
   double margin_top    = 16;
   double margin_bottom = 36;
 
+	if(data->title   != NULL) margin_top    += 24;
+	if(data->x_label != NULL) margin_bottom += 20;
+	if(data->y_label != NULL) margin_left   += 20;
+
 	double rect_width  = width - margin_left - margin_right;
 	double rect_height = height - margin_top - margin_bottom;
 
@@ -684,6 +709,47 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		SVG_ATTR(out, "y",                 "%g", tick_y);
 		fprintf(out, " >");
 		fprintf(out, "%.*f", dec, t);
+		fprintf(out, "</text>\n");
+	}
+
+	// Title and labels
+
+	if(data->title != NULL){
+		fprintf(out, "<text ");
+		SVG_ATTR(out, "x",                 "%g", margin_left + rect_width / 2);
+		SVG_ATTR(out, "y",                 "%g", margin_top / 2.0);
+		SVG_ATTR(out, "fill",              "%s", "#222");
+		SVG_ATTR(out, "text-anchor",       "%s", "middle");
+		SVG_ATTR(out, "dominant-baseline", "%s", "middle");
+		fprintf(out, " >");
+		svg_write_text(out, data->title);
+		fprintf(out, "</text>\n");
+	}
+
+	if(data->x_label != NULL){
+		fprintf(out, "<text ");
+		SVG_ATTR(out, "x",                 "%g", margin_left + rect_width / 2);
+		SVG_ATTR(out, "y",                 "%g", height - 10);
+		SVG_ATTR(out, "fill",              "%s", "#555");
+		SVG_ATTR(out, "text-anchor",       "%s", "middle");
+		SVG_ATTR(out, "dominant-baseline", "%s", "middle");
+		fprintf(out, " >");
+		svg_write_text(out, data->x_label);
+		fprintf(out, "</text>\n");
+	}
+
+	if(data->y_label != NULL){
+		double x = 10;
+		double y = margin_top + rect_height / 2.0;
+		fprintf(out, "<text ");
+		SVG_ATTR(out, "x",                 "%g", x);
+		SVG_ATTR(out, "fill",              "%s", "#555");
+		SVG_ATTR(out, "y",                 "%g", y);
+		SVG_ATTR(out, "text-anchor",       "%s", "middle");
+		SVG_ATTR(out, "dominant-baseline", "%s", "middle");
+		SVG_ATTR(out, "transform", "rotate(-90, %g, %g)", x, y);
+		fprintf(out, " >");
+		svg_write_text(out, data->y_label);
 		fprintf(out, "</text>\n");
 	}
 
