@@ -6405,6 +6405,14 @@ Environment *push_env(Environment *e){
 	return new_env;
 }
 
+bool name_in_list(const char *name, const char *const *list){
+	if(list == NULL || name == NULL) return false;
+	for(size_t i = 0; list[i] != NULL; i++){
+		if((strcmp(name, list[i])) == 0) return true;
+	}
+	return false;
+}
+
 Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
 										Value *fun, size_t argc, Value *args, size_t kwargc,
 										KwArg *kwargs, int *silent){
@@ -6416,10 +6424,23 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 	}
 
   if(fun->value.fun.kind == FN_NATIVE){
-		if(kwargc > 0){
-			runtime_error(e, "%s does not take keyword arguments", name);
-			return make_nan();
+
+		const char *const *accepted = fun->value.fun.native_data.native->kwargs;
+		for(size_t i = 0; i < kwargc; i++){
+			KwArg kwarg = kwargs[i];
+			if(accepted == NULL || !name_in_list(kwarg.name, accepted)){
+				runtime_error(e, "%s does not take parameter '%s'", name, kwarg.name);
+				return make_nan();
+			}
+			for(size_t j = 0; j < i; j++){
+				if(strcmp(kwarg.name, kwargs[j].name) == 0){
+					runtime_error(e, "%s got parameter '%s' twice", name, kwarg.name);
+					return make_nan();
+				}
+			}
 		}
+
+
     size_t argc_min = fun->value.fun.native_data.argc_min;
     size_t argc_max = fun->value.fun.native_data.argc_max;
 		if((size_t)argc < argc_min || (size_t)argc > argc_max){

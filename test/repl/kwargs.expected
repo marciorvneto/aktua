@@ -1,5 +1,7 @@
 Error: f does not take parameter 'w'
 Error: f got parameter 'x' twice
 Error: f is missing parameter 'z'
-Error: sin does not take keyword arguments
+Error: sin does not take parameter 'x'
 line 1, col 1: positional argument after keyword argument
+Error: plot does not take parameter 'titel'
+Error: plot got parameter 'title' twice
