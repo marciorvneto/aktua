@@ -173,13 +173,13 @@ Next:
 - Module scoping and dependency resolution
 - Tuple unpacking
 - Linear algebra: solve, eigen, qr, etc.
-- Keyword arguments
-- Plots with several series, log axes and labels
+- Plots: log axes, markers and a style per series
 
 Later:
 
 - Native ODE solvers and optimization algorithms
 - Automatic differentiation, towards neural networks and PINNs
+- An embeddable C API, so other applications can run Aktua scripts
 
 ## Citing
 
