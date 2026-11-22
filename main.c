@@ -368,10 +368,25 @@ size_t num_ticks(const PlotAxis *axis){
         return (size_t)floor((axis->hi - first) / axis->step + 1e-9) + 1;
 }
 
+size_t utf8_width(const char *s){
+	// Explanation: UTF-8 chars may take more than 1 byte.
+	// More details in lineedit.c:utf8_is_continuation
+	size_t n = 0;	
+	for(;*s;s++) if(((unsigned char)*s & 0xC0) != 0x80) n++;
+	return n;
+}
+
+void braille_centered(FILE *out, size_t offset, size_t span, const char *text){
+	size_t w   = utf8_width(text);
+	size_t pad = offset + (w < span ? (span - w) / 2 : 0);
+	fprintf(out, "%*s%s\n", (int)pad, "", text);
+}
+
 
 void plot_braille_frame(
 		Arena *a,
 		FILE *out, 
+		const PlotData *data,
 		const BrailleCanvas *c, 
 		const PlotAxis *ax, 
 		const PlotAxis *ay
@@ -394,6 +409,19 @@ void plot_braille_frame(
 		snprintf(row_label[row], TICK_LABEL_MAX, "%.*f", y_dec, t);
 		width = MAX(width, strlen(row_label[row]));
 	}
+
+	// ---- Title ----
+
+	if(data->title != NULL){
+		braille_centered(out, width + 2, c->cols, data->title);
+	}
+
+	// ---- Y label ----
+
+	if(data->y_label != NULL){
+		fprintf(out, "%s\n", data->y_label);
+	}
+
 
 	// ---- Rows: label, axis, braille cells ----
 
@@ -448,10 +476,18 @@ void plot_braille_frame(
 		last_end = start + len;
 	}
 
+
 	// Trim trailing spaces
 	size_t end = line_len;
 	while(end > 0 && line[end - 1] == ' ') end--;
 	fprintf(out, "%.*s\n", (int)end, line);
+
+	// ---- X label ----
+
+	if(data->x_label != NULL){
+		braille_centered(out, width + 2, c->cols, data->x_label);
+	}
+
 
 	arena_restore(a, scratch);
 }
@@ -514,7 +550,7 @@ void plot_braille(Arena *a, FILE *out, const PlotData *data,
 		}
 	}
 
-	plot_braille_frame(a, out, &c, &layout->x, &layout->y);
+	plot_braille_frame(a, out, data, &c, &layout->x, &layout->y);
 	arena_restore(a, scratch);
 }
 
