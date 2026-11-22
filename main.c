@@ -4048,6 +4048,25 @@ bool get_opt_choice(Environment *e, const char *fn, size_t argc, Value *argv,
 	return false;
 }
 
+const Value *kwarg_get(size_t kwargc, const KwArg *kwargs, const char *name){
+	for(size_t i = 0; i < kwargc; i++){
+		if(strcmp(kwargs[i].name, name) == 0) return &kwargs[i].value;
+	}
+	return NULL;
+}
+
+bool kwarg_string(Environment *e, const char *fn, size_t kwargc, const KwArg *kwargs,
+		const char *name, const char **out){
+	const Value *v = kwarg_get(kwargc, kwargs, name);
+	if(v == NULL) return true;
+	if(v->valueType != VALUE_STRING){
+		runtime_error(e, "%s: %s must be a string", fn, name);
+		return false;
+	}
+	*out = v->value.str;
+	return true;
+}
+
 
 //============================
 //
@@ -5627,6 +5646,8 @@ bool plot_prepare(
 		const char *fn,
 		size_t argc,
 		Value *argv,
+		size_t kwargc,
+		KwArg *kwargs,
 		size_t style_idx,
 		PlotData *data,
 		PlotLayout *layout
@@ -5699,6 +5720,10 @@ bool plot_prepare(
 
 	*data = (PlotData) { .series = series, .num_series = n };
 
+	if(!kwarg_string(e, fn, kwargc, kwargs, "title", &data->title)) return false;
+	if(!kwarg_string(e, fn, kwargc, kwargs, "xlabel", &data->x_label)) return false;
+	if(!kwarg_string(e, fn, kwargc, kwargs, "ylabel", &data->y_label)) return false;
+
 	if(!plot_layout(data, layout)){
 		runtime_error(e, "%s: no finite points to plot", fn);
 		return false;
@@ -5707,16 +5732,15 @@ bool plot_prepare(
 	return true;
 }
 
-static const char *const plot_kwargs[] = { "title", "xlabel", "ylabel", NULL };
+static const char *const PLOT_KWARGS[] = { "title", "xlabel", "ylabel", NULL };
 Value native_plot(NATIVE_PARAMS){
 	*silent = 1;
 	PlotData data; PlotLayout layout;
-	if(!plot_prepare(a, e, "plot", argc, argv, 2, &data, &layout)) return make_nan();
+	if(!plot_prepare(a, e, "plot", argc, argv, kwargc, kwargs, 2, &data, &layout)) return make_nan();
 	plot_braille(a, stdout, &data, &layout, 60, 15);
 	return make_num(0);
 }
 
-static const char *const plot_svg_kwargs[] = { "title", "xlabel", "ylabel", NULL };
 Value native_plot_svg(NATIVE_PARAMS){
 	*silent = 1;
 	PlotData data; PlotLayout layout;
@@ -5725,7 +5749,7 @@ Value native_plot_svg(NATIVE_PARAMS){
 		runtime_error(e, "plot_svg: expected third argument to be a string");
 		return make_nan();
 	}
-	if(!plot_prepare(a, e, "plot_svg", argc, argv, 3, &data, &layout)) return make_nan();
+	if(!plot_prepare(a, e, "plot_svg", argc, argv, kwargc, kwargs, 3, &data, &layout)) return make_nan();
 
 	const char *path = argv[2].value.str;
   FILE *f = fopen(path, "w");
@@ -5738,13 +5762,12 @@ Value native_plot_svg(NATIVE_PARAMS){
 	return make_num(0);
 }
 
-static const char *const show_kwargs[] = { "title", "xlabel", "ylabel", NULL };
 Value native_show(NATIVE_PARAMS){
 	*silent = 1;
 	PlotData data; PlotLayout layout;
 	char path[1024];
 	FILE *out;
-	if(!plot_prepare(a, e, "show", argc, argv, 2, &data, &layout)) return make_nan();
+	if(!plot_prepare(a, e, "show", argc, argv, kwargc, kwargs, 2, &data, &layout)) return make_nan();
 
 	if((out = platform_temp_file(".svg", path, sizeof(path))) == NULL){
 		runtime_error(e, "show: cannot create temporary file.");
@@ -6166,34 +6189,34 @@ Value native_complex(NATIVE_PARAMS){
 
 
 
-#define NATIVE_FNS_LIST                       \
-        N(assert,     2)                      \
-        N(apply,      2)                      \
-        N(ls,         0)                      \
-        N(print,      1)                      \
-        N(import,     1)                      \
-        N(complex,    2)                      \
-        UNARY_NATIVE_MATHS_LIST               \
-        NATIVE_REDUCER_LIST                   \
-        N(range,      2)                      \
-        NV(linspace,  2, 3)                   \
-        N(len,        1)                      \
-        N(push,       2)                      \
-        N(mean,       1)                      \
-        N(eye,        1)                      \
-        NV(diag,      1, 2)                   \
-        N(zeros,      1)                      \
-        N(ones,       1)                      \
-        NVK(plot,     2, 3, plot_kwargs )     \
-        NVK(plot_svg, 3, 4, plot_svg_kwargs ) \
-        NVK(show,     2, 3, show_kwargs )     \
-        N(poly,       1)                      \
-        N(polymod,    2)                      \
-        N(polydiv,    2)                      \
-        N(polygcd,    2)                      \
-        N(poles,      1)                      \
-        N(impulse,    2)                      \
-        N(step,       2)                      \
+#define NATIVE_FNS_LIST                   \
+        N(assert,     2)                  \
+        N(apply,      2)                  \
+        N(ls,         0)                  \
+        N(print,      1)                  \
+        N(import,     1)                  \
+        N(complex,    2)                  \
+        UNARY_NATIVE_MATHS_LIST           \
+        NATIVE_REDUCER_LIST               \
+        N(range,      2)                  \
+        NV(linspace,  2, 3)               \
+        N(len,        1)                  \
+        N(push,       2)                  \
+        N(mean,       1)                  \
+        N(eye,        1)                  \
+        NV(diag,      1, 2)               \
+        N(zeros,      1)                  \
+        N(ones,       1)                  \
+        NVK(plot,     2, 3, PLOT_KWARGS ) \
+        NVK(plot_svg, 3, 4, PLOT_KWARGS ) \
+        NVK(show,     2, 3, PLOT_KWARGS ) \
+        N(poly,       1)                  \
+        N(polymod,    2)                  \
+        N(polydiv,    2)                  \
+        N(polygcd,    2)                  \
+        N(poles,      1)                  \
+        N(impulse,    2)                  \
+        N(step,       2)                  \
         N(zvar,       1)
 #define N(name, argc) { #name, native_##name, argc, argc },
 #define NV(name, argc_min, argc_max) { #name, native_##name, argc_min, argc_max },
