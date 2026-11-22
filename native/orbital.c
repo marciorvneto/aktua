@@ -92,7 +92,7 @@ static double universal_anomaly_solve(double mu, double r0, double vr0,
 }
 
 
-static Value native_stumpff_s(Arena *a, Environment *e, char *script, size_t argc, Value *argv, int *silent) {
+static Value native_stumpff_s(NATIVE_PARAMS) {
 	if(argv[0].valueType != VALUE_NUMBER){
 		runtime_error(e, "stumpff_s expects one number");
 		return make_nan();
@@ -101,7 +101,7 @@ static Value native_stumpff_s(Arena *a, Environment *e, char *script, size_t arg
 	return make_num(stumpff_s(z));
 }
 
-static Value native_stumpff_c(Arena *a, Environment *e, char *script, size_t argc, Value *argv, int *silent) {
+static Value native_stumpff_c(NATIVE_PARAMS) {
 	if(argv[0].valueType != VALUE_NUMBER){
 		runtime_error(e, "stumpff_c expects one number");
 		return make_nan();
@@ -110,7 +110,7 @@ static Value native_stumpff_c(Arena *a, Environment *e, char *script, size_t arg
 	return make_num(stumpff_c(z));
 }
 
-static Value native_universal_anomaly(Arena *a, Environment *e, char *script, size_t argc, Value *argv, int *silent) {
+static Value native_universal_anomaly(NATIVE_PARAMS) {
 	if(
 			argv[0].valueType != VALUE_NUMBER ||
 			argv[1].valueType != VALUE_NUMBER ||
@@ -136,7 +136,7 @@ static Value native_universal_anomaly(Arena *a, Environment *e, char *script, si
 	return make_num(chi);
 }
 
-static Value native_propagate(Arena *a, Environment *e, char *script, size_t argc, Value *argv, int *silent) {
+static Value native_propagate(NATIVE_PARAMS) {
 	if(
 			argv[0].valueType != VALUE_TENSOR ||
 			argv[1].valueType != VALUE_TENSOR ||

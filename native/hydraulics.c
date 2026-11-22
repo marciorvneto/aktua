@@ -6,11 +6,9 @@
 
 #include "core.h"
 
-#include <stdio.h>
 #include <math.h>
 
-static Value native_swamee_jain(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int
-		*silent){
+static Value native_swamee_jain(NATIVE_PARAMS){
 	if(argv[0].valueType != VALUE_NUMBER || argv[1].valueType != VALUE_NUMBER){
 		runtime_error(e, "swamee_jain expects two numbers: Re and relative roughness");
 		return make_nan();
@@ -22,7 +20,7 @@ static Value native_swamee_jain(Arena *a, Environment *e, char* script, size_t a
 }       
 
 
-static Value native_churchill(Arena *a, Environment *e, char *script, size_t argc, Value *argv, int *silent) {
+static Value native_churchill(NATIVE_PARAMS) {
 	if (argc != 2 ||
 			argv[0].valueType != VALUE_NUMBER ||
 			argv[1].valueType != VALUE_NUMBER) {

@@ -73,6 +73,7 @@ typedef struct {
 } Tensor;
 
 typedef struct Value Value;
+typedef struct KwArg KwArg;
 typedef struct {
 	Value   *items;
 	size_t   size;
@@ -86,9 +87,9 @@ typedef enum {
 
 typedef struct NativeFn NativeFn;
 typedef struct {
-  const NativeFn   *native;
-  size_t            argc_min;
-  size_t            argc_max;
+  const NativeFn    *native;
+  size_t             argc_min;
+  size_t             argc_max;
 } NativeFunctionData;
 
 //=============================================
@@ -97,14 +98,17 @@ typedef struct {
 //
 //=============================================
 
+#define NATIVE_PARAMS Arena *a, Environment *e, char *script, size_t argc, Value *argv, size_t kwargc, KwArg *kwargs, int *silent
+
 typedef struct  Environment  Environment;
-typedef Value (*NativeValueDispatch)(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent);
+typedef Value (*NativeValueDispatch)(NATIVE_PARAMS);
 typedef Value (*UnaryValueDispatch)(Arena *a, Environment *e, Value *caller, Value *value);
 struct NativeFn {
   const char          *name;
   NativeValueDispatch fn;
   size_t              argc_min;
   size_t              argc_max;
+	const char *const  *kwargs;
 };
 
 
@@ -132,10 +136,11 @@ struct Value {
 	} value;
 };
 
-typedef struct {
+struct KwArg {
 	const char *name;
 	Value      value;
-} KwArg;
+};
+
 
 // ----------- Factories -----------------
 

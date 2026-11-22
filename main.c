@@ -698,7 +698,7 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 
 struct AST;
 
-int function_repr(Arena *a, size_t argc_min, size_t argc_max, const char *id, char* buf){
+int function_repr(Arena *a, size_t argc_min, size_t argc_max, const char *id, char *buf){
 	if(argc_max == ARGS_VARIADIC){
 		int printed = sprintf(buf, "%s: fn(%zu+)", id, argc_min);
 		buf[printed] = '\0';
@@ -892,7 +892,7 @@ Polynomial alloc_poly(Arena *a, size_t deg){
 	return p;
 }
 
-int poly_repr(Arena *a, Polynomial *p, char* buf, char* variable){
+int poly_repr(Arena *a, Polynomial *p, char *buf, char *variable){
 	int printed = 0;
   if(variable == NULL){
     variable = "x";
@@ -969,7 +969,7 @@ int transfer_function_repr(Arena *a, TransferFunction *tf, char *buf, size_t siz
 
 
 char *alloc_string(Arena *a, size_t len){
-	char* new_string = arena_alloc(a, len + 1);
+	char *new_string = arena_alloc(a, len + 1);
 	memset(new_string, 0, len + 1);
 	return new_string;
 }
@@ -1784,7 +1784,7 @@ Token *parser_eat(TokenType type, Parser *parser){
 }
 
 
-Token *parser_keyword_eat(const char* expected, Parser *parser){
+Token *parser_keyword_eat(const char *expected, Parser *parser){
   Token *kw = parser_eat(TOK_KEYWORD, parser);
   if(kw == NULL) return NULL;
   if(strcmp(kw->value, expected) == 0){
@@ -1793,7 +1793,7 @@ Token *parser_keyword_eat(const char* expected, Parser *parser){
 	return NULL;
 }
 
-Token *parser_keyword_match(const char* expected, Token *kw){
+Token *parser_keyword_match(const char *expected, Token *kw){
   if(kw->type != TOK_KEYWORD) return NULL;
   if(strcmp(kw->value, expected) == 0){
     return kw;
@@ -1947,7 +1947,7 @@ AST *ast_make_statement_list(Arena *pa){
 	return stmt_list;
 }
 
-AST *ast_make_kwarg(Arena *pa, const char* kwarg){
+AST *ast_make_kwarg(Arena *pa, const char *kwarg){
 	size_t len                  = strlen(kwarg);
 	char *kwarg_str             = arena_alloc(pa, len + 1);
 	AST *call_arg               = ast_alloc(pa, AST_KWARG);
@@ -3035,7 +3035,7 @@ void env_init(Environment *e, Arena *pa){
 }
 
 
-Environment env_create(Arena *pa, Arena *fa, RunStats *run_stats, char* exe_path){
+Environment env_create(Arena *pa, Arena *fa, RunStats *run_stats, char *exe_path){
 	Environment e;
 	env_init(&e, pa);
   e.frame     = fa;
@@ -3056,7 +3056,7 @@ Arena *env_storage(Environment *e) {
 
 // Searches newest first, so a let in a block shadows an outer variable
 // of the same name until the block ends
-int env_variable_idx(Environment *e, const char* name){
+int env_variable_idx(Environment *e, const char *name){
 	for(int i = (int)e->num_vars - 1; i >= 0; i--){
 		if(strcmp(name, e->vars[i].name) == 0) return i;
 	}
@@ -3070,14 +3070,14 @@ Variable *env_get_variable_from_idx(Environment *e, int idx){
 	return &e->vars[idx];
 }
 
-Variable *env_find_local(Environment *e, const char* name){
+Variable *env_find_local(Environment *e, const char *name){
 	if(e == NULL) return NULL;
 	int i = env_variable_idx(e, name);
 	if(i >= 0) return env_get_variable_from_idx(e, i);
 	return NULL;
 
 }
-Variable *env_find_variable(Environment *e, const char* name){
+Variable *env_find_variable(Environment *e, const char *name){
 	if(e == NULL) return NULL;
 
 	for(
@@ -3109,7 +3109,7 @@ int env_reserve_vars(Environment *e, size_t needed){
 
 
 
-void env_alloc_variable(Environment *e, const char* name, Value *value){
+void env_alloc_variable(Environment *e, const char *name, Value *value){
   if(!env_reserve_vars(e, e->num_vars + 1)){
     runtime_error(e, "Out of memory allocating variable %s", name);
     return; 
@@ -3130,7 +3130,7 @@ void env_alloc_variable(Environment *e, const char* name, Value *value){
 	// TODO: Implement reallocation
 }
 
-void env_set_variable(Environment *e, const char* name, Value *value){
+void env_set_variable(Environment *e, const char *name, Value *value){
 	int idx =  env_variable_idx(e, name);
 	if(idx < 0){
 		env_alloc_variable(e, name, value);
@@ -5268,7 +5268,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 
 //------------ System ------------
 
-Value native_assert(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_assert(NATIVE_PARAMS){ 
   *silent    = 1;
 	Value cond = argv[0];
 	Value msg  = argv[1];
@@ -5287,7 +5287,7 @@ Value native_assert(Arena *a, Environment *e, char* script, size_t argc, Value *
 Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
 										Value *fun, size_t argc, Value *args, size_t kwargc,
 										KwArg *kwargs, int *silent);
-Value native_apply(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_apply(NATIVE_PARAMS){ 
 	Value fn = argv[0];
 	if(fn.valueType != VALUE_FUNCTION){
 		runtime_error(e, "apply: first argument must be a function");
@@ -5297,7 +5297,7 @@ Value native_apply(Arena *a, Environment *e, char* script, size_t argc, Value *a
 }
 
 
-Value native_ls(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_ls(NATIVE_PARAMS){ 
   env_list_variables(e);
   *silent = 1;
   return make_num(0);
@@ -5305,16 +5305,16 @@ Value native_ls(Arena *a, Environment *e, char* script, size_t argc, Value *argv
 
 void print_value(Arena *ta, Environment *e, Value *value);
 static void print_value_bare(Arena *ta, Environment *e, Value *value);
-Value native_print(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_print(NATIVE_PARAMS){ 
   Value val = argv[0];
     print_value_bare(a, e, &val);
     *silent = 1;
     return make_num(0);
 }
 
-int import_script(Arena *ta, Environment *e, char* importer, char *path);
+int import_script(Arena *ta, Environment *e, char *importer, char *path);
 int import_native_module(Environment *e, const char *name);
-Value native_import(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_import(NATIVE_PARAMS){ 
   Value val = argv[0];
   if(val.valueType != VALUE_STRING){
 		runtime_error(e, "Importing a module expects a string.");
@@ -5465,13 +5465,13 @@ double complex complex_log10(double complex x) { return clog(x) / clog(10); }
       M(sqrt,  sqrt,          csqrt,         NULL)
 
 #define M(name, rf, cf, rcf) \
-  Value native_##name(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){  \
+  Value native_##name(NATIVE_PARAMS){  \
    return lift_unary(a, e, #name, argv[0], rf, cf, rcf); \
   } 
   UNARY_NATIVE_MATHS_LIST
 #undef M
 
-Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){    
+Value native_range(NATIVE_PARAMS){    
 	Value from_val = argv[0];
 	Value to_val   = argv[1];
 	if(from_val.valueType != VALUE_NUMBER || to_val.valueType != VALUE_NUMBER){
@@ -5500,7 +5500,7 @@ Value native_range(Arena *a, Environment *e, char* script, size_t argc, Value *a
 	return make_tensor(t);
 }
 
-Value native_linspace(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){    
+Value native_linspace(NATIVE_PARAMS){    
 	Value from_val  = argv[0];
 	Value to_val    = argv[1];
 	if(
@@ -5554,7 +5554,7 @@ Value native_linspace(Arena *a, Environment *e, char* script, size_t argc, Value
 	return make_tensor(t);
 }
 
-Value native_len(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_len(NATIVE_PARAMS){ 
   Value val = argv[0];
   if(
       val.valueType != VALUE_TENSOR &&
@@ -5570,7 +5570,7 @@ Value native_len(Arena *a, Environment *e, char* script, size_t argc, Value *arg
   return make_num(0);
 }
 
-Value native_push(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_push(NATIVE_PARAMS){ 
   Value tens = argv[0];
   Value val  = argv[1];
   if(
@@ -5707,7 +5707,8 @@ bool plot_prepare(
 	return true;
 }
 
-Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+static const char *const plot_kwargs[] = { "title", "xlabel", "ylabel", NULL };
+Value native_plot(NATIVE_PARAMS){
 	*silent = 1;
 	PlotData data; PlotLayout layout;
 	if(!plot_prepare(a, e, "plot", argc, argv, 2, &data, &layout)) return make_nan();
@@ -5715,7 +5716,8 @@ Value native_plot(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	return make_num(0);
 }
 
-Value native_plot_svg(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+static const char *const plot_svg_kwargs[] = { "title", "xlabel", "ylabel", NULL };
+Value native_plot_svg(NATIVE_PARAMS){
 	*silent = 1;
 	PlotData data; PlotLayout layout;
 
@@ -5736,7 +5738,8 @@ Value native_plot_svg(Arena *a, Environment *e, char* script, size_t argc, Value
 	return make_num(0);
 }
 
-Value native_show(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+static const char *const show_kwargs[] = { "title", "xlabel", "ylabel", NULL };
+Value native_show(NATIVE_PARAMS){
 	*silent = 1;
 	PlotData data; PlotLayout layout;
 	char path[1024];
@@ -5768,7 +5771,7 @@ double reducer_min(double acc, double x) { return x < acc ? x : acc; }
 double reducer_sum(double acc, double x) { return x + acc; }
 double reducer_prod(double acc, double x) { return x * acc; }
 
-Value reduce(Environment *e, const char* name, ReducerFn reducer, Value val, double init, bool emtpy_ok){
+Value reduce(Environment *e, const char *name, ReducerFn reducer, Value val, double init, bool emtpy_ok){
   if(val.valueType == VALUE_NUMBER) return make_num(val.value.number);
   if(val.valueType != VALUE_TENSOR || val.value.tensor.dtype != DTYPE_REAL){
     runtime_error(e, "%s expects a real array", name);
@@ -5796,20 +5799,20 @@ Value reduce(Environment *e, const char* name, ReducerFn reducer, Value val, dou
   R(prod, reducer_prod, 1.0,       false)
 
 #define R(name, reducer_fn, init, empty_ok)                                                        \
-Value native_##name(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent) \
+Value native_##name(NATIVE_PARAMS) \
 {                                                                                                  \
     return reduce(e, #name, reducer_fn, argv[0], init, empty_ok);                                  \
 }
   NATIVE_REDUCER_LIST
 #undef R
 
-Value native_mean(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+Value native_mean(NATIVE_PARAMS){
   Value total = reduce(e, "mean", reducer_sum, argv[0], 0.0, false);
   if(total.valueType != VALUE_NUMBER || argv[0].valueType != VALUE_TENSOR) return total;
   return make_num(total.value.number / argv[0].value.tensor.count);
 }       
 
-Value native_eye(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+Value native_eye(NATIVE_PARAMS){
   Value n_val = argv[0];
 	if(n_val.valueType != VALUE_NUMBER){
 		runtime_error(e, "eye: argument must be a number");
@@ -5840,7 +5843,7 @@ Value native_eye(Arena *a, Environment *e, char* script, size_t argc, Value *arg
 //                    (a scalar counts as a 1-element vector, as in MATLAB)
 // diag(M, k = 0)  -> the k-th diagonal of the matrix M, as a vector
 // k > 0 is above the main diagonal, k < 0 below it.
-Value native_diag(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+Value native_diag(NATIVE_PARAMS){
 	Value x_val = argv[0];
 
 	double k_val;
@@ -5927,7 +5930,7 @@ Value native_diag(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	return make_tensor(t);
 }
 
-Value native_zeros(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+Value native_zeros(NATIVE_PARAMS){
   Value sizes_val = argv[0];
 	if(sizes_val.valueType != VALUE_TENSOR){
 		runtime_error(e, "zeros: argument must be an array");
@@ -5954,7 +5957,7 @@ Value native_zeros(Arena *a, Environment *e, char* script, size_t argc, Value *a
   return make_tensor(t);
 }
 
-Value native_ones(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+Value native_ones(NATIVE_PARAMS){
   Value sizes_val = argv[0];
 	if(sizes_val.valueType != VALUE_TENSOR){
 		runtime_error(e, "ones: argument must be an array");
@@ -5983,7 +5986,7 @@ Value native_ones(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 
 // ------------- Polynomials ------------
 
-Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_poly(NATIVE_PARAMS){ 
   Value val = argv[0];
 	double *coeffs;
 	size_t num_coeffs;
@@ -5995,7 +5998,7 @@ Value native_poly(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	poly_update_degree(&p);
 	return make_poly(p);
 }
-Value native_polymod(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_polymod(NATIVE_PARAMS){ 
   Value first = argv[0];
   Value second = argv[1];
   if(first.valueType == VALUE_POLYNOMIAL && second.valueType == VALUE_POLYNOMIAL){
@@ -6009,7 +6012,7 @@ Value native_polymod(Arena *a, Environment *e, char* script, size_t argc, Value 
 	runtime_error(e, "Unsupported operation, expected a polynomial!");
   return make_nan();
 }
-Value native_polydiv(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_polydiv(NATIVE_PARAMS){ 
   Value first = argv[0];
   Value second = argv[1];
 	if(first.valueType == VALUE_POLYNOMIAL && second.valueType == VALUE_POLYNOMIAL){
@@ -6023,7 +6026,7 @@ Value native_polydiv(Arena *a, Environment *e, char* script, size_t argc, Value 
   runtime_error(e, "Unsupported operation, expected a polynomial!");
   return make_nan();
 }
-Value native_polygcd(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_polygcd(NATIVE_PARAMS){ 
   Value first = argv[0];
   Value second = argv[1];
   if(first.valueType == VALUE_POLYNOMIAL && second.valueType == VALUE_POLYNOMIAL){
@@ -6034,7 +6037,7 @@ Value native_polygcd(Arena *a, Environment *e, char* script, size_t argc, Value 
   return make_nan();
 }
 
-Value native_poles(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_poles(NATIVE_PARAMS){ 
 	TransferFunction tf;
 	if(!as_tf(a, &argv[0], &tf)){
 		runtime_error(e, "poles: expected a transfer function or a number");
@@ -6081,7 +6084,7 @@ static int check_response_args(
 	return 1;
 }
 
-Value native_impulse(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+Value native_impulse(NATIVE_PARAMS){
 	TransferFunction tf;
 	double *ts;
 	size_t n;
@@ -6099,7 +6102,7 @@ Value native_impulse(Arena *a, Environment *e, char* script, size_t argc, Value 
 	return make_real_vector(y, n);
 }
 
-Value native_step(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){
+Value native_step(NATIVE_PARAMS){
 	TransferFunction tf;
 	double *ts;
 	size_t n;
@@ -6123,7 +6126,7 @@ Value native_step(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	return make_real_vector(y, n);
 }
 
-Value native_zvar(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_zvar(NATIVE_PARAMS){ 
   Value ts_val = argv[0];
 	if(ts_val.valueType != VALUE_NUMBER){
 		runtime_error(e, "zvar: expected a sampling time");
@@ -6151,7 +6154,7 @@ Value native_zvar(Arena *a, Environment *e, char* script, size_t argc, Value *ar
 	return make_transfer_function(ztf);
 }
 
-Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value *argv, int *silent){ 
+Value native_complex(NATIVE_PARAMS){ 
 	Value re = argv[0];
 	Value im = argv[1];
 	if(re.valueType != VALUE_NUMBER || im.valueType != VALUE_NUMBER){
@@ -6163,42 +6166,45 @@ Value native_complex(Arena *a, Environment *e, char* script, size_t argc, Value 
 
 
 
-#define NATIVE_FNS_LIST         \
-        N(assert,    2)         \
-        N(apply,     2)         \
-        N(ls,        0)         \
-        N(print,     1)         \
-        N(import,    1)         \
-        N(complex,   2)         \
-        UNARY_NATIVE_MATHS_LIST \
-        NATIVE_REDUCER_LIST     \
-        N(range,     2)         \
-        NV(linspace, 2, 3)      \
-        N(len,       1)         \
-        N(push,      2)         \
-        N(mean,      1)         \
-        N(eye,       1)         \
-        NV(diag,     1, 2)      \
-        N(zeros,     1)         \
-        N(ones,      1)         \
-        NV(plot,     2, 3)      \
-        NV(plot_svg, 3, 4)      \
-        NV(show,     2, 3)      \
-        N(poly,      1)         \
-        N(polymod,   2)         \
-        N(polydiv,   2)         \
-        N(polygcd,   2)         \
-        N(poles,     1)         \
-        N(impulse,   2)         \
-        N(step,      2)         \
-        N(zvar,      1)
+#define NATIVE_FNS_LIST                       \
+        N(assert,     2)                      \
+        N(apply,      2)                      \
+        N(ls,         0)                      \
+        N(print,      1)                      \
+        N(import,     1)                      \
+        N(complex,    2)                      \
+        UNARY_NATIVE_MATHS_LIST               \
+        NATIVE_REDUCER_LIST                   \
+        N(range,      2)                      \
+        NV(linspace,  2, 3)                   \
+        N(len,        1)                      \
+        N(push,       2)                      \
+        N(mean,       1)                      \
+        N(eye,        1)                      \
+        NV(diag,      1, 2)                   \
+        N(zeros,      1)                      \
+        N(ones,       1)                      \
+        NVK(plot,     2, 3, plot_kwargs )     \
+        NVK(plot_svg, 3, 4, plot_svg_kwargs ) \
+        NVK(show,     2, 3, show_kwargs )     \
+        N(poly,       1)                      \
+        N(polymod,    2)                      \
+        N(polydiv,    2)                      \
+        N(polygcd,    2)                      \
+        N(poles,      1)                      \
+        N(impulse,    2)                      \
+        N(step,       2)                      \
+        N(zvar,       1)
 #define N(name, argc) { #name, native_##name, argc, argc },
 #define NV(name, argc_min, argc_max) { #name, native_##name, argc_min, argc_max },
+#define NVK(name, argc_min, argc_max, kws) { #name, native_##name, argc_min, argc_max, kws },
 #define M(name, rf, cf, rcf) N(name, 1)
 #define R(name, reducer_fn, init, empty_ok) N(name, 1)
 static const NativeFn natives[] = { NATIVE_FNS_LIST };
 #undef M
 #undef N
+#undef NV
+#undef NVK
 #undef R
 
 const char *fn_name(Value *fn){
@@ -6428,7 +6434,7 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 		}
 
     NativeValueDispatch dispatch = fun->value.fun.native_data.native->fn;
-    Value result = dispatch(ta, e, script_path, argc, args, silent);
+    Value result = dispatch(ta, e, script_path, argc, args, kwargc, kwargs, silent);
     return result;
 
   }
@@ -6750,7 +6756,7 @@ const char *last_sep(const char *file){
 	return is_path_sep(file[pos]) ? file + pos : NULL;
 }
 
-char *path_join_dir(Arena *a, const char* file, const char *rel){
+char *path_join_dir(Arena *a, const char *file, const char *rel){
 	// Example:
 	// a/b/script.akt + x.akt -> a/b/x.akt
 	// script.tx -> current directory
@@ -6766,7 +6772,7 @@ char *path_join_dir(Arena *a, const char* file, const char *rel){
 
 }
 
-char *resolve_path(Arena *a, char* script_path, char *exe_path, char *path){
+char *resolve_path(Arena *a, char *script_path, char *exe_path, char *path){
   char *candidate = NULL;
 
   // base.akt            -> executable_path/libs/base.akt
@@ -6802,7 +6808,7 @@ char *resolve_path(Arena *a, char* script_path, char *exe_path, char *path){
 	return path_join_dir(a, lib, path);
 }
 
-int import_script(Arena *ta, Environment *e, char* importer, char *path){ 
+int import_script(Arena *ta, Environment *e, char *importer, char *path){ 
   char *resolved_path = resolve_path(ta, importer, e->exe_path, path);
   FILE *f             = fopen(resolved_path, "r");
   if(f == NULL){
