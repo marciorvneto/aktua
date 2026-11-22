@@ -49,6 +49,26 @@ int main(int argc, char **argv){
 			exit(0);
 		}
 
+		if(strcmp(argv[1], "--ast") == 0){
+			if(argc < 3){
+				print_usage();
+				cleanup(&ta, &pa, &fa, exe_path_owned);
+				exit(1);
+			}
+			FILE *f  = fopen(argv[2], "r");
+			int code = 0;
+			if(f != NULL){
+				code = print_program_ast(&e, f);
+			}else{
+				fprintf(stderr, "Could not load file at %s\n", argv[2]);
+				return 1;
+			}
+			cleanup(&ta, &pa, &fa, exe_path_owned);
+			fclose(f);
+			return code;
+		}
+
+
 
 		// Launch a program
 

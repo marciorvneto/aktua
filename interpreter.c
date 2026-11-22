@@ -7377,6 +7377,8 @@ void print_usage(){
 	printf("    -q, --quiet      Start the repl without the header\n");
 	printf("    -v, --version    Show version and build info\n");
 	printf("    -h, --help       Show this message\n");
+	printf("        --ast FILE   Print the syntax tree of FILE without running it\n");
+	printf("        --builtins   Print the builtin functions\n");
 }
 
 void cleanup(Arena *ta, Arena *a, Arena *fa, char *exe_path){
@@ -7587,6 +7589,27 @@ char *read_entire_file(size_t *out_len, FILE *f){
 
 void print_builtins(){
   for(size_t i = 0; i < LEN(natives); i++) printf("%s\n", natives[i].name);
+}
+
+int print_program_ast(Environment *e, FILE *f){
+	size_t len         = 0;
+	int parse_code     = 0;
+
+  char *buffer = read_entire_file(&len, f);
+
+  // Tokenization and parsing use the permanent arena
+  AST *ast     = arena_alloc(e->persistent, sizeof(AST));
+  parse_code   = parse_source(e,  buffer, len, ast, false);
+
+  if(parse_code != 0){
+    printf("Parsing error. Exiting with code %i...\n", parse_code);
+    free(buffer);
+    return parse_code;
+  }
+
+  ast_print(ast, 0);
+  free(buffer);
+  return parse_code;
 }
 
 int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
