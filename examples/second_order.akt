@@ -27,5 +27,5 @@ let Rc = 2 * sqrt(L/C)
 print("Critical damping at R = 2 * sqrt(L/C) = " + Rc + "ohm")
 	
 let y = (response(20), response(63), response(120), u)
-show(t*1e3, y, title="Second-order", xlabel="Time (ms)", ylabel="Response (V)", names=("R = 20 Ω", "R = 63 Ω", "R = 120 Ω", "u"))
-plot(t*1e3, y, title="Second-order", xlabel="Time (ms)", ylabel="Response (V)", names=("R = 20 Ω", "R = 63 Ω", "R = 120 Ω", "u"))
+show(t*1e3, y, title="Series RLC circuit", xlabel="Time (ms)", ylabel="Voltage (V)", names=("R = 20 Ω", "R = 63 Ω", "R = 120 Ω", "Input"))
+plot(t*1e3, y, title="Series RLC circuit", xlabel="Time (ms)", ylabel="Voltage (V)", names=("R = 20 Ω", "R = 63 Ω", "R = 120 Ω", "Input"))

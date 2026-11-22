@@ -32,23 +32,30 @@ print(W)
 print(poles(W))
 
 let t = linspace(0, 150, 151)
-plot(t, step(W, t))
+plot(t, step(W, t), title="Leaky tank under PI control",
+     xlabel="Time (s)", ylabel="Level (m)")
 ```
 
 Output:
 
-<img src="docs/img/leaky-tank-terminal.png" width="569" alt="Closed-loop transfer function 400 / (10000 s + 400), pole at -0.04, and its step response rising from 0 to 1 in about 100 s">
-
-The same plot can be saved as an SVG file, or opened in your browser:
-
-```rust
-plot_svg(t, step(W, t), "leaky_tank.svg")   // Save to a file
-show(t, step(W, t))                         // Open in the browser
-```
-
-<img src="docs/img/leaky-tank.svg" width="640" alt="Step response of the closed loop as an SVG plot: the level rises from 0 to 1, settling in about 100 s">
+<img src="docs/img/leaky-tank-terminal.png" width="640" alt="Closed-loop transfer function 400 / (10000 s + 400), pole at -0.04, and a terminal plot titled Leaky tank under PI control: the level rises from 0 to 1 m in about 100 s">
 
 The tank modelled from first principles, under P, PI and PID control: [`examples/tank_level_control.akt`](examples/tank_level_control.akt).
+
+Plots can also be saved as SVG files with `plot_svg`, or opened in your browser
+with `show`. Several series go in a tuple, and keyword arguments add a title,
+labels and a legend. Here, a series RLC circuit at three resistances:
+
+```rust
+let y = (response(20), response(63), response(120), u)
+show(t*1e3, y, title="Series RLC circuit", xlabel="Time (ms)", ylabel="Voltage (V)",
+     names=("R = 20 Ω", "R = 63 Ω", "R = 120 Ω", "Input"))
+```
+
+<img src="docs/img/rlc-step.svg" width="640" alt="Step responses of a series RLC circuit for three resistances: underdamped with overshoot, critically damped, and overdamped, against the input step at 2 ms">
+
+The full example, with the damping ratio and the critical resistance:
+[`examples/second_order.akt`](examples/second_order.akt).
 
 ## Quick start
 
