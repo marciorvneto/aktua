@@ -8154,5 +8154,3 @@ int run_program(Arena *ta, Environment *e, FILE *f, char *script_path){
   }
 	return parse_code;
 }
-
-
