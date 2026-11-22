@@ -237,14 +237,6 @@ static size_t num_ticks(const PlotAxis *axis){
         return (size_t)floor((axis->hi - first) / axis->step + 1e-9) + 1;
 }
 
-static size_t utf8_width(const char *s){
-	// Explanation: UTF-8 chars may take more than 1 byte.
-	// More details in lineedit.c:utf8_is_continuation
-	size_t n = 0;	
-	for(;*s;s++) if(((unsigned char)*s & 0xC0) != 0x80) n++;
-	return n;
-}
-
 static void braille_centered(FILE *out, size_t offset, size_t span, const char *text){
 	size_t w   = utf8_width(text);
 	size_t pad = offset + (w < span ? (span - w) / 2 : 0);

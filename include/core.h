@@ -200,6 +200,19 @@ struct Environment {
 void runtime_error(Environment *e, const char *fmt, ...)
 	__attribute__((format(AKTUA_PRINTF, 2, 3)));
 
+//============================== 
+//
+//    Encoding
+//
+//============================== 
+
+static inline size_t utf8_width(const char *s){
+	// Explanation: UTF-8 chars may take more than 1 byte.
+	// More details in lineedit.c:utf8_is_continuation
+	size_t n = 0;	
+	for(;*s;s++) if(((unsigned char)*s & 0xC0) != 0x80) n++;
+	return n;
+}
 
 //============================== 
 //

@@ -5001,15 +5001,17 @@ Value native_len(NATIVE_PARAMS){
   Value val = argv[0];
   if(
       val.valueType != VALUE_TENSOR &&
-      val.valueType != VALUE_TUPLE
+      val.valueType != VALUE_TUPLE  &&
+      val.valueType != VALUE_STRING
     )
   {
-    runtime_error(e, "len: expected an array or a tuple");
+    runtime_error(e, "len: expected an array, a tuple or a string");
     return make_nan();
   }
 
   if(val.valueType == VALUE_TENSOR) return make_num(val.value.tensor.count);
   if(val.valueType == VALUE_TUPLE) return make_num(val.value.tuple.size);
+  if(val.valueType == VALUE_STRING) return make_num(utf8_width(val.value.str));
   return make_num(0);
 }
 
