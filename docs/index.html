@@ -103,14 +103,23 @@ s^2 + 0.6 s + 1
      0              5             10            15             20</samp></pre>
 
       <p>
-        The same plot can be saved as an SVG file with <code>plot_svg</code>,
-        or opened in your browser with <code>show</code>:
+        Plots can also be saved as SVG files with <code>plot_svg</code>,
+        or opened in your browser with <code>show</code>. Several series go
+        in a tuple, and keyword arguments add a title, labels and a legend.
+        Here, a series RLC circuit at three resistances:
       </p>
 
-<pre class="code"><code>plot_svg(t, step(G, t), "step.svg")</code></pre>
+<pre class="code"><code>let y = (response(20), response(63), response(120), u)
+show(t*1e3, y, title="Series RLC circuit", xlabel="Time (ms)", ylabel="Voltage (V)",
+     names=("R = 20 Ω", "R = 63 Ω", "R = 120 Ω", "Input"))</code></pre>
 
-      <img class="plot" src="img/second-order-step.svg" width="640" height="400"
-           alt="Step response of the second-order system as an SVG plot: it overshoots to about 1.37 and settles at 1 after a few oscillations">
+      <img class="plot" src="img/rlc-step.svg" width="640" height="400"
+           alt="Step responses of a series RLC circuit for three resistances: underdamped with overshoot, critically damped, and overdamped, against the input step at 2 ms">
+
+      <p>
+        The full example, with the damping ratio and the critical resistance:
+        <a href="https://github.com/marciorvneto/aktua/blob/main/examples/second_order.akt"><code>examples/second_order.akt</code></a>.
+      </p>
     </section>
 
     <section>
