@@ -5826,6 +5826,35 @@ bool plot_prepare(
 	if(!kwarg_string(e, fn, kwargc, kwargs, "xlabel", &data->x_label)) return false;
 	if(!kwarg_string(e, fn, kwargc, kwargs, "ylabel", &data->y_label)) return false;
 
+	// Legend
+
+	const Value *names = kwarg_get(kwargc, kwargs, "names");
+	if(names != NULL){
+		if(names->valueType == VALUE_STRING){ // Accept a single string
+			if(n != 1){
+				runtime_error(e, "%s: the number of names (1) must be equal to the number of series (%zu)", fn, n);
+				return false;
+			}
+			series[0].name = names->value.str;
+		}else if(names->valueType == VALUE_TUPLE){
+			size_t num_names = names->value.tuple.size;
+			if(n != num_names){
+				runtime_error(e, "%s: the number of names (%zu) must be equal to the number of series (%zu)", fn, num_names, n);
+				return false;
+			}
+			for(size_t i = 0; i < n; i++) {
+				if(names->value.tuple.items[i].valueType != VALUE_STRING){
+					runtime_error(e, "%s: name at index %zu is not a string", fn, i);
+					return false;
+				}
+				series[i].name = names->value.tuple.items[i].value.str;
+			}
+		}else{
+			runtime_error(e, "%s: names must be a string or a tuple of strings", fn);
+			return false;
+		}
+	}
+
 	if(!plot_layout(data, layout)){
 		runtime_error(e, "%s: no finite points to plot", fn);
 		return false;
@@ -5834,7 +5863,7 @@ bool plot_prepare(
 	return true;
 }
 
-static const char *const PLOT_KWARGS[] = { "title", "xlabel", "ylabel", NULL };
+static const char *const PLOT_KWARGS[] = { "title", "xlabel", "ylabel", "names", NULL };
 Value native_plot(NATIVE_PARAMS){
 	*silent = 1;
 	PlotData data; PlotLayout layout;

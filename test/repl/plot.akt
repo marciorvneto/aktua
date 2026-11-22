@@ -1,0 +1,4 @@
+let x = [0, 1]
+plot(x, (x, x), names=5)
+plot(x, (x, x), names=("a", "b", "c"))
+plot(x, (x, x), names=("a", 2))

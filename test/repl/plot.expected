@@ -1,0 +1,3 @@
+Error: plot: names must be a string or a tuple of strings
+Error: plot: the number of names (3) must be equal to the number of series (2)
+Error: plot: name at index 1 is not a string
