@@ -617,7 +617,6 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 	nx = num_ticks(&layout->x);
 	for(size_t k = 0; k < nx; k++){
 		double t      = tick_value(&layout->x, k);
-		int dec       = tick_decimals(layout->x.step);
 		double tick_x = canvas_map_x(t, &layout->x, rect_width) + margin_left;
 
 		fprintf(out,  "<line ");
@@ -629,20 +628,22 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		SVG_ATTR(out, "y2",              "%g", margin_top + rect_height + 5);
 		fprintf(out,  " />\n");
 
+    char label[TICK_LABEL_MAX];
+    format_tick(&layout->x, t, label, sizeof(label));
+
 		fprintf(out, "<text ");
 		SVG_ATTR(out, "fill",        "%s", "#555");
 		SVG_ATTR(out, "text-anchor", "%s", "middle");
 		SVG_ATTR(out, "x",           "%g", tick_x);
 		SVG_ATTR(out, "y",           "%g", margin_top + rect_height + 18);
 		fprintf(out,  " >");
-		fprintf(out,  "%.*f", dec, t);
+		fprintf(out,  "%s", label);
 		fprintf(out,  "</text>\n");
 	}
 
 	ny = num_ticks(&layout->y);
 	for(size_t k = 0; k < ny; k++){
 		double t      = tick_value(&layout->y, k);
-		int dec       = tick_decimals(layout->y.step);
 		double tick_y = canvas_map_y(t, &layout->y, rect_height) + margin_top;
 
 		fprintf(out,  "<line ");
@@ -654,6 +655,9 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		SVG_ATTR(out, "y2",              "%g", tick_y);
 		fprintf(out,  " />\n");
 
+    char label[TICK_LABEL_MAX];
+    format_tick(&layout->y, t, label, sizeof(label));
+
 		fprintf(out, "<text ");
 		SVG_ATTR(out, "fill",              "%s", "#555");
 		SVG_ATTR(out, "text-anchor",       "%s", "end");
@@ -661,7 +665,7 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		SVG_ATTR(out, "x",                 "%g", margin_left - 8);
 		SVG_ATTR(out, "y",                 "%g", tick_y);
 		fprintf(out, " >");
-		fprintf(out, "%.*f", dec, t);
+		fprintf(out, "%s", label);
 		fprintf(out, "</text>\n");
 	}
 
