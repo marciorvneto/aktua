@@ -21,5 +21,5 @@ let ws = 10 ^ linspace(-4, 1, 201)    // [rad/s]
 let MagdB = 20 * log10(abs(W(ws*I)))
 let Arg   = arg(W(ws*I)) * 180 / pi    // [deg]
 
-plot(log10(ws), MagdB)
-plot(log10(ws), Arg)
+plot(ws, MagdB, xscale="log")
+plot(ws, Arg,   yscale="log")

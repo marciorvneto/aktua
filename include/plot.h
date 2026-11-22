@@ -24,15 +24,18 @@ typedef struct {
 typedef struct {
   const  PlotSeries *series;
   size_t             num_series;
-  const  char       *title;
-  const  char       *x_label;
-  const  char       *y_label;
+  const char        *title;
+  const char        *x_label;
+  const char        *y_label;
+  bool               x_log;
+  bool               y_log;
 } PlotData;
 
 typedef struct {
   double lo, hi;
   double step;
   size_t num_ticks;
+  bool   log;
 } PlotAxis;
 
 // May extend this in the future. At the moment

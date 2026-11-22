@@ -3479,6 +3479,8 @@ const Value *kwarg_get(size_t kwargc, const KwArg *kwargs, const char *name){
 	return NULL;
 }
 
+// Only returns false if there's an error. If the argument isn't there,
+// it returns true and doesn't write to out.
 bool kwarg_string(Environment *e, const char *fn, size_t kwargc, const KwArg *kwargs,
 		const char *name, const char **out){
 	const Value *v = kwarg_get(kwargc, kwargs, name);
@@ -3491,6 +3493,32 @@ bool kwarg_string(Environment *e, const char *fn, size_t kwargc, const KwArg *kw
 	return true;
 }
 
+bool kwarg_choice(Environment *e, const char *fn, size_t kwargc, const KwArg *kwargs,
+                  const char *name, const char *const *choices, size_t def_idx, size_t *out){
+  const char *given = NULL;
+  if(!kwarg_string(e, fn, kwargc, kwargs, name, &given)) return false;
+  if(given == NULL) { *out = def_idx; return true; }
+
+  for(size_t i = 0; choices[i] != NULL; i++ ){
+    if(strcmp(given, choices[i]) == 0){
+      *out = i;
+      return true;
+    }
+  }
+  
+  // No matches found. List the possibilities.
+
+	char list[256];
+	size_t len = 0;
+	list[0] = '\0';
+
+	for(size_t k = 0; choices[k] != NULL; k++){
+		buf_append(list, sizeof(list), &len, "%s\"%s\"", k ? ", " : "", choices[k]);
+	}
+
+	runtime_error(e, "%s: %s must be one of %s (got \"%s\")", fn, name, list, given);
+	return false;
+}
 
 //============================
 //
@@ -5066,6 +5094,17 @@ Value native_push(NATIVE_PARAMS){
 
 // ------------- Plotting ------------
 
+static double *log10_copy(Arena *a, const double *v, size_t n){
+  double *out = arena_alloc(a, n * sizeof(double));
+  for(size_t i = 0; i < n; i++) out[i] = v[i] > 0 ? log10(v[i]) : NAN;
+  return out;
+}
+
+static const char *const SCALES[] = { 
+  "linear",
+  "log",
+  NULL 
+};
 bool plot_prepare(
 		Arena *a,
 		Environment *e,
@@ -5092,6 +5131,11 @@ bool plot_prepare(
 	size_t selected_style_idx;
 	if(!get_opt_choice(e, fn, argc, argv, style_idx, "style", PLOT_STYLES, PLOT_LINES, &selected_style_idx) ) return false;
 
+  size_t selected_xscale_idx;
+  if(!kwarg_choice(e, fn, kwargc, kwargs, "xscale", SCALES, 0, &selected_xscale_idx)) return false;
+  size_t selected_yscale_idx;
+  if(!kwarg_choice(e, fn, kwargc, kwargs, "yscale", SCALES, 0, &selected_yscale_idx)) return false;
+
 	double *xs, *ys;
 	size_t  nx,  ny;
 	if(!as_real_vector(a, &x_val, &xs, &nx)){
@@ -5112,6 +5156,11 @@ bool plot_prepare(
 		runtime_error(e, "%s requires the y value to be a tuple of arrays or an array", fn);
 		return false;
 	}
+
+  // X Log transform
+
+  double *xs_final = xs;
+  if(selected_xscale_idx == 1) xs_final = log10_copy(a, xs, nx);
 
 	PlotSeries *series = arena_alloc(a, n * sizeof(PlotSeries));
 	for(size_t i = 0; i < n; i++){
@@ -5138,13 +5187,24 @@ bool plot_prepare(
 					fn, who, y_val.value.tensor.count, x_val.value.tensor.count);
 			return false;
 		}
-		series[i].x_data     = xs;
-		series[i].y_data     = ys;
+
+    // Y Log transform
+
+    double *ys_final = ys;
+    if(selected_yscale_idx == 1) ys_final = log10_copy(a, ys, ny);
+
+		series[i].x_data     = xs_final;
+		series[i].y_data     = ys_final;
 		series[i].num_points = nx;
 		series[i].style      = (PlotStyle)selected_style_idx;
 	}
 
-	*data = (PlotData) { .series = series, .num_series = n };
+	*data = (PlotData) { 
+    .series     = series,
+    .num_series = n ,
+    .x_log      = selected_xscale_idx == 1,
+    .y_log      = selected_yscale_idx == 1,
+  };
 
 	if(!kwarg_string(e, fn, kwargc, kwargs, "title", &data->title)) return false;
 	if(!kwarg_string(e, fn, kwargc, kwargs, "xlabel", &data->x_label)) return false;
@@ -5187,7 +5247,15 @@ bool plot_prepare(
 	return true;
 }
 
-static const char *const PLOT_KWARGS[] = { "title", "xlabel", "ylabel", "names", NULL };
+static const char *const PLOT_KWARGS[] = { 
+  "title",
+  "xlabel",
+  "ylabel",
+  "names",
+  "xscale",
+  "yscale",
+  NULL 
+};
 Value native_plot(NATIVE_PARAMS){
 	*silent = 1;
 	PlotData data; PlotLayout layout;

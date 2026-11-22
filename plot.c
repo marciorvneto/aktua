@@ -366,8 +366,10 @@ int plot_layout(const PlotData *data, PlotLayout *out){
 		}
 	}
 	if(x_min > x_max) return 0;
-	out->x = compute_axis(x_min, x_max, 6);
-	out->y = compute_axis(y_min, y_max, 5);
+	out->x     = compute_axis(x_min, x_max, 6);
+	out->y     = compute_axis(y_min, y_max, 5);
+  out->x.log = data->x_log;
+  out->y.log = data->y_log;
 	return 1;
 }
 
