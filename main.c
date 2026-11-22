@@ -577,6 +577,20 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 	if(data->x_label != NULL) margin_bottom += 20;
 	if(data->y_label != NULL) margin_left   += 20;
 
+	// Legend measuring
+	
+	double legend_text_w = 0;
+	bool has_legend      = false;
+	for(size_t i = 0; i < data->num_series; i++){
+		if(data->series[i].name){
+			legend_text_w = MAX(legend_text_w, 7.0 * utf8_width(data->series[i].name)); // TODO: change the 7.0
+			has_legend    = true;
+		}
+	}
+	double swatch_w = 20.0;
+	double legend_w = swatch_w + 6 + legend_text_w;
+	if(has_legend) margin_right += 16 + legend_w;
+
 	double rect_width  = width - margin_left - margin_right;
 	double rect_height = height - margin_top - margin_bottom;
 
@@ -788,6 +802,47 @@ void plot_svg(FILE *out, const PlotData *data, const PlotLayout *layout,
 		svg_write_text(out, data->y_label);
 		fprintf(out, "</text>\n");
 	}
+
+	// Legend
+	if(has_legend){
+		double row_h = 18;
+		double x0    = margin_left + rect_width + 16;
+		for(size_t i = 0; i < data->num_series; i++){
+			double y = margin_top + i * row_h + row_h / 2;
+			if(data->series[i].name){
+				const char *color = PALETTE_COLORS[i % LEN(PALETTE_COLORS)];
+
+				if(data->series[i].style == PLOT_DOTS){
+					fprintf(out, "<circle ");
+					SVG_ATTR(out, "cx",   "%g", x0 + swatch_w / 2);
+					SVG_ATTR(out, "cy",   "%g", y);
+					SVG_ATTR(out, "r",    "%g", 2.0);
+					SVG_ATTR(out, "fill", "%s", color);
+					fprintf(out, "/>\n");
+				}else{
+					fprintf(out, "<line ");
+					SVG_ATTR(out, "x1",           "%g", x0);
+					SVG_ATTR(out, "y1",           "%g", y);
+					SVG_ATTR(out, "x2",           "%g", x0 + swatch_w);
+					SVG_ATTR(out, "y2",           "%g", y);
+					SVG_ATTR(out, "stroke",       "%s", color);
+					SVG_ATTR(out, "stroke-width", "%g", 2.0);
+					fprintf(out, "/>\n");
+				}
+
+				fprintf(out, "<text ");
+				SVG_ATTR(out, "x",                 "%g", x0 + swatch_w + 6);
+				SVG_ATTR(out, "fill",              "%s", "#555");
+				SVG_ATTR(out, "y",                 "%g", y);
+				SVG_ATTR(out, "dominant-baseline", "%s", "middle");
+				fprintf(out, ">");
+				svg_write_text(out, data->series[i].name);
+				fprintf(out, "</text>\n");
+
+			}
+		}
+	}
+
 
 	fprintf(out, "</svg>\n");
 }

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400" font-family="system-ui, sans-serif" font-size="12" style="font-variant-numeric: tabular-nums" >
+<rect x="0" y="0" width="640" height="400" fill="#ffffff"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="16" x2="48" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="177.75" y1="16" x2="177.75" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="307.5" y1="16" x2="307.5" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="437.25" y1="16" x2="437.25" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="567" y1="16" x2="567" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="364" x2="567" y2="364"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="277" x2="567" y2="277"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="190" x2="567" y2="190"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="103" x2="567" y2="103"  />
+<line stroke="#e0e0e0" shape-rendering="crispEdges" x1="48" y1="16" x2="567" y2="16"  />
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="16" x2="48" y2="364"  />
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="364" x2="567" y2="364"  />
+<circle cx="48.00" cy="364.00" r="2" fill="#007589" />
+<circle cx="177.75" cy="277.00" r="2" fill="#007589" />
+<circle cx="307.50" cy="190.00" r="2" fill="#007589" />
+<circle cx="437.25" cy="103.00" r="2" fill="#007589" />
+<circle cx="567.00" cy="16.00" r="2" fill="#007589" />
+<circle cx="48.00" cy="16.00" r="2" fill="#9a8202" />
+<circle cx="177.75" cy="103.00" r="2" fill="#9a8202" />
+<circle cx="307.50" cy="190.00" r="2" fill="#9a8202" />
+<circle cx="437.25" cy="277.00" r="2" fill="#9a8202" />
+<circle cx="567.00" cy="364.00" r="2" fill="#9a8202" />
+<circle cx="48.00" cy="190.00" r="2" fill="#a74449" />
+<circle cx="177.75" cy="190.00" r="2" fill="#a74449" />
+<circle cx="307.50" cy="190.00" r="2" fill="#a74449" />
+<circle cx="437.25" cy="190.00" r="2" fill="#a74449" />
+<circle cx="567.00" cy="190.00" r="2" fill="#a74449" />
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="364" x2="48" y2="369"  />
+<text fill="#555" text-anchor="middle" x="48" y="382"  >0</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="177.75" y1="364" x2="177.75" y2="369"  />
+<text fill="#555" text-anchor="middle" x="177.75" y="382"  >1</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="307.5" y1="364" x2="307.5" y2="369"  />
+<text fill="#555" text-anchor="middle" x="307.5" y="382"  >2</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="437.25" y1="364" x2="437.25" y2="369"  />
+<text fill="#555" text-anchor="middle" x="437.25" y="382"  >3</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="567" y1="364" x2="567" y2="369"  />
+<text fill="#555" text-anchor="middle" x="567" y="382"  >4</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="364" x2="43" y2="364"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="364"  >0</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="277" x2="43" y2="277"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="277"  >1</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="190" x2="43" y2="190"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="190"  >2</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="103" x2="43" y2="103"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="103"  >3</text>
+<line stroke="#333" shape-rendering="crispEdges" x1="48" y1="16" x2="43" y2="16"  />
+<text fill="#555" text-anchor="end" dominant-baseline="middle" x="40" y="16"  >4</text>
+<circle cx="593" cy="25" r="2" fill="#007589" />
+<text x="609" fill="#555" y="25" dominant-baseline="middle" >a</text>
+<circle cx="593" cy="43" r="2" fill="#9a8202" />
+<text x="609" fill="#555" y="43" dominant-baseline="middle" >b</text>
+<circle cx="593" cy="61" r="2" fill="#a74449" />
+<text x="609" fill="#555" y="61" dominant-baseline="middle" >c</text>
+</svg>

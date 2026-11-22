@@ -1,0 +1,11 @@
+let x = linspace(0, 4, 5)
+let y = ([0, 1, 2, 3, 4], [4, 3, 2, 1, 0], [2, 2, 2, 2, 2])
+
+// Three named series; the first name needs escaping
+plot_svg(x, y, "build/svg/legend_lines.svg", names=("a < b & c", "Ω = 2", "flat"))
+
+// Dots draw circle samples
+plot_svg(x, y, "build/svg/legend_dots.svg", "dots", names=("a", "b", "c"))
+
+// A single series may take a plain string
+plot_svg(x, y[0], "build/svg/legend_single.svg", names="only")
