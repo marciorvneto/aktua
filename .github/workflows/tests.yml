@@ -154,7 +154,8 @@ jobs:
         run: choco install make --no-progress
 
       - name: Run tests
-        run: make test PLATFORM=windows TEST_DEPS=
+        # test-svg runs on Linux only: C libraries round printf ties differently
+        run: make test-scripts test-errors test-repl PLATFORM=windows TEST_DEPS=
 
   test:
     runs-on: ubuntu-latest
