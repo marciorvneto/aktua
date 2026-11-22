@@ -40,6 +40,7 @@ AKTUA  = build/aktua$(EXE)
 SRC = main.c lineedit.c platform.c $(wildcard native/*.c)
 
 TEST_RUN = AKTUA_NO_VIEWER=1 WSLENV=AKTUA_NO_VIEWER ./$(AKTUA)
+TEST_DEPS ?= aktua
 
 aktua: $(AKTUA) stdlib
 
@@ -58,12 +59,12 @@ $(AKTUA): $(SRC) include/core.h $(RES) | build
 test: test-scripts test-errors test-svg test-repl
 	@echo "All tests passed"
 
-test-scripts: aktua
+test-scripts: $(TEST_DEPS)
 	@for f in test/*.akt examples/*.akt; do \
 		$(TEST_RUN) "$$f" > /dev/null || { echo "FAILED: $$f"; exit 1; }; \
 	done;
 
-test-errors: aktua
+test-errors: $(TEST_DEPS)
 	@for f in test/errors/*.akt; do \
 		$(TEST_RUN) "$$f" > build/error_test.out 2>/dev/null && { echo "SHOULD HAVE FAILED: $$f"; exit 1; }; \
 		diff -u --strip-trailing-cr "$${f%.akt}.expected" build/error_test.out || { \
@@ -72,7 +73,7 @@ test-errors: aktua
 		}; \
 	done;
 
-test-svg: aktua
+test-svg: $(TEST_DEPS)
 	@rm -rf build/svg; mkdir -p build/svg
 	@for f in test/svg/*.akt; do                                        \
 		$(TEST_RUN) "$$f" > /dev/null || { echo "FAILED: $$f"; exit 1; }; \
@@ -85,7 +86,7 @@ test-svg: aktua
 		};                                                                \
 	done
 
-test-repl: aktua 
+test-repl: $(TEST_DEPS)
 	@for f in test/repl/*.akt; do                                                \
 		$(TEST_RUN) -q < "$$f" 2> build/repl_test.out > /dev/null;                 \
 		diff -u --strip-trailing-cr "$${f%.akt}.expected" build/repl_test.out || { \
