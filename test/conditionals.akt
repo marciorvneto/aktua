@@ -31,3 +31,9 @@ if 2 {
 	ran = true
 }
 assert(ran, "nonzero number is truthy")
+
+// Any number of elifs
+let n = 3
+let branch = 0
+if n == 1 { branch = 1 } elif n == 2 { branch = 2 } elif n == 3 { branch = 3 } else { branch = 4 }
+assert(branch == 3, "third branch taken")

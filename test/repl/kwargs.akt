@@ -8,3 +8,7 @@ sin(x=1)
 f(z=1, 2)
 plot([0, 1], [0, 1], titel="x")
 plot([0, 1], [0, 1], title="a", title="b")
+fn d(a, b=nope) { a }
+d(1)
+d()
+fn e(a=1, b) { a }

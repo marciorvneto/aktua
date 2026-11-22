@@ -5,3 +5,6 @@ Error: sin does not take parameter 'x'
 line 1, col 1: positional argument after keyword argument
 Error: plot does not take parameter 'titel'
 Error: plot got parameter 'title' twice
+Error: Undefined variable nope
+Error: d is missing parameter 'a'
+line 1, col 4: parameter without a default after one with a default

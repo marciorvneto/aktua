@@ -943,6 +943,7 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 	      X(AST_BINARY_OP)      \
 	      X(AST_POSTFIX_OP)     \
 	      X(AST_FN_CALL)        \
+	      X(AST_PARAM)          \
 	      X(AST_CALL)           \
 	      X(AST_KWARG)          \
 	      X(AST_ARGS_LIST)      \
@@ -1071,6 +1072,11 @@ struct AST {
 			AST    *block;
       size_t num_args;
 		} fn_def;
+
+    struct {
+      char *id;
+      AST  *default_value;
+    } param;
 
 		Value literal;
 
@@ -1274,6 +1280,18 @@ AST *ast_make_id(Arena *pa, size_t len){
 	expr->as.literal.valueType = VALUE_ID;
 	return expr;
 }
+
+AST *ast_make_param(Arena *pa, const char *id){
+	AST *param                    = ast_alloc(pa, AST_PARAM);
+  size_t len                    = strlen(id);
+	param->statement_type         = STATEMENT_EXPR;
+	param->as.param.id            = arena_alloc(pa, len + 1);
+	param->as.param.default_value = NULL;
+  memcpy(param->as.param.id, id, len);
+  param->as.param.id[len] = '\0';
+	return param;
+}
+
 
 AST *ast_make_indexing(Arena *pa){
 	AST *expr = ast_alloc(pa, AST_INDEXING);
@@ -1892,36 +1910,82 @@ AST *parse_expression(Arena *pa, AST *parent, Parser *parser){
 	return parse_or_expr(pa, parent, parser);
 }
 
+AST *parse_param(Arena *pa, AST *fn_def, Parser *parser){
+  Token *id = NULL;
+  if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
 
-void parse_params(Arena *pa, AST *fn_def, Parser *parser){
-	fn_def->as.fn_def.num_args = 0;
-	if(parser_peek(parser)->type != TOK_ID) return;
+  AST *param = ast_make_param(pa, id->value);
 
-	AST *tail = NULL;
+  if(parser_peek(parser)->type == TOK_EQ){
+    parser_eat(TOK_EQ, parser); // Guaranteed to succeed
+    AST *default_value = parse_expression(pa, fn_def, parser);
+    if(default_value == NULL) return NULL;
+    param->as.param.default_value = default_value;
+  }
 
-	while(parser_peek(parser)->type == TOK_ID){
-		Token *id_tok = parser_eat(TOK_ID, parser);
-		if(id_tok == NULL) return;
-
-		AST *node  = ast_make_id(pa, strlen(id_tok->value));
-    strcpy(node->as.literal.value.id, id_tok->value);
-		node->next = NULL;
-
-		if(tail == NULL){
-			fn_def->as.fn_def.params = node;
-		}else {
-			tail->next = node;
-		}
-
-		tail = node;
-		fn_def->as.fn_def.num_args++;
-
-		if(parser_peek(parser)->type != TOK_COMMA){
-			return;
-		} else parser_eat(TOK_COMMA, parser);
-	}
-
+  return param;
 }
+
+AST *parse_params_tail(Arena *pa, AST *fn_def, Parser *parser){
+  size_t save = parser->next;
+  if(!parser_eat(TOK_COMMA, parser)) return NULL;
+  AST *param = parse_param(pa, fn_def, parser);
+
+  if(param == NULL) { parser->next = save; return NULL; }
+  
+  AST *tail = parse_params_tail(pa, fn_def, parser);
+  param->next = tail;
+
+  return param;
+}
+
+AST *parse_params(Arena *pa, AST *fn_def, Parser *parser){
+  size_t save = parser->next;
+  AST *first = parse_param(pa, fn_def, parser);
+  if(first == NULL){
+    parser->next = save;
+    return NULL;
+  }
+
+  save = parser->next;
+  AST *tail = parse_params_tail(pa, fn_def, parser);
+  if(tail == NULL) parser->next = save;
+
+  first->next = tail;
+
+
+  return first;
+}
+
+// void parse_params(Arena *pa, AST *fn_def, Parser *parser){
+// 	fn_def->as.fn_def.num_args = 0;
+// 	if(parser_peek(parser)->type != TOK_ID) return;
+//
+// 	AST *tail = NULL;
+//
+// 	while(parser_peek(parser)->type == TOK_ID){
+// 		Token *id_tok = parser_eat(TOK_ID, parser);
+// 		if(id_tok == NULL) return;
+//
+// 		AST *node  = ast_make_id(pa, strlen(id_tok->value));
+//     strcpy(node->as.literal.value.id, id_tok->value);
+// 		node->next = NULL;
+//
+// 		if(tail == NULL){
+// 			fn_def->as.fn_def.params = node;
+// 		}else {
+// 			tail->next = node;
+// 		}
+//
+// 		tail = node;
+// 		fn_def->as.fn_def.num_args++;
+//
+// 		if(parser_peek(parser)->type != TOK_COMMA){
+// 			return;
+// 		} else parser_eat(TOK_COMMA, parser);
+// 	}
+//
+// }
 
 AST *parse_block(Arena *pa, AST *parent, Parser *parser){
   if(parser_eat(TOK_LCURLY, parser) == NULL) return NULL;
@@ -2051,7 +2115,7 @@ AST *parse_if_stmt(Arena *pa, AST *parent, Parser *parser){
       AST *current = stmt;
       Token *tok   = NULL;
 
-      if((tok = parser_peek(parser)) && 
+      while((tok = parser_peek(parser)) && 
           parser_keyword_match("elif", tok))
       {
         parser_eat(TOK_KEYWORD, parser);
@@ -2119,7 +2183,23 @@ AST *parse_fn_def(Arena *pa, AST *parent, Parser *parser){
   strcpy(stmt->as.fn_def.id, id->value);
 
   stmt->as.fn_def.id[len] = '\0';
-  parse_params(pa, stmt, parser);
+  stmt->as.fn_def.params  = parse_params(pa, stmt, parser);
+
+  size_t num_args = 0;
+  for(AST *node = stmt->as.fn_def.params; node != NULL; node = node->next) num_args ++;
+  stmt->as.fn_def.num_args = num_args;
+
+  // Check if all args with default values follow those without them
+  // e.g. we can't have f(x=3, y)
+  bool seen_default = false;
+  for(AST *node = stmt->as.fn_def.params; node != NULL; node = node->next){
+    if(node->as.param.default_value) seen_default = true;
+    else if(seen_default){
+      size_t at = id - parser->tokens;
+      parser_error(parser, at, "parameter without a default after one with a default");
+      return NULL;
+    }
+  }
 
   if(!parser_eat(TOK_RPAREN, parser)) return NULL;
 
@@ -2280,6 +2360,27 @@ void ast_print(AST *ast, int level){
 			}
 		case AST_STATEMENT:
 			{
+        if(ast->statement_type == STATEMENT_FUNCTION_DEF){
+          printf("%sFN_DEF: %s\n", buf, ast->as.fn_def.id);
+          for(AST *node = ast->as.fn_def.params; node != NULL; node = node->next){
+            ast_print(node, level + 1);
+          }
+          ast_print(ast->as.fn_def.block, level + 1);
+          break;
+        }
+        if(ast->statement_type == STATEMENT_IF){
+          printf("%sIF:\n", buf);
+          ast_print(ast->as.if_stmt.condition, level + 1);
+          if(ast->as.if_stmt.if_block) {
+            printf("%sIF_BLOCK:\n", buf);
+            ast_print(ast->as.if_stmt.if_block, level + 1);
+          }
+          if(ast->as.if_stmt.else_block){
+            printf("%s%s:\n", buf, ast->as.if_stmt.else_is_elif ? "ELIF" : "ELSE");
+            ast_print(ast->as.if_stmt.else_block, level + 1);
+          }
+          break;
+        }
 				printf("%sSTMT:\n", buf);
 				fill_indent(level + 1, buf);
 				printf("%sSRC:  %s\n", buf, ast->as.statement.dst);
@@ -2325,6 +2426,16 @@ void ast_print(AST *ast, int level){
 		case AST_ID:
 			{
         printf("%sID: %s\n", buf, ast->as.literal.value.id);
+				break;
+			}
+		case AST_PARAM:
+			{
+        printf("%sPARAM: %s\n", buf, ast->as.param.id);
+        if(ast->as.param.default_value != NULL){
+          fill_indent(level + 1, buf);
+          printf("%sDEFAULT:\n", buf);
+          ast_print(ast->as.param.default_value, level + 2);
+        }
 				break;
 			}
 		case AST_LITERAL:
@@ -6031,7 +6142,7 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 		AST *param  = fun->value.fun.definition->as.fn_def.params;
 		bool found  = false;
 		for(size_t j = 0; j < num_params && param != NULL; j++, param = param->next){
-			if(strcmp(kwarg.name, param->as.literal.value.id) == 0){
+			if(strcmp(kwarg.name, param->as.param.id) == 0){
 				if(filled[j]){
 					runtime_error(e, "%s got parameter '%s' twice", name, kwarg.name);
 					return make_nan();
@@ -6051,11 +6162,12 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 	AST *param = fun->value.fun.definition->as.fn_def.params;
 	for(size_t j = 0; j < num_params && param != NULL; j++, param = param->next){
 		if(!filled[j]){
-			runtime_error(e, "%s is missing parameter '%s'", name, param->as.literal.value.id);
-			return make_nan();
+      if(!param->as.param.default_value){
+        runtime_error(e, "%s is missing parameter '%s'", name, param->as.param.id);
+        return make_nan();
+      }
 		}
 	}
-
 
 	// Push a new environment for the function scope
 
@@ -6064,10 +6176,19 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 
 	// Set its argument values to those evaluated before
 
+  size_t errors = e->run_stats->runtime_errors;
+
   AST *arg_def = fun->value.fun.definition->as.fn_def.params;
-  for(size_t i = 0; i < num_params; i++, arg_def = arg_def->next){
-      Value owned = value_clone(env_storage(new_env), &bound[i]);
-      env_set_variable(new_env, arg_def->as.literal.value.id, &owned);
+  for(size_t i = 0; i < num_params; i++, arg_def = arg_def->next){ 
+    Value v = filled[i]
+            ? bound[i]
+            : eval_expr(ta, new_env, script_path, arg_def->as.param.default_value, silent);
+    Value owned = value_clone(env_storage(new_env), &v);
+    env_set_variable(new_env, arg_def->as.param.id, &owned);
+  }
+  if(errors != e->run_stats->runtime_errors){
+    arena_restore(e->frame, scratch);
+    return make_nan();
   }
 
 	Value result;

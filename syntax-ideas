@@ -43,9 +43,14 @@ ELSE_OPT        = "else" BLOCK
 
 FUNCTION_DEF    = "fn" id "(" PARAMS ")" BLOCK
 
-PARAMS          = id
-                | PARAMS, id
+PARAMS          = PARAM PARAMS_TAIL
                 | eps
+
+PARAMS_TAIL     = "," PARAM PARAMS_TAIL
+                | eps
+
+PARAM           = id "=" EXPRESSION
+                | id
 
 BLOCK           = "{" STATEMENTS_LIST "}"
 

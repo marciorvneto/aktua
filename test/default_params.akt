@@ -1,0 +1,24 @@
+import("test.akt")
+
+fn my_function(x, y, z=23) {
+  x + y * z
+}
+
+assert_eq(my_function(1,2), 1 + 2 * 23)
+assert_eq(my_function(1, 2, 3), 7)
+assert_eq(my_function(1, 2, z=3), 7)
+
+// Defaults see the parameters before them, not the caller's variables
+let x = 100
+fn count(x, n=len(x)) { n }
+assert_eq(count([1, 2, 3]), 3)
+
+fn digits(a, b=a*2, c=a+b) { a + 10*b + 100*c }
+assert_eq(digits(1), 321)
+assert_eq(digits(1, c=0), 21)
+
+fn fact(n, acc=1) {
+  if n <= 1 { return acc }
+  fact(n - 1, acc * n)
+}
+assert_eq(fact(5), 120)
