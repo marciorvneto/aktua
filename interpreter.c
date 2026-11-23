@@ -2602,7 +2602,7 @@ int env_variable_idx(Environment *e, const char *name){
 
 Variable *env_get_variable_from_idx(Environment *e, int idx){
 	if(idx < 0) return NULL;
-	if(idx >= e->num_vars) return NULL;
+	if((size_t)idx >= e->num_vars) return NULL;
 	return &e->vars[idx];
 }
 
@@ -3050,7 +3050,7 @@ int poly_divmod(Arena *arena, Polynomial a, Polynomial b, Polynomial *q_out, Pol
 		double coef     = r.coeffs[r.deg] / lead_coeff;
 		q.coeffs[q_deg] = coef;
 
-		for(int j = 0; j < b.num_coeffs; j++){
+		for(size_t j = 0; j < b.num_coeffs; j++){
 			r.coeffs[j + q_deg] = cancel_add(r.coeffs[j + q_deg], -coef * b.coeffs[j]);
 		}
 

@@ -10,7 +10,7 @@ PLATFORM ?= linux
 BUILD ?= debug
 
 # Shared flags
-CFLAGS  = -Wall -I./include/
+CFLAGS  = -Wall -Wsign-compare -Wtype-limits -I./include/
 LDFLAGS =
 LDLIBS  = -lm
 
