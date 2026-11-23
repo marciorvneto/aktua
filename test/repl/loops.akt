@@ -1,0 +1,6 @@
+fn f() { break }
+f()
+fn g() { continue }
+g()
+break
+continue

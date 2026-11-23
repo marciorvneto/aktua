@@ -8,7 +8,7 @@ vim.cmd([[
 
   syntax keyword aktuaKeyword let fn return
   syntax keyword aktuaConditional if elif else
-  syntax keyword aktuaRepeat for in while
+  syntax keyword aktuaRepeat for in while break continue
   syntax keyword aktuaBoolean true false
   syntax keyword aktuaLogical and or not
 

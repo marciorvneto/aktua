@@ -1,0 +1,56 @@
+import("test.akt")
+
+let i = 0
+while(true){
+  i = i + 1
+  if i == 4 { break }
+}
+
+assert_eq(i, 4)
+
+let s = 0
+let i = 0
+while(true){
+  if i == 2 { 
+    i = i + 1
+    continue 
+  }
+  s = s + i
+  if i == 4 { break }
+  i = i + 1
+}
+
+assert_eq(s, 1 + 3 + 4)
+
+// for: skip 2, stop at 5
+let s = 0
+for k in range(0, 10) {
+  if k == 5 { break }
+  if k == 2 { continue }
+  s = s + k
+}
+assert_eq(s, 0 + 1 + 3 + 4)
+
+// break leaves only the inner loop
+let pairs = 0
+for a in range(0, 3) {
+  for b in range(0, 3) {
+    if b == 1 { break }
+    pairs = pairs + 1
+  }
+}
+assert_eq(pairs, 3)
+
+// break inside a function's loop, then the function goes on
+fn first_above(xs, limit) {
+  let found = -1
+  for x in xs {
+    if x > limit {
+      found = x
+      break
+    }
+  }
+  found
+}
+assert_eq(first_above([1, 5, 9, 12], 6), 9)
+assert_eq(first_above([1, 2], 6), -1)

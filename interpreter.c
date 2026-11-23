@@ -592,16 +592,18 @@ int tokenizer_eat_string(Arena *a, Tokenizer *tokenizer, Token *out){
 
 #define KEYWORD_FROM_OP(word, tok) X(word)
 
-#define KEYWORDS_LIST            \
-        X(let)                   \
-        X(fn)                    \
-        X(if)                    \
-        X(else)                  \
-        X(elif)                  \
-        X(return)                \
-        X(for)                   \
-        X(while)                 \
-        X(in)                    \
+#define KEYWORDS_LIST                             \
+        X(let)                                    \
+        X(fn)                                     \
+        X(if)                                     \
+        X(else)                                   \
+        X(elif)                                   \
+        X(return)                                 \
+        X(for)                                    \
+        X(while)                                  \
+        X(in)                                     \
+        X(break)                                  \
+        X(continue)                               \
         BOOLEAN_OP_KEYWORDS_LIST(KEYWORD_FROM_OP) \
         V(KEYWORDS_COUNT)
 
@@ -1019,6 +1021,8 @@ typedef enum {
 	STATEMENT_FOR,
 	STATEMENT_WHILE,
 	STATEMENT_RETURN,
+	STATEMENT_BREAK,
+	STATEMENT_CONTINUE,
 	STATEMENT_EXPR,
 } StatementType;
 
@@ -2169,6 +2173,25 @@ AST *parse_return_stmt(Arena *pa, AST *parent, Parser *parser){
     return NULL;
 }
 
+AST *parse_continue_stmt(Arena *pa, AST *parent, Parser *parser){
+    if(parser_keyword_eat("continue", parser)) {
+      AST *stmt = ast_make_statement(pa, STATEMENT_CONTINUE);
+			if(!parser_eat_stmt_end(parser)) return NULL;
+      return stmt;
+    }
+    return NULL;
+}
+
+AST *parse_break_stmt(Arena *pa, AST *parent, Parser *parser){
+    if(parser_keyword_eat("break", parser)) {
+      AST *stmt = ast_make_statement(pa, STATEMENT_BREAK);
+			if(!parser_eat_stmt_end(parser)) return NULL;
+      return stmt;
+    }
+    return NULL;
+}
+
+
 AST *parse_fn_def(Arena *pa, AST *parent, Parser *parser){
   if(parser_keyword_eat("fn", parser) == NULL) return NULL;
   Token *id = NULL;
@@ -2223,12 +2246,14 @@ AST *parse_statement(Arena *pa, AST *parent, Parser *parser){
   AST *stmt = NULL;
 
   if(
-      (parser->next = save, (stmt = parse_assignment(pa, parent, parser)))  ||
-      (parser->next = save, (stmt = parse_return_stmt(pa, parent, parser))) ||
-      (parser->next = save, (stmt = parse_while_stmt(pa, parent, parser)))  ||
-      (parser->next = save, (stmt = parse_for_stmt(pa, parent, parser)))    ||
-      (parser->next = save, (stmt = parse_if_stmt(pa, parent, parser)))     ||
-      (parser->next = save, (stmt = parse_fn_def(pa, parent, parser)))      ||
+      (parser->next = save, (stmt = parse_assignment(pa, parent, parser)))    ||
+      (parser->next = save, (stmt = parse_return_stmt(pa, parent, parser)))   ||
+      (parser->next = save, (stmt = parse_continue_stmt(pa, parent, parser))) ||
+      (parser->next = save, (stmt = parse_break_stmt(pa, parent, parser)))    ||
+      (parser->next = save, (stmt = parse_while_stmt(pa, parent, parser)))    ||
+      (parser->next = save, (stmt = parse_for_stmt(pa, parent, parser)))      ||
+      (parser->next = save, (stmt = parse_if_stmt(pa, parent, parser)))       ||
+      (parser->next = save, (stmt = parse_fn_def(pa, parent, parser)))        ||
       (parser->next = save, (stmt = parse_expr_stmt(pa, parent, parser)))
     ) return stmt;
 
@@ -5963,6 +5988,8 @@ Value resolve_variable(Arena *a, Environment *e, Value *literal){
 typedef enum {
 	EXEC_OK,
 	EXEC_ERROR,
+	EXEC_BREAK,
+	EXEC_CONTINUE,
 	EXEC_RETURN,
 } ExecStatus;
 
@@ -6205,6 +6232,12 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
   ExecStatus out = eval_block(ta,  new_env, script_path, block, &result);
 
   if(out == EXEC_ERROR){
+    arena_restore(e->frame, scratch);
+    return make_nan();
+  }
+
+  if(out == EXEC_BREAK || out == EXEC_CONTINUE){
+    runtime_error(e, "%s outside a loop", out == EXEC_BREAK ? "break" : "continue");
     arena_restore(e->frame, scratch);
     return make_nan();
   }
@@ -7251,6 +7284,14 @@ ExecStatus eval_stmt(
         if(result_out) *result_out = body_result;   // don't restore: it may point into ta
         return EXEC_RETURN;
       } 
+      if(status == EXEC_BREAK){
+        arena_restore(ta, scratch);
+        return EXEC_OK;
+      }
+      if(status == EXEC_CONTINUE){
+        arena_restore(ta, scratch);
+        continue;
+      }
       if(status != EXEC_OK) return status;
 
       arena_restore(ta, scratch);
@@ -7276,6 +7317,14 @@ ExecStatus eval_stmt(
 			Value body_result;
 			ExecStatus status = eval_block(ta, e, script_path, stmt->as.while_stmt.block,
 					&body_result);
+      if(status == EXEC_BREAK){
+        arena_restore(ta, scratch);
+        return EXEC_OK;
+      }
+      if(status == EXEC_CONTINUE){
+        arena_restore(ta, scratch);
+        continue;
+      }
 			if(status == EXEC_RETURN){
 				if(result_out) *result_out = body_result;   // don't restore: it may point into ta!
 					return EXEC_RETURN;
@@ -7292,6 +7341,8 @@ ExecStatus eval_stmt(
 		*result_out = eval_expr(ta, e, script_path, stmt->as.statement.expr, &silent);
 		return EXEC_RETURN;
   }
+  if(stmt->statement_type == STATEMENT_BREAK)    { return EXEC_BREAK; }
+  if(stmt->statement_type == STATEMENT_CONTINUE) { return EXEC_CONTINUE; }
 
 	return 0;
 }
@@ -7307,6 +7358,10 @@ int run_ast(Arena* ta, AST *ast, Environment *e, char *script_path){
 		if(status == EXEC_RETURN){
 			printf("Return outside function body\n");
 		}
+    if(status == EXEC_BREAK || status == EXEC_CONTINUE){
+      runtime_error(e, "%s outside a loop", status == EXEC_BREAK ? "break" : "continue");
+      return EXEC_ERROR;
+    }
 		if(status != EXEC_OK) return status;
 		stmt = stmt->next;
 	}
