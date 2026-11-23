@@ -13,7 +13,7 @@ vim.cmd([[
   syntax keyword aktuaLogical and or not
 
   syntax match aktuaDelimiter /[{}()\[\],;.]/
-  syntax match aktuaOperator  /[-+*\/^@<>=]/
+  syntax match aktuaOperator  /[-+*%\/^@<>=]/
 
   syntax match aktuaNumber /\v<\d+(\.\d+)?([eE][+-]?\d+)?>/
 
