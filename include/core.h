@@ -186,6 +186,7 @@ struct Environment {
 	Variable    *vars;
 	size_t      num_vars;
 	size_t      vars_capacity;
+	size_t      scope_start;
 	Environment *parent;
 	RunStats    *run_stats;
 	char        *exe_path;

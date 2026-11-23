@@ -2565,6 +2565,7 @@ void env_init(Environment *e, Arena *pa){
   e->persistent    = pa;
 	e->vars          = arena_alloc(pa, ENV_INITIAL_VARS * sizeof(Variable));
   e->vars_capacity = ENV_INITIAL_VARS;
+  e->scope_start   = 0;
 	e->num_vars      = 0;
 	e->parent        = NULL;
 }
@@ -2663,6 +2664,13 @@ void env_alloc_variable(Environment *e, const char *name, Value *value){
 	e->num_vars++;
 
 	// TODO: Implement reallocation
+}
+
+void env_declare_variable(Environment *e, const char *name, Value *value){
+  int idx = env_variable_idx(e, name);
+  if(idx >= 0 && (size_t)idx >= e->scope_start){ // Same scope: rebind
+    *e->vars[idx].value = *value;
+  }else{ env_alloc_variable(e, name, value); }
 }
 
 void env_set_variable(Environment *e, const char *name, Value *value){
@@ -6054,6 +6062,7 @@ Environment *push_env(Environment *e){
 	new_env->parent        = env_root(e);
   new_env->frame         = e->frame;
   new_env->num_vars      = 0;
+  new_env->scope_start   = 0;
   new_env->vars          = arena_alloc(fa, ENV_INITIAL_VARS * sizeof(Variable));
   new_env->vars_capacity = ENV_INITIAL_VARS;
 	new_env->run_stats     = e->run_stats;
@@ -7004,7 +7013,9 @@ ExecStatus eval_block(
     // Variables declared in this block end with it. They are always the last
     // ones in e->vars, so forgetting them is just restoring the count. Values
     // are copied out, and their storage is untouched, so results stay valid.
-    size_t mark = e->num_vars;
+    size_t mark        = e->num_vars;
+    size_t outer_scope = e->scope_start;
+    e->scope_start     = mark;
 
 		size_t errors = e->run_stats->runtime_errors;
 		for (AST *stmt = block->as.statement_list.first; stmt != NULL; stmt = stmt->next) {
@@ -7014,14 +7025,16 @@ ExecStatus eval_block(
 			} else {
 				int err = eval_stmt(ta, e, script_path, stmt, result_out);
 				if (err != 0) {
-					e->num_vars = mark;
+					e->num_vars    = mark;
+          e->scope_start = outer_scope;
 					return err;
 				}
 
 				result = make_num(0);
 			}
 			if(e->run_stats->runtime_errors != errors){
-				e->num_vars = mark;
+				e->num_vars    = mark;
+        e->scope_start = outer_scope;
 				return EXEC_ERROR;
 			}
 		}
@@ -7029,7 +7042,8 @@ ExecStatus eval_block(
     if (result_out)
         *result_out = result;
 
-    e->num_vars = mark;
+    e->num_vars    = mark;
+    e->scope_start = outer_scope;
     return 0;
 }
 
@@ -7153,12 +7167,10 @@ ExecStatus eval_stmt(
 	if(stmt->statement_type == STATEMENT_DECL_ASSIGN){
 		char *dst = stmt->as.statement.dst;
 
-		// let always makes a new variable. An existing one with the same
-		// name, here or in an enclosing block, is shadowed, not overwritten
     SCRATCH_SCOPE(ta){
       Value value = eval_expr(ta, e, script_path, stmt->as.statement.expr, &silent);
       Value saved = value_clone(env_storage(e), &value);
-      env_alloc_variable(e, dst, &saved);
+      env_declare_variable(e, dst, &saved);
     }
 		return 0;
 	}
