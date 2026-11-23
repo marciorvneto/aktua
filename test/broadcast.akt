@@ -52,3 +52,15 @@ let orig = [1, 2, 3]
 let doubled = orig * 2
 assert_all_close(orig, [1, 2, 3], 1e-15, "operands are not modified")
 assert_all_close(doubled, [2, 4, 6], 1e-15, "result is a new array")
+
+// ---------- Modulo: floored, the sign follows the divisor ----------
+
+assert(7 % 3 == 1, "7 % 3")
+assert(-7 % 3 == 2, "-7 % 3")
+assert(7 % -3 == -2, "7 % -3")
+assert(5.5 % 2 == 1.5, "non-integer %")
+assert(1 + 7 % 3 * 2 == 3, "% binds like *")
+assert(10 % 4 % 3 == 2, "% is left-associative")
+assert_all_close([1, 2, 3, 4, 5] % 3, [1, 2, 0, 1, 2], 1e-15, "array % number")
+assert_all_close(10 % [3, 4], [1, 2], 1e-15, "number % array")
+assert_all_close([-1, -2] % [3, 3], [2, 1], 1e-15, "array % array")

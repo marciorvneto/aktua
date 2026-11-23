@@ -420,6 +420,7 @@ char *alloc_string(Arena *a, size_t len){
 	X(TOK_PLUS,       "'+'")         \
 	X(TOK_MINUS,      "'-'")         \
 	X(TOK_MUL,        "'*'")         \
+	X(TOK_MOD,        "'%'")         \
 	X(TOK_DIV,        "'/'")         \
 	X(TOK_CARET,      "'^'")         \
 	X(TOK_AT,         "'@'")         \
@@ -815,6 +816,11 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
+		if((symbol_len = tokenizer_is_symbol(pos, "%"))) {
+			Token tok = tokenizer_make_symbol(a, TOK_MOD, &tokenizer, symbol_len);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
 		if((symbol_len = tokenizer_is_symbol(pos, "/"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_DIV, &tokenizer, symbol_len);
 			push_token(tokens, num_tokens, start, tokenizer.line, tok);
@@ -962,6 +968,7 @@ typedef enum {
 	      X(OP_PLUS)   \
 	      X(OP_MINUS)  \
 	      X(OP_MUL)    \
+	      X(OP_MOD)    \
 	      X(OP_DIV)    \
 	      X(OP_POW)    \
 	      X(OP_TMUL)   \
@@ -998,6 +1005,7 @@ OpType op_from_tok(TokenType type){
 		case TOK_PLUS:   return OP_PLUS;
 	  case TOK_MINUS:  return OP_MINUS;
 	  case TOK_MUL:    return OP_MUL;
+	  case TOK_MOD:    return OP_MOD;
 	  case TOK_DIV:    return OP_DIV;
 	  case TOK_CARET:  return OP_POW;
 	  case TOK_AT:     return OP_TMUL;
@@ -1700,6 +1708,7 @@ AST *parse_term(Arena *pa, AST *parent, Parser *parser){
 	if(!left) return NULL;
 	while(!parser_done(parser) &&
 			(parser_peek(parser)->type == TOK_MUL ||
+			 parser_peek(parser)->type == TOK_MOD ||
 			 parser_peek(parser)->type == TOK_AT  ||
 			 parser_peek(parser)->type == TOK_DIV 
 			 )
@@ -3782,6 +3791,15 @@ Value mul_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
 		return make_num(left->value.number * right->value.number);
 	return make_complex(as_complex(left) * as_complex(right));
 }
+double mod(double a, double b){
+  return a - b * floor(a / b);
+}
+Value mod_scalar_scalar(Arena *arena, Environment *e, Value *left, Value *right){
+  // Complex not supported here
+  double a = left->value.number;
+  double b = right->value.number;
+  return make_num(mod(a,b));
+}
 Value div_scalar_scalar(Arena *a, Environment *e, Value *left, Value *right){
 	if(left->valueType == VALUE_NUMBER && right->valueType == VALUE_NUMBER)
 		return make_num(left->value.number / right->value.number);
@@ -4347,11 +4365,16 @@ Value mul_tensor_tensor(Arena *a, Environment *e, Value *left, Value *right){
 
 //------------ Broadcasting --------------
 
-#define BROADCAST_OP(name, sym, re_expr, cx_expr) \
-    static double         re_##name(double x, double y) { return (re_expr); } \
+#define BROADCAST_OP(name, sym, re_expr, cx_expr)                                             \
+    static double         re_##name(double x, double y) { return (re_expr); }                 \
     static double complex cx_##name(double complex x, double complex y) { return (cx_expr); } \
-  Value broadcast_##name(Arena *a, Environment *e, Value *l, Value *r) { \
-    return broadcast(a, e, sym, l, r, re_##name, cx_##name); \
+  Value broadcast_##name(Arena *a, Environment *e, Value *l, Value *r) {                      \
+    return broadcast(a, e, sym, l, r, re_##name, cx_##name);                                  \
+  }
+#define BROADCAST_OP_REAL(name, sym, re_expr)                                 \
+    static double         re_##name(double x, double y) { return (re_expr); } \
+  Value broadcast_##name(Arena *a, Environment *e, Value *l, Value *r) {      \
+    return broadcast(a, e, sym, l, r, re_##name, NULL);                       \
   }
 
 typedef double         (*ScalarOpRe)(double, double);
@@ -4452,6 +4475,10 @@ Value broadcast(Arena *a, Environment *e, const char *sym, Value *l, Value *r, S
 
 	DType dtype = DTYPE_REAL;
 	if(x.dtype == DTYPE_COMPLEX || y.dtype == DTYPE_COMPLEX) dtype = DTYPE_COMPLEX;
+  if(dtype == DTYPE_COMPLEX && cxop == NULL){
+    runtime_error(e, "%s: not defined for complex numbers", sym);
+    return make_nan();
+  }
 
 	Tensor out;
 	if(tensor_init(a, &out, nd_out, sizes_out, dtype) != 0){
@@ -4479,12 +4506,12 @@ Value broadcast(Arena *a, Environment *e, const char *sym, Value *l, Value *r, S
 }
 
 
-
-BROADCAST_OP(add, "+", x + y   ,  x + y)
-BROADCAST_OP(sub, "-", x - y   ,  x - y)
-BROADCAST_OP(mul, "*", x * y   ,  x * y)
-BROADCAST_OP(div, "/", x / y   ,  x / y)
-BROADCAST_OP(pow, "^", pow(x,y),  cpow(x, y))
+BROADCAST_OP(add, "+", x + y      ,  x + y)
+BROADCAST_OP(sub, "-", x - y      ,  x - y)
+BROADCAST_OP(mul, "*", x * y      ,  x * y)
+BROADCAST_OP(div, "/", x / y      ,  x / y)
+BROADCAST_OP(pow, "^", pow(x,y)   ,  cpow(x, y))
+BROADCAST_OP_REAL(mod, "%", mod(x,y))
 
 
 // --------------- Booleans -------------
@@ -4679,6 +4706,27 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_TENSOR]             = op_with_nan,
 			[VALUE_POLYNOMIAL]        = mul_tf_poly,
 			[VALUE_TRANSFER_FUNCTION] = mul_tf_tf,
+			[VALUE_NAN]               = op_with_nan,
+		},
+		[VALUE_NAN] = {
+			[VALUE_NUMBER]            = op_with_nan,
+			[VALUE_COMPLEX]           = op_with_nan,
+			[VALUE_TENSOR]            = op_with_nan,
+			[VALUE_POLYNOMIAL]        = op_with_nan,
+			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
+			[VALUE_NAN]               = op_with_nan,
+		} 
+	},
+
+	[OP_MOD] = {
+		[VALUE_NUMBER] = {
+			[VALUE_NUMBER]            = mod_scalar_scalar,
+			[VALUE_TENSOR]            = broadcast_mod,
+			[VALUE_NAN]               = op_with_nan,
+		},
+		[VALUE_TENSOR] = {
+			[VALUE_NUMBER]            = broadcast_mod,
+			[VALUE_TENSOR]            = broadcast_mod,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_NAN] = {

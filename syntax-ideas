@@ -80,6 +80,7 @@ ADDITIVE        = TERM + ADDITIVE
 
 TERM            = UNARY * TERM
                 | UNARY / TERM
+                | UNARY % TERM
                 | UNARY
 
 UNARY           = "+"   UNARY
