@@ -2,6 +2,7 @@
 #define AKTUA_CORE_H
 
 #include <stdio.h>
+#include <string.h>
 #include <stdbool.h>
 #include <complex.h>
 
@@ -155,6 +156,14 @@ Value make_complex(double complex num);
 Value make_tensor(Tensor tens);
 Value make_function(Function fun);
 Value value_clone(Arena *a, Value *v);
+
+inline static char *cstr_clone(Arena *a, const char *cstr){
+	size_t len  = strlen(cstr);
+	char *clone = arena_alloc(a, len + 1);
+	memcpy(clone, cstr, len);
+	clone[len]  = '\0';
+	return clone;
+}
 
 // ----------- Tensor helpers -----------------
 

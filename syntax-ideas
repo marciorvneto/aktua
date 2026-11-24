@@ -1,155 +1,164 @@
-PROGRAM         = STATEMENTS_LIST
-                | eof
+PROGRAM            = STATEMENTS_LIST
+                   | eof
 
-STATEMENTS_LIST = STATEMENT STATEMENTS_LIST
-                | eps
+STATEMENTS_LIST    = STATEMENT STATEMENTS_LIST
+                   | eps
 
-STATEMENT       = DECLARATION    STMT_END
-                | ASSIGNMENT     STMT_END
-                | RETURN_STMT    STMT_END
-                | BREAK_STMT     STMT_END
-                | CONTINUE_STMT  STMT_END
-                | FOR_STMT       STMT_END
-                | WHILE_STMT     STMT_END
-                | FUNCTION_DEF   STMT_END
-                | IF_STATEMENT   STMT_END
-                | EXPRESSION     STMT_END
+STATEMENT          = DECLARATION    STMT_END
+                   | ASSIGNMENT     STMT_END
+                   | RETURN_STMT    STMT_END
+                   | BREAK_STMT     STMT_END
+                   | CONTINUE_STMT  STMT_END
+                   | FOR_STMT       STMT_END
+                   | WHILE_STMT     STMT_END
+                   | FUNCTION_DEF   STMT_END
+                   | IF_STATEMENT   STMT_END
+                   | EXPRESSION     STMT_END
 
-FOR_STMT        = "for" id "in" EXPRESSION BLOCK
+FOR_STMT           = "for" id "in" EXPRESSION BLOCK
 
-WHILE_STMT      = "while" EXPRESSION BLOCK
+WHILE_STMT         = "while" EXPRESSION BLOCK
 
-RETURN_STMT     = "return" EXPRESSION
-                | "return"
+RETURN_STMT        = "return" EXPRESSION
+                   | "return"
 
-BREAK_STMT      = "break"
+BREAK_STMT         = "break"
 
-CONTINUE_STMT   = "continue"
+CONTINUE_STMT      = "continue"
 
-STMT_END        = "\n"
-                | eof
-                | &"}"
+STMT_END           = "\n"
+                   | eof
+                   | &"}"
 
-DECLARATION     = "let" id "=" EXPRESSION
+DECLARATION        = "let" TARGET "=" EXPRESSION
 
-ASSIGNMENT      = LVALUE ASSIGN_OP EXPRESSION
+ASSIGNMENT         = LVALUE ASSIGN_OP EXPRESSION
+                   | UNPACK "=" EXPRESSION
 
-ASSIGN_OP       = "="
-                | "+="
-                | "-="
-                | "*="
-                | "/="
-                | "%="
-                | "^="
+TARGET             = id
+							     | UNPACK
 
-LVALUE          = id "[" ARGS_LIST "]"
-                | id
+UNPACK             = "(" id "," id UNPACK_TAIL ")"
 
-IF_STATEMENT    = "if" EXPRESSION BLOCK ELIF_LIST ELSE_OPT
+UNPACK_TAIL        = "," id UNPACK_TAIL
+								   | eps
 
-ELIF_LIST       = "elif" EXPRESSION BLOCK ELIF_LIST
-                | eps
+ASSIGN_OP          = "="
+                   | "+="
+                   | "-="
+                   | "*="
+                   | "/="
+                   | "%="
+                   | "^="
 
-ELSE_OPT        = "else" BLOCK
-                | eps
+LVALUE             = id "[" ARGS_LIST "]"
+                   | id
 
-FUNCTION_DEF    = "fn" id "(" PARAMS ")" BLOCK
+IF_STATEMENT       = "if" EXPRESSION BLOCK ELIF_LIST ELSE_OPT
 
-PARAMS          = PARAM PARAMS_TAIL
-                | eps
+ELIF_LIST          = "elif" EXPRESSION BLOCK ELIF_LIST
+                   | eps
 
-PARAMS_TAIL     = "," PARAM PARAMS_TAIL
-                | eps
+ELSE_OPT           = "else" BLOCK
+                   | eps
 
-PARAM           = id "=" EXPRESSION
-                | id
+FUNCTION_DEF       = "fn" id "(" PARAMS ")" BLOCK
 
-BLOCK           = "{" STATEMENTS_LIST "}"
+PARAMS             = PARAM PARAMS_TAIL
+                   | eps
 
-EXPRESSION      = OR_EXPR
+PARAMS_TAIL        = "," PARAM PARAMS_TAIL
+                   | eps
 
-OR_EXPR         = AND_EXPR "or" OR_EXPR
-                | AND_EXPR
+PARAM              = id "=" EXPRESSION
+                   | id
 
-AND_EXPR        = NOT_EXPR "and" AND_EXPR
-                | NOT_EXPR
+BLOCK              = "{" STATEMENTS_LIST "}"
 
-NOT_EXPR        = "not" NOT_EXPR
-                | COMPARISON
+EXPRESSION         = OR_EXPR
 
-COMPARISON      = ADDITIVE COMPOP ADDITIVE
-                | ADDITIVE
+OR_EXPR            = AND_EXPR "or" OR_EXPR
+                   | AND_EXPR
 
-COMPOP          = ==
-                | <=
-                | >=
-                | > 
-                | < 
+AND_EXPR           = NOT_EXPR "and" AND_EXPR
+                   | NOT_EXPR
 
-ADDITIVE        = TERM + ADDITIVE
-                | TERM - ADDITIVE
-                | TERM
+NOT_EXPR           = "not" NOT_EXPR
+                   | COMPARISON
 
-TERM            = UNARY * TERM
-                | UNARY / TERM
-                | UNARY % TERM
-                | UNARY
+COMPARISON         = ADDITIVE COMPOP ADDITIVE
+                   | ADDITIVE
 
-UNARY           = "+"   UNARY
-                | "-"   UNARY
-                | EXPO
+COMPOP             = ==
+                   | <=
+                   | >=
+                   | > 
+                   | < 
 
-EXPO            = POSTFIX ^ UNARY
-                | POSTFIX
+ADDITIVE           = TERM + ADDITIVE
+                   | TERM - ADDITIVE
+                   | TERM
 
-POSTFIX         = PRIMARY POSTFIX_TAIL
+TERM               = UNARY * TERM
+                   | UNARY / TERM
+                   | UNARY % TERM
+                   | UNARY
 
-POSTFIX_TAIL    = "." id POSTFIX_TAIL
-                | "[" ARGS_LIST "]" POSTFIX_TAIL
-                | eps
+UNARY              = "+"   UNARY
+                   | "-"   UNARY
+                   | EXPO
 
-PRIMARY         = number
-                | BOOLEAN
-                | id "(" CALL_ARGS_LIST ")"
-                | id "(" ")"
-                | id
-                | '"' + char* + '"'
-                | ARRAY
-                | TUPLE
-                | "(" EXPRESSION ")"
+EXPO               = POSTFIX ^ UNARY
+                   | POSTFIX
 
-CALL_ARGS_LIST  = CALL_ARG CALL_ARGS_TAIL
-                | eps
+POSTFIX            = PRIMARY POSTFIX_TAIL
 
-CALL_ARGS_TAIL  = "," CALL_ARG CALL_ARGS_TAIL
-                | eps
+POSTFIX_TAIL       = "." id POSTFIX_TAIL
+                   | "[" ARGS_LIST "]" POSTFIX_TAIL
+                   | eps
 
-CALL_ARG        = id "=" EXPRESSION
-                | EXPRESSION
+PRIMARY            = number
+                   | BOOLEAN
+                   | id "(" CALL_ARGS_LIST ")"
+                   | id "(" ")"
+                   | id
+                   | '"' + char* + '"'
+                   | ARRAY
+                   | TUPLE
+                   | "(" EXPRESSION ")"
 
-BOOLEAN         = true
-                | false
+CALL_ARGS_LIST     = CALL_ARG CALL_ARGS_TAIL
+                   | eps
 
-ARRAY           = "[" "]"
-                | "[" ROW ARRAY_TAIL "]"
+CALL_ARGS_TAIL     = "," CALL_ARG CALL_ARGS_TAIL
+                   | eps
 
-ARRAY_TAIL      = ";" ROW ARRAY_TAIL
-                | eps
+CALL_ARG           = id "=" EXPRESSION
+                   | EXPRESSION
 
-ROW             = EXPRESSION ROW_TAIL
+BOOLEAN            = true
+                   | false
 
-ROW_TAIL        = "," EXPRESSION ROW_TAIL
-                | eps
+ARRAY              = "[" "]"
+                   | "[" ROW ARRAY_TAIL "]"
 
-ARGS_LIST       = EXPRESSION ARGS_LIST_TAIL
+ARRAY_TAIL         = ";" ROW ARRAY_TAIL
+                   | eps
 
-ARGS_LIST_TAIL  = "," EXPRESSION ARGS_LIST_TAIL
-                | eps
+ROW                = EXPRESSION ROW_TAIL
 
-TUPLE           = "(" EXPRESSION "," TUPLE_TAIL ")"
+ROW_TAIL           = "," EXPRESSION ROW_TAIL
+                   | eps
 
-TUPLE_TAIL      = EXPRESSION TUPLE_REST
-                | eps
+ARGS_LIST          = EXPRESSION ARGS_LIST_TAIL
 
-TUPLE_REST      = "," TUPLE_TAIL
-                | eps
+ARGS_LIST_TAIL     = "," EXPRESSION ARGS_LIST_TAIL
+                   | eps
+
+TUPLE              = "(" EXPRESSION "," TUPLE_TAIL ")"
+
+TUPLE_TAIL         = EXPRESSION TUPLE_REST
+                   | eps
+
+TUPLE_REST         = "," TUPLE_TAIL
+                   | eps

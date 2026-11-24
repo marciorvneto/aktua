@@ -1093,6 +1093,7 @@ struct AST {
 			char          *dst;
 			AST           *expr;
 			AST           *tensor_indices;
+			AST           *targets;
 		} statement;
 
 		struct {
@@ -1329,6 +1330,14 @@ AST *ast_make_id(Arena *pa, size_t len){
 	AST *expr = ast_alloc(pa, AST_ID);
 	expr->statement_type       = STATEMENT_EXPR;
 	expr->as.literal.value.id  = arena_alloc(pa, len + 1);
+	expr->as.literal.valueType = VALUE_ID;
+	return expr;
+}
+
+AST *ast_make_id_from_cstr(Arena *pa, const char *cstr){
+	AST *expr = ast_alloc(pa, AST_ID);
+	expr->statement_type       = STATEMENT_EXPR;
+	expr->as.literal.value.id  = cstr_clone(pa, cstr);
 	expr->as.literal.valueType = VALUE_ID;
 	return expr;
 }
@@ -2018,22 +2027,27 @@ AST *parse_block(Arena *pa, AST *parent, Parser *parser){
   return list;
 }
 
-AST *parse_declaration(Arena *pa, AST *parent, Parser *parser){
+AST *parse_unpack(Arena *pa, AST *parent, Parser *parser);
+AST *parse_target(Arena *pa, AST *parent, Parser *parser){
 	Token *id   = NULL;
+	if((id = parser_eat(TOK_ID, parser))){ return ast_make_id_from_cstr(pa, id->value); }
+	return parse_unpack(pa, parent, parser);
+}
+
+AST *parse_declaration(Arena *pa, AST *parent, Parser *parser){
+	AST *decl   = ast_make_statement(pa, STATEMENT_DECL_ASSIGN);
 	if(!parser_keyword_eat("let", parser)) return NULL;
-	if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
+	AST *target = parse_target(pa, parent, parser);
+	if(!target) return NULL;
 	if(!parser_eat(TOK_EQ, parser)) return NULL;
-	AST *expr = parse_expression(pa, parent, parser);
+	AST *expr   = parse_expression(pa, decl, parser);
 	if(!expr) return NULL;
-  if(!parser_eat_stmt_end(parser)) return NULL;
 
-	size_t len              = strlen(id->value);
-	AST *decl               = ast_make_statement(pa, STATEMENT_DECL_ASSIGN);
 	decl->as.statement.expr = expr;
-	decl->as.statement.dst  = arena_alloc(pa, len + 1);
-	memcpy(decl->as.statement.dst, id->value, len);
-	decl->as.statement.dst[len] = '\0';
+	if(target->type == AST_ID){ decl->as.statement.dst = target->as.literal.value.id; }
+	else{ decl->as.statement.targets = target; }
 
+	if(!parser_eat_stmt_end(parser)) return NULL;
 	return decl;
 }
 
@@ -2088,14 +2102,14 @@ AST *lvalue_as_expr(Arena *pa, AST *stmt){
 	return indexing;
 }
 
-AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
+
+AST *parse_assignment_lvalue(Arena *pa, AST *parent, Parser *parser){
 	AST *stmt         = ast_make_statement(pa, STATEMENT_ASSIGN);
 	int lvalue_ok     = parse_lvalue(pa, parent, parser, stmt);
 	if(!lvalue_ok) return NULL;
-	size_t assign_idx = parser->next;
 	Token *assign_op  = parse_assign_op(pa, parent, parser);
 	if(!assign_op) return NULL;
-	AST *expression   = parse_expression(pa, parent, parser);
+	AST *expression   = parse_expression(pa, stmt, parser);
 	if(!expression) return NULL;
 
 	stmt->as.statement.expr = expression;
@@ -2111,13 +2125,7 @@ AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
 			case TOK_DIV_EQ:   op = OP_DIV;   break;
 			case TOK_MOD_EQ:   op = OP_MOD;   break;
 			case TOK_CARET_EQ: op = OP_POW;   break;
-			default: 
-				{
-					char msg[64];
-					snprintf(msg, sizeof(msg), "unknown operator %s.", TOKEN_NAMES[assign_op->type]);
-					parser_error(parser, &parser->tokens[assign_idx] - parser->tokens, msg);
-					return NULL;
-				}
+			default: UNREACHABLE("compound assignment op")
 		}
 		AST *binop              = ast_make_binop(pa, op);
 		binop->as.binop.left    = lvalue_as_expr(pa, stmt);
@@ -2128,6 +2136,74 @@ AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
 
 	if(!parser_eat_stmt_end(parser)) return NULL;
 	return stmt;
+}
+
+AST *parse_unpack_tail(Arena *pa, AST *parent, Parser *parser){
+	size_t save = parser->next;
+	Token *id = NULL;
+	if(!parser_eat(TOK_COMMA, parser)) return NULL;
+	if((id = parser_eat(TOK_ID, parser)) == NULL){
+		parser->next = save;
+		return NULL;
+	}
+	AST *id_node  = ast_make_id_from_cstr(pa, id->value);
+	id_node->next = parse_unpack_tail(pa, parent, parser);
+	return id_node;
+}
+
+AST *parse_unpack(Arena *pa, AST *parent, Parser *parser){
+	Token *id1 = NULL;
+	Token *id2 = NULL;
+	if(!parser_eat(TOK_LPAREN, parser)) return NULL;
+	if((id1 = parser_eat(TOK_ID, parser)) == NULL) return NULL;
+	if(!parser_eat(TOK_COMMA, parser)) return NULL;
+	if((id2 = parser_eat(TOK_ID, parser)) == NULL) return NULL;
+
+	AST *tuple    = ast_make_tuple(pa);
+	AST *id1_node = ast_make_id_from_cstr(pa, id1->value);
+	AST *id2_node = ast_make_id_from_cstr(pa, id2->value);
+
+	tuple->as.tuple.first = id1_node;
+	id1_node->next        = id2_node;
+
+	AST *tail = parse_unpack_tail(pa, parent, parser); // OK to be NULL
+																										 
+	id2_node->next = tail;
+
+	if(!parser_eat(TOK_RPAREN, parser)) return NULL;
+
+	size_t size = 0;
+	for(AST *node = tuple->as.tuple.first; node != NULL; node = node->next) size++;
+
+	tuple->as.tuple.size = size;
+	return tuple;
+}
+
+
+AST *parse_assignment_unpack(Arena *pa, AST *parent, Parser *parser){
+	AST *stmt   = ast_make_statement(pa, STATEMENT_ASSIGN);
+	AST *target = parse_unpack(pa, parent, parser);
+	if(!target) return NULL;
+	if(!parser_eat(TOK_EQ, parser)) return NULL;
+	AST *expr   = parse_expression(pa, stmt, parser);
+	if(!expr) return NULL;
+
+	stmt->as.statement.expr    = expr;
+	stmt->as.statement.targets = target;
+
+	if(!parser_eat_stmt_end(parser)) return NULL;
+	return stmt;
+}
+
+AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
+	size_t save = parser->next;
+	AST *assign = NULL;
+	if(
+			(parser->next = save, assign = parse_assignment_lvalue(pa, parent, parser)) ||
+			(parser->next = save, assign = parse_assignment_unpack(pa, parent, parser))
+		)
+	{ return assign; }
+	return NULL;
 }
 
 AST *parse_while_stmt(Arena *pa, AST *parent, Parser *parser){
@@ -2501,9 +2577,14 @@ void ast_print(AST *ast, int level){
           printf("%sCONTINUE\n", buf);
           break;
         }
+				// Assignments
 				printf("%sSTMT:\n", buf);
 				fill_indent(level + 1, buf);
-				printf("%sSRC:  %s\n", buf, ast->as.statement.dst);
+				if(ast->as.statement.targets){
+					printf("%sSRC:\n", buf); 
+					ast_print(ast->as.statement.targets, level + 2);
+				}
+				if(ast->as.statement.dst){ printf("%sSRC:  %s\n", buf, ast->as.statement.dst); }
 				if(ast->as.statement.tensor_indices){
 					printf("%sINDICES:\n", buf);
 					for(AST *idx = ast->as.statement.tensor_indices;
@@ -7308,6 +7389,61 @@ int eval_variable_assignment(Arena *ta, Environment *e, char *script_path, AST *
 }
 
 
+ExecStatus eval_unpack(Arena *ta, Environment *e, char *script_path, AST *stmt, int *silent){
+	AST *targets = stmt->as.statement.targets;
+	bool declare = stmt->statement_type == STATEMENT_DECL_ASSIGN;
+
+	// Checking if all variables exist
+	if(stmt->statement_type == STATEMENT_ASSIGN){
+		for(
+				AST *item  = targets->as.tuple.first;
+				item      != NULL;
+				item       = item->next
+		)
+		{
+			if(!env_find_local(e, item->as.literal.value.id)){
+				runtime_error(e, "variable '%s' is undefined", item->as.literal.value.id);
+				return EXEC_ERROR;
+			}
+		}
+	}
+
+	// Evaluate the expression (the rhs)
+	size_t scratch = arena_save(ta);
+	size_t errors  = e->run_stats->runtime_errors;
+	Value value    = eval_expr(ta, e, script_path, stmt->as.statement.expr, silent);
+	if(e->run_stats->runtime_errors != errors){
+		arena_restore(ta, scratch);
+		return EXEC_ERROR;
+	}
+	if(value.valueType != VALUE_TUPLE){
+		runtime_error(e, "can only destructure tuples");
+		arena_restore(ta, scratch);
+		return EXEC_ERROR;
+	}
+	if(value.value.tuple.size != targets->as.tuple.size){
+		runtime_error(e, "tuple sizes must match: expected %zu, got %zu", 
+				targets->as.tuple.size, value.value.tuple.size);
+		arena_restore(ta, scratch);
+		return EXEC_ERROR;
+	}
+
+	size_t i = 0;
+	for(
+			AST *item  = stmt->as.statement.targets->as.tuple.first;
+			item      != NULL;
+			item       = item->next, i++
+		 )
+	{
+		Value saved = value_clone(env_storage(e), &value.value.tuple.items[i]);
+		if(declare) env_declare_variable(e, item->as.literal.value.id, &saved) ;
+		else env_set_variable(e, item->as.literal.value.id, &saved);
+	}
+
+	arena_restore(ta, scratch);
+	return EXEC_OK;
+}
+
 ExecStatus eval_stmt(
 		Arena* ta,
 		Environment *e,
@@ -7324,6 +7460,12 @@ ExecStatus eval_stmt(
 			if(!silent && e->run_stats->runtime_errors == errors) print_value(ta, e, &result);
     }
 		return 0;
+	}
+
+	if(stmt->statement_type == STATEMENT_DECL_ASSIGN || stmt->statement_type == STATEMENT_ASSIGN){
+		if(stmt->as.statement.targets){
+			return eval_unpack(ta, e, script_path, stmt, &silent);
+		}
 	}
 
 	if(stmt->statement_type == STATEMENT_DECL_ASSIGN){
