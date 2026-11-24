@@ -422,10 +422,20 @@ char *alloc_string(Arena *a, size_t len){
 	X(TOK_MUL,        "'*'")         \
 	X(TOK_MOD,        "'%'")         \
 	X(TOK_DIV,        "'/'")         \
+	X(TOK_PLUS_EQ,    "'+='")        \
+	X(TOK_MINUS_EQ,   "'-='")        \
+	X(TOK_MUL_EQ,     "'*='")        \
+	X(TOK_DIV_EQ,     "'/='")        \
+	X(TOK_MOD_EQ,     "'%='")        \
+	X(TOK_CARET_EQ,   "'^='")        \
 	X(TOK_CARET,      "'^'")         \
 	X(TOK_AT,         "'@'")         \
 	X(TOK_SEMI,       "';'")         \
 	X(TOK_TYPE_COUNT, " ")
+
+
+
+
 
 typedef enum {
 #define X(name, user) name,
@@ -801,6 +811,41 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 		}
 		// Check for binary operators
 		size_t symbol_len = 0;
+		if(tokenizer_is_symbol(pos, "+") && tokenizer_lookahead(pos, "=")) {
+			Token tok = tokenizer_make_symbol(a, TOK_PLUS_EQ, &tokenizer, 2);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if(tokenizer_is_symbol(pos, "-") && tokenizer_lookahead(pos, "=")) {
+			Token tok = tokenizer_make_symbol(a, TOK_MINUS_EQ, &tokenizer, 2);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if(tokenizer_is_symbol(pos, "*") && tokenizer_lookahead(pos, "=")) {
+			Token tok = tokenizer_make_symbol(a, TOK_MUL_EQ, &tokenizer, 2);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if(tokenizer_is_symbol(pos, "/") && tokenizer_lookahead(pos, "=")) {
+			Token tok = tokenizer_make_symbol(a, TOK_DIV_EQ, &tokenizer, 2);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if(tokenizer_is_symbol(pos, "%") && tokenizer_lookahead(pos, "=")) {
+			Token tok = tokenizer_make_symbol(a, TOK_MOD_EQ, &tokenizer, 2);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if(tokenizer_is_symbol(pos, "^") && tokenizer_lookahead(pos, "=")) {
+			Token tok = tokenizer_make_symbol(a, TOK_CARET_EQ, &tokenizer, 2);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if(tokenizer_is_symbol(pos, "=") && tokenizer_lookahead(pos, "=")) {
+			Token tok = tokenizer_make_symbol(a, TOK_DBL_EQ, &tokenizer, 2);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
 		if((symbol_len = tokenizer_is_symbol(pos, "+"))) {
 			Token tok = tokenizer_make_symbol(a, TOK_PLUS, &tokenizer, symbol_len);
 			push_token(tokens, num_tokens, start, tokenizer.line, tok);
@@ -838,11 +883,6 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 		};
 
 		// Check for special symbols
-		if(tokenizer_is_symbol(pos, "=") && tokenizer_lookahead(pos, "=")) {
-			Token tok = tokenizer_make_symbol(a, TOK_DBL_EQ, &tokenizer, 2);
-			push_token(tokens, num_tokens, start, tokenizer.line, tok);
-			continue;
-		};
 		if(tokenizer_is_symbol(pos, "<") && tokenizer_lookahead(pos, "=")) {
 			Token tok = tokenizer_make_symbol(a, TOK_LEQ, &tokenizer, 2);
 			push_token(tokens, num_tokens, start, tokenizer.line, tok);
@@ -1970,36 +2010,6 @@ AST *parse_params(Arena *pa, AST *fn_def, Parser *parser){
   return first;
 }
 
-// void parse_params(Arena *pa, AST *fn_def, Parser *parser){
-// 	fn_def->as.fn_def.num_args = 0;
-// 	if(parser_peek(parser)->type != TOK_ID) return;
-//
-// 	AST *tail = NULL;
-//
-// 	while(parser_peek(parser)->type == TOK_ID){
-// 		Token *id_tok = parser_eat(TOK_ID, parser);
-// 		if(id_tok == NULL) return;
-//
-// 		AST *node  = ast_make_id(pa, strlen(id_tok->value));
-//     strcpy(node->as.literal.value.id, id_tok->value);
-// 		node->next = NULL;
-//
-// 		if(tail == NULL){
-// 			fn_def->as.fn_def.params = node;
-// 		}else {
-// 			tail->next = node;
-// 		}
-//
-// 		tail = node;
-// 		fn_def->as.fn_def.num_args++;
-//
-// 		if(parser_peek(parser)->type != TOK_COMMA){
-// 			return;
-// 		} else parser_eat(TOK_COMMA, parser);
-// 	}
-//
-// }
-
 AST *parse_block(Arena *pa, AST *parent, Parser *parser){
   if(parser_eat(TOK_LCURLY, parser) == NULL) return NULL;
   AST *list = parse_statement_list(pa, parent, parser);
@@ -2008,68 +2018,116 @@ AST *parse_block(Arena *pa, AST *parent, Parser *parser){
   return list;
 }
 
-AST *parse_tensor_idx_assignment(Arena *pa, AST *parent, Parser *parser, AST *stmt){
-  Token *id = NULL;
-  if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
-  if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
-
-	AST *indices = parse_args_list(pa, parent, parser);
-	if(!indices) return NULL;
-
-	stmt->as.statement.tensor_indices = indices;
-
-  if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
-
-  stmt->as.statement.dst  = arena_alloc(pa, strlen(id->value) + 1);
-  strcpy(stmt->as.statement.dst, id->value);
-
-  if((id = parser_eat(TOK_EQ, parser)) == NULL) return NULL;
-
-  AST *expr               = parse_expression(pa, stmt, parser);
+AST *parse_declaration(Arena *pa, AST *parent, Parser *parser){
+	Token *id   = NULL;
+	if(!parser_keyword_eat("let", parser)) return NULL;
+	if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
+	if(!parser_eat(TOK_EQ, parser)) return NULL;
+	AST *expr = parse_expression(pa, parent, parser);
 	if(!expr) return NULL;
-  stmt->as.statement.expr = expr;
-
   if(!parser_eat_stmt_end(parser)) return NULL;
-  return stmt;
+
+	size_t len              = strlen(id->value);
+	AST *decl               = ast_make_statement(pa, STATEMENT_DECL_ASSIGN);
+	decl->as.statement.expr = expr;
+	decl->as.statement.dst  = arena_alloc(pa, len + 1);
+	memcpy(decl->as.statement.dst, id->value, len);
+	decl->as.statement.dst[len] = '\0';
+
+	return decl;
 }
 
-AST *parse_variable_assignment(Arena *pa, AST *parent, Parser *parser, AST *stmt){
-  Token *id = NULL;
-  if((id = parser_eat(TOK_ID, parser)) == NULL) return NULL;
+int parse_lvalue(Arena *pa, AST *parent, Parser *parser, AST *stmt){
+	Token *id = NULL;
+	if((id = parser_eat(TOK_ID, parser)) == NULL) return 0;
 
-  stmt->as.statement.dst  = arena_alloc(pa, strlen(id->value) + 1);
-  strcpy(stmt->as.statement.dst, id->value);
+	size_t len                  = strlen(id->value);
+	stmt->as.statement.dst      = arena_alloc(pa, len + 1);
+	memcpy(stmt->as.statement.dst, id->value, len);
+	stmt->as.statement.dst[len] = '\0';
+	if(parser_eat(TOK_LBRACKET, parser) == NULL){
+		return 1;
+	}
 
-  if((id = parser_eat(TOK_EQ, parser)) == NULL) return NULL;
+	AST *args_list = parse_args_list(pa, stmt, parser);
+	if(!args_list) return 0;
+	if(parser_eat(TOK_RBRACKET, parser) == NULL) return 0;
+	stmt->as.statement.tensor_indices = args_list;
+	return 1;
+}
 
-  AST *expr               = parse_expression(pa, stmt, parser);
-	if(!expr) return NULL;
-  stmt->as.statement.expr = expr;
+Token *parse_assign_op(Arena *pa, AST *parent, Parser *parser){
+	size_t save    = parser->next;
+	Token *op = NULL;
+	if(
+			(parser->next = save, op = parser_eat(TOK_EQ, parser))       ||
+			(parser->next = save, op = parser_eat(TOK_PLUS_EQ, parser))  ||
+			(parser->next = save, op = parser_eat(TOK_MINUS_EQ, parser)) ||
+			(parser->next = save, op = parser_eat(TOK_MUL_EQ, parser))   ||
+			(parser->next = save, op = parser_eat(TOK_DIV_EQ, parser))   ||
+			(parser->next = save, op = parser_eat(TOK_MOD_EQ, parser))   ||
+			(parser->next = save, op = parser_eat(TOK_CARET_EQ, parser))
+		)
+	{
+		return op;
+	}
+	return NULL;
+}
 
-  if(!parser_eat_stmt_end(parser)) return NULL;
-  return stmt;
+AST *lvalue_as_expr(Arena *pa, AST *stmt){
+	size_t len = strlen(stmt->as.statement.dst);
+	AST *id = ast_make_id(pa, len);
+	memcpy(id->as.literal.value.id, stmt->as.statement.dst, len);
+	id->as.literal.value.id[len] = '\0';
+
+	if(!stmt->as.statement.tensor_indices){ return id; }
+
+	AST *indexing                = ast_make_indexing(pa);
+	indexing->as.indexing.target = id;
+	indexing->as.indexing.first  = stmt->as.statement.tensor_indices;
+	return indexing;
 }
 
 AST *parse_assignment(Arena *pa, AST *parent, Parser *parser){
-	size_t save    = parser->next;
-  Token *current = NULL;
-  AST   *stmt    = NULL;
-  if((current = parser_peek(parser)) && 
-      parser_keyword_eat("let", parser))
-  {
-    stmt = ast_make_statement(pa, STATEMENT_DECL_ASSIGN);
-	}else{
-		parser->next = save;
-		stmt = ast_make_statement(pa, STATEMENT_ASSIGN);
-		if(
-				(parser->next = save, parse_variable_assignment(pa, parent, parser, stmt)) ||
-				(parser->next = save, parse_tensor_idx_assignment(pa, parent, parser, stmt))
-			){
-			return stmt;
+	AST *stmt         = ast_make_statement(pa, STATEMENT_ASSIGN);
+	int lvalue_ok     = parse_lvalue(pa, parent, parser, stmt);
+	if(!lvalue_ok) return NULL;
+	size_t assign_idx = parser->next;
+	Token *assign_op  = parse_assign_op(pa, parent, parser);
+	if(!assign_op) return NULL;
+	AST *expression   = parse_expression(pa, parent, parser);
+	if(!expression) return NULL;
+
+	stmt->as.statement.expr = expression;
+
+	// Desugar op + assign:  lvalue op_assign expr -> lvalue = lvalue op expr
+	if( assign_op->type != TOK_EQ)
+	{
+		OpType op = OP_PLUS;
+		switch(assign_op->type){
+			case TOK_PLUS_EQ:  op = OP_PLUS;  break;
+			case TOK_MINUS_EQ: op = OP_MINUS; break;
+			case TOK_MUL_EQ:   op = OP_MUL;   break;
+			case TOK_DIV_EQ:   op = OP_DIV;   break;
+			case TOK_MOD_EQ:   op = OP_MOD;   break;
+			case TOK_CARET_EQ: op = OP_POW;   break;
+			default: 
+				{
+					char msg[64];
+					snprintf(msg, sizeof(msg), "unknown operator %s.", TOKEN_NAMES[assign_op->type]);
+					parser_error(parser, &parser->tokens[assign_idx] - parser->tokens, msg);
+					return NULL;
+				}
 		}
+		AST *binop              = ast_make_binop(pa, op);
+		binop->as.binop.left    = lvalue_as_expr(pa, stmt);
+		binop->as.binop.op      = op;
+		binop->as.binop.right   = stmt->as.statement.expr;
+		stmt->as.statement.expr = binop;
 	}
 
-	return parse_variable_assignment(pa, parent, parser, stmt);
+	if(!parser_eat_stmt_end(parser)) return NULL;
+	return stmt;
 }
 
 AST *parse_while_stmt(Arena *pa, AST *parent, Parser *parser){
@@ -2255,6 +2313,7 @@ AST *parse_statement(Arena *pa, AST *parent, Parser *parser){
   AST *stmt = NULL;
 
   if(
+      (parser->next = save, (stmt = parse_declaration(pa, parent, parser)))   ||
       (parser->next = save, (stmt = parse_assignment(pa, parent, parser)))    ||
       (parser->next = save, (stmt = parse_return_stmt(pa, parent, parser)))   ||
       (parser->next = save, (stmt = parse_continue_stmt(pa, parent, parser))) ||
@@ -2415,6 +2474,33 @@ void ast_print(AST *ast, int level){
           }
           break;
         }
+        if(ast->statement_type == STATEMENT_FOR){
+          printf("%sFOR: %s\n", buf, ast->as.for_stmt.id->as.literal.value.id);
+          fill_indent(level + 1, buf);
+          printf("%sIN:\n", buf);
+          ast_print(ast->as.for_stmt.expr, level + 2);
+          ast_print(ast->as.for_stmt.block, level + 1);
+          break;
+        }
+        if(ast->statement_type == STATEMENT_WHILE){
+          printf("%sWHILE:\n", buf);
+          ast_print(ast->as.while_stmt.expr, level + 1);
+          ast_print(ast->as.while_stmt.block, level + 1);
+          break;
+        }
+        if(ast->statement_type == STATEMENT_RETURN){
+          printf("%sRETURN:\n", buf);
+          if(ast->as.statement.expr) ast_print(ast->as.statement.expr, level + 1);
+          break;
+        }
+        if(ast->statement_type == STATEMENT_BREAK){
+          printf("%sBREAK\n", buf);
+          break;
+        }
+        if(ast->statement_type == STATEMENT_CONTINUE){
+          printf("%sCONTINUE\n", buf);
+          break;
+        }
 				printf("%sSTMT:\n", buf);
 				fill_indent(level + 1, buf);
 				printf("%sSRC:  %s\n", buf, ast->as.statement.dst);
@@ -2499,12 +2585,16 @@ void ast_print(AST *ast, int level){
 		case AST_INDEXING:
 			{
 				printf("%sINDEXING:\n", buf);
+				fill_indent(level + 1, buf);
+				printf("%sTARGET:\n", buf);
+				ast_print(ast->as.indexing.target, level + 2);
+				printf("%sINDICES:\n", buf);
 				for(AST *node = ast->as.indexing.first;
 						node != NULL;
 						node = node->next
 						)
 				{
-					ast_print(node, level + 1);
+					ast_print(node, level + 2);
 				}
 				break;
 			}

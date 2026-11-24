@@ -1,0 +1,29 @@
+import("test.akt")
+
+let x = 2
+x += 5
+assert_eq(x, 7)
+
+let x = 2
+x -= 5
+assert_eq(x, -3)
+
+let x = 2
+x *= 5
+assert_eq(x, 10)
+
+let x = 2
+x /= 5
+assert_close(x, 0.4, 1e-6)
+
+let x = 2
+x %= 5
+assert_eq(x, 2)
+
+let x = 2
+x ^= 5
+assert_eq(x, 32)
+
+let h = [1, 2, 3]
+h[0] += 10
+assert_eq(h[0], 11)

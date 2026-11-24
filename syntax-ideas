@@ -4,7 +4,8 @@ PROGRAM         = STATEMENTS_LIST
 STATEMENTS_LIST = STATEMENT STATEMENTS_LIST
                 | eps
 
-STATEMENT       = ASSIGNMENT     STMT_END
+STATEMENT       = DECLARATION    STMT_END
+                | ASSIGNMENT     STMT_END
                 | RETURN_STMT    STMT_END
                 | BREAK_STMT     STMT_END
                 | CONTINUE_STMT  STMT_END
@@ -29,9 +30,20 @@ STMT_END        = "\n"
                 | eof
                 | &"}"
 
-ASSIGNMENT      = "let" id "=" EXPRESSION
-                | id "=" EXPRESSION
-                | id "[" ARGS_LIST "]" = EXPRESSION
+DECLARATION     = "let" id "=" EXPRESSION
+
+ASSIGNMENT      = LVALUE ASSIGN_OP EXPRESSION
+
+ASSIGN_OP       = "="
+                | "+="
+                | "-="
+                | "*="
+                | "/="
+                | "%="
+                | "^="
+
+LVALUE          = id "[" ARGS_LIST "]"
+                | id
 
 IF_STATEMENT    = "if" EXPRESSION BLOCK ELIF_LIST ELSE_OPT
 
