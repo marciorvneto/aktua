@@ -174,7 +174,7 @@ Aktua is under active development. Expect bugs, missing features, and breaking c
 Next:
 
 - Module scoping and dependency resolution
-- Tuple unpacking
+- Records and closures
 - Linear algebra: solve, eigen, qr, etc.
 - Plots: markers and a style per series
 

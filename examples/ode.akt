@@ -32,12 +32,12 @@ fn euler(fun, y0, tmax, num_points){
 	return (ts, ys)
 }
 
-let res_euler   = euler(fun, 1, 1, 50)
-let error_euler = abs(exp(-1) - res_euler[1][-1])
+let (t, y)      = euler(fun, 1, 1, 50)
+let error_euler = abs(exp(-1) - y[-1])
 print("Euler's method")
-print("y(1) = " + res_euler[1][-1] + ", exact " + exp(-1))
+print("y(1) = " + y[-1] + ", exact " + exp(-1))
 print("Absolute error: " + error_euler)
-plot(res_euler[0], res_euler[1])
+plot(t, y)
 
 
 // Backward Euler
@@ -68,13 +68,13 @@ fn backward_euler(fun, y0, tmax, num_points){
 	return (ts, ys)
 }
 
-let res_beuler   = backward_euler(fun, 1, 1, 50)
-let error_beuler = abs(exp(-1) - res_beuler[1][-1])
+let (t, y)       = backward_euler(fun, 1, 1, 50)
+let error_beuler = abs(exp(-1) - y[-1])
 print("")
 print("Backward Euler")
-print("y(1) = " + res_beuler[1][-1] + ", exact " + exp(-1))
+print("y(1) = " + y[-1] + ", exact " + exp(-1))
 print("Absolute error: " + error_beuler)
-plot(res_beuler[0], res_beuler[1])
+plot(t, y)
 
 
 // Classic Runge-Kutta, 4th order
@@ -101,13 +101,13 @@ fn rk4(fun, y0, tmax, num_points){
 	return (ts, ys)
 }
 
-let res_rk4   = rk4(fun, 1, 1, 50)
-let error_rk4 = abs(exp(-1) - res_rk4[1][-1])
+let (t, y)    = rk4(fun, 1, 1, 50)
+let error_rk4 = abs(exp(-1) - y[-1])
 print("")
 print("Runge-Kutta 4th order")
-print("y(1) = " + res_rk4[1][-1] + ", exact " + exp(-1))
+print("y(1) = " + y[-1] + ", exact " + exp(-1))
 print("Absolute error: " + error_rk4)
-plot(res_rk4[0], res_rk4[1])
+plot(t, y)
 
 
 // Halving h: both Eulers' errors halve, RK4's drops ~16x
