@@ -27,3 +27,10 @@ assert_eq(x, 32)
 let h = [1, 2, 3]
 h[0] += 10
 assert_eq(h[0], 11)
+
+let h = [1, 2, 3]
+h[-1] = 9
+assert_eq(h[2], 9)
+h[-1] *= 2
+assert_eq(h[2], 18)
+

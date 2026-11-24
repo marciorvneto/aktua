@@ -6927,18 +6927,20 @@ Value eval_func_call(Arena *ta, Environment *e, char *script_path, AST *fn, int 
 }
 
 // Resolves one index against a dimension of the given size; negatives count from the end
-static bool resolve_index(Environment *e, const char *name, Value v, size_t size, size_t *out){
+static bool resolve_index(Environment *e, const char *name, Value v, size_t axis, size_t size, size_t *out){
 	if(v.valueType != VALUE_NUMBER){
-		runtime_error(e, "Indices must be numbers: %s", name);
+		runtime_error(e, "%s: index on axis %zu must be a number", name, axis);
 		return false;
 	}
 	double raw = v.value.number;
 	if(raw != floor(raw)){
-		runtime_error(e, "Indices must be integers: %s", name);
+		runtime_error(e, "%s: indices must be integers (given %g)", name, raw);
 		return false;
 	}
+  if(size == 0){ runtime_error(e, "%s: axis %zu is empty", name, axis); return false; }
 	if(raw < -(double)size || raw >= (double)size){
-		runtime_error(e, "Index out of bounds: %s", name);
+		runtime_error(e, "%s: index %g out of range for axis %zu of size %zu (valid: %g to %zu)",
+				name, raw, axis, size, -(double)size, size - 1);
 		return false;
 	}
 	*out = (size_t)(raw < 0 ? raw + (double)size : raw);
@@ -6974,7 +6976,7 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 		size_t off = 0;
 		for(size_t k = 0; k < n; k++){
 			size_t i;
-			if(!resolve_index(e, name, idx[k], t->sizes[k], &i)) return make_nan();
+			if(!resolve_index(e, name, idx[k], k, t->sizes[k], &i)) return make_nan();
 			off += i * t->strides[k];
 		}
 		if(t->dtype == DTYPE_COMPLEX) return make_complex(t->data.cx[off]);
@@ -6987,7 +6989,7 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 			return make_nan();
 		}
 		size_t i;
-		if(!resolve_index(e, name, idx[0], target_value.value.tuple.size, &i)) return make_nan();
+		if(!resolve_index(e, name, idx[0], 0, target_value.value.tuple.size, &i)) return make_nan();
 		return target_value.value.tuple.items[i];
 	}
 
@@ -7246,26 +7248,15 @@ int eval_tensor_assignment(Arena *ta, Environment *e, char *script_path, AST *st
 		 )
 	{
 		if(index_count >= ndim){
-			runtime_error(e, "More indices given than %zu dimensions (given %zu).", ndim, index_count); return 1;
+			runtime_error(e, "%s has %zu dimensions, got more indices", dst, ndim);
 			return 1;
 		}
 		Value idx_value = eval_expr(ta, e, script_path, index, silent);
-		if(idx_value.valueType != VALUE_NUMBER){
-			runtime_error(e, "Invalid expression in index %zu. Expected a number.", index_count);
-			return 1;
-		}
-		if(trunc(idx_value.value.number) != idx_value.value.number){
-			runtime_error(e, "Indices must be integers (given %g).", idx_value.value.number);
-			return 1;
-		}
-		if(idx_value.value.number >= sizes[index_count] || idx_value.value.number < 0){
-			runtime_error(e, "Index out of range for axis %zu of size %zu (given %g).", 
-					index_count, sizes[index_count], idx_value.value.number);
-			return 1;
-		}
-		offset += strides[index_count] * idx_value.value.number;
+		size_t i;
+		if(!resolve_index(e, dst, idx_value, index_count, sizes[index_count], &i)) return 1;
+		offset += strides[index_count] * i;
 	}
-  if(index_count != ndim){ 
+	if(index_count != ndim){ 
 		runtime_error(e, "%s has %zu dimensions, got %zu indices", dst, ndim, index_count); 
 		return 1;
 	}
