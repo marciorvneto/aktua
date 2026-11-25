@@ -5212,6 +5212,18 @@ Value make_real_vector(double *data, size_t n){
 	return make_tensor(t);
 }
 
+Value make_real_matrix(double *data, size_t nrow, size_t ncol){
+	Tensor T = {0};
+	T.dtype   = DTYPE_REAL;
+	T.data.re = data;
+	T.count   = nrow * ncol;
+	T.ndim    = 2;
+	T.sizes[0] = nrow; T.sizes[1] = ncol;
+	T.strides[0] = ncol;  T.strides[1] = 1;
+	
+	return make_tensor(T);
+}
+
 typedef double         (*RealFn)       (double);
 typedef double complex (*ComplexFn)    (double complex);
 typedef double         (*RealComplexFn)(double complex);
@@ -6325,6 +6337,7 @@ bool name_in_list(const char *name, const char *const *list){
 	return false;
 }
 
+
 Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
 										Value *fun, size_t argc, Value *args, size_t kwargc,
 										KwArg *kwargs, int *silent){
@@ -6876,6 +6889,7 @@ void initialize_native_fns(Environment *e){
 static const NativeModule *native_modules[] = {
 	&hydraulics_module,
 	&orbital_module,
+	&ode_module,
 };
 
 int import_native_module(Environment *e, const char *name){

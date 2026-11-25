@@ -1,0 +1,48 @@
+// -----------------------------------------------------
+//
+//  NATIVE ODE SOLVERS
+//  By: Marcio R. V. Neto, 2026
+//
+//  Euler and RK4 from the ode module, written in C.
+//  Same calling convention as ode.akt: f(t, y), a time
+//  grid and an initial state
+//
+// -----------------------------------------------------
+
+import("ode")
+
+
+// A single state
+// dy/dt = 1 - t, y(0) = 1. Exact: y = 1 + t - t^2/2
+
+fn f1(t, y){
+	return 1 - t
+}
+
+let ts = linspace(0, 2)
+let y  = euler(f1, ts, 1)
+
+plot(ts, y)
+
+
+// Two states: an undamped oscillator, x'' = -x
+// State s = [x, v], x(0) = 1, v(0) = 0. Exact: x = cos(t)
+
+fn f2(t, s){
+	return [s[1], -s[0]]
+}
+
+let ts2 = linspace(0, 10, 201)
+
+// One row per time step: [x, v]
+let s_euler = euler(f2, ts2, [1, 0])
+let s_rk4   = rk4(f2, ts2, [1, 0])
+
+// Position only, as in y = C x
+let C       = [1, 0]
+let x_euler = s_euler @ C.T
+let x_rk4   = s_rk4 @ C.T
+
+// Euler slowly pumps energy in, so its amplitude grows.
+// RK4 stays on top of the exact solution
+show(ts2, (x_euler, x_rk4, cos(ts2)), names=("Euler", "RK4", "Exact"))

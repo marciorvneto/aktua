@@ -147,6 +147,11 @@ struct KwArg {
 	Value      value;
 };
 
+Value call_function(Arena *ta, Environment *e, char *script_path, const char *name,
+										Value *fun, size_t argc, Value *args, size_t kwargc,
+										KwArg *kwargs, int *silent);
+
+const char *fn_name(Value *fn);
 
 // ----------- Factories -----------------
 
@@ -169,6 +174,7 @@ inline static char *cstr_clone(Arena *a, const char *cstr){
 
 int as_real_vector(Arena *a, Value *v, double **data, size_t *n);
 Value make_real_vector(double *data, size_t n);
+Value make_real_matrix(double *data, size_t nrow, size_t ncol);
 Value make_tuple(Tuple tuple);
 
 //============================== 
@@ -239,5 +245,6 @@ typedef struct {
 
 extern const NativeModule hydraulics_module;
 extern const NativeModule orbital_module;
+extern const NativeModule ode_module;
 
 #endif // !AKTUA_CORE_H
