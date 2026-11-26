@@ -170,6 +170,12 @@ inline static char *cstr_clone(Arena *a, const char *cstr){
 	return clone;
 }
 
+// ----------- Getters -----------------
+
+const Value *kwarg_get(size_t kwargc, const KwArg *kwargs, const char *name);
+bool kwarg_number(Environment *e, const char *fn, size_t kwargc, const KwArg *kwargs,
+		const char *name, double *out);
+
 // ----------- Tensor helpers -----------------
 
 int as_real_vector(Arena *a, Value *v, double **data, size_t *n);

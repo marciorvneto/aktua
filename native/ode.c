@@ -23,19 +23,25 @@ typedef enum {
 	SOLVER_FN_FAILED,
 } SolverStatus;
 
+typedef struct {
+	double atol;
+	double rtol;
+	double tfail;
+} OdeOptions;
+
 #define TRY(x) do {        \
 		SolverStatus _s = (x); \
 		if(_s != SOLVER_OK) return _s;} while(0)
 
 typedef SolverStatus(*OdeFn)(double t, double *y, size_t ylen, double *yout, void *data);
 typedef SolverStatus(*OdeKernel)(OdeFn fn, double *ts, double *y, double *tmp,
-					size_t tlen, size_t ylen, double *yout, void *data, double *tfail);
+					size_t tlen, size_t ylen, double *yout, void *data, OdeOptions *options);
 
 // The caller should preallocate ts and yout
 // tmp is organized as: [y, y'] -> must be allocated
 // for 2*ylen doubles
 static SolverStatus euler(OdeFn fn, double *ts, double *y, double *tmp,
-					size_t tlen, size_t ylen, double *yout, void *data, double *tfail)
+					size_t tlen, size_t ylen, double *yout, void *data, OdeOptions *options)
 {
 	double *state = tmp;
 	double *dydt  = tmp + ylen;
@@ -61,7 +67,7 @@ static SolverStatus euler(OdeFn fn, double *ts, double *y, double *tmp,
 // tmp is organized as: [y, k1, k2, k3, k4, scratch] -> must be allocated
 // for 6*ylen doubles
 static SolverStatus rk4(OdeFn fn, double *ts, double *y, double *tmp,
-					size_t tlen, size_t ylen, double *yout, void *data, double *tfail)
+					size_t tlen, size_t ylen, double *yout, void *data, OdeOptions *options)
 {
 	double *state   = tmp;
 	double *k1      = tmp + ylen;
@@ -102,7 +108,7 @@ static SolverStatus rk4(OdeFn fn, double *ts, double *y, double *tmp,
 // tmp is organized as: [y, k1, k2, k3, k4, k5, k6, k7, scratch] -> must be allocated
 // for 9*ylen doubles
 static SolverStatus rk45(OdeFn fn, double *ts, double *y, double *tmp,
-					size_t tlen, size_t ylen, double *yout, void *data, double *tfail)
+					size_t tlen, size_t ylen, double *yout, void *data, OdeOptions *options)
 {
 	double *state   = tmp;
 	double *k1      = tmp + ylen;
@@ -126,9 +132,6 @@ static SolverStatus rk45(OdeFn fn, double *ts, double *y, double *tmp,
 	double e[] = { 71.0/57600, 0,      -71.0/16695, 71.0/1920, -17253.0/339200, 22.0/525, -1.0/40 };
 
 	double h   = ts[1] - ts[0];
-
-	double atol = 1e-6; // Fixed for now
-	double rtol = 1e-3;
 
 	// Copy initial values
 	memcpy(yout, y,  ylen * sizeof(double));         // y(0) -> output
@@ -172,12 +175,12 @@ static SolverStatus rk45(OdeFn fn, double *ts, double *y, double *tmp,
 				double err_k = hs * (e[0]*k1[k] + e[1]*k2[k] + e[2]*k3[k] + 
 						e[3]*k4[k] + e[4]*k5[k] + e[5]*k6[k] + e[6]*k7[k]);
 
-				double scale = atol + rtol * fmax(fabs(state[k]), fabs(scratch[k]));
+				double scale = options->atol + options->rtol * fmax(fabs(state[k]), fabs(scratch[k]));
 				double ratio = err_k / scale;
 				err += ratio * ratio;
 			}
 			err = sqrt(err / ylen);
-			if(!isfinite(err)) { *tfail = t; return SOLVER_NOT_FINITE; }
+			if(!isfinite(err)) { options->tfail = t; return SOLVER_NOT_FINITE; }
 
 			if(err <= 1){                                      // Accept this step
 				t = capped ? ts[i] : t + hs;                     // Snaps to the next grid point
@@ -186,7 +189,7 @@ static SolverStatus rk45(OdeFn fn, double *ts, double *y, double *tmp,
 			}
 			
 			h = hs * clamp(0.9 * pow(err, -0.2), 0.2, 5);
-			if(h < 1e-12) { *tfail = t; return SOLVER_STEP_TOO_SMALL; }
+			if(h < 1e-12) { options->tfail = t; return SOLVER_STEP_TOO_SMALL; }
 
 		}
 
@@ -287,13 +290,27 @@ static Value ode_native(NATIVE_PARAMS, const char *name, OdeKernel kernel, size_
 	
 	double *yout  = arena_alloc(a, nt * ylen * sizeof(double));
 	double *tmp   = arena_alloc(a,  nwork * ylen * sizeof(double));
-	double  tfail = -1; // In case the solver fails at some time step
 
-	switch(kernel(user_defined_rhs, ts, y0, tmp, nt, ylen, yout, &ctx, &tfail)){
+	double atol = 1e-6;
+	double rtol = 1e-3;
+
+	if(!kwarg_number(e, name, kwargc, kwargs, "atol", &atol)){ return make_nan(); }
+	if(!kwarg_number(e, name, kwargc, kwargs, "rtol", &rtol)){ return make_nan(); }
+	if(atol == 0 && rtol == 0) { runtime_error(e, "%s: atol and rtol can't both be 0", name); return make_nan(); }
+	if(atol < 0) { runtime_error(e, "%s: atol must be >= 0", name); return make_nan(); }
+	if(rtol < 0) { runtime_error(e, "%s: rtol must be >= 0", name); return make_nan(); }
+
+	OdeOptions options = {
+		.tfail = -1,
+		.atol  = atol,
+		.rtol  = rtol
+	};
+
+	switch(kernel(user_defined_rhs, ts, y0, tmp, nt, ylen, yout, &ctx, &options)){
 		case SOLVER_OK: break;
 		case SOLVER_FN_FAILED: return make_nan(); // Already reported
-		case SOLVER_NOT_FINITE: { runtime_error(e, "%s: solver reached a non-finite value at t = %g", name, tfail) ; return make_nan();}
-		case SOLVER_STEP_TOO_SMALL: { runtime_error(e, "%s: solver step too small at t = %g", name, tfail) ; return make_nan();}
+		case SOLVER_NOT_FINITE: { runtime_error(e, "%s: solver reached a non-finite value at t = %g", name, options.tfail) ; return make_nan();}
+		case SOLVER_STEP_TOO_SMALL: { runtime_error(e, "%s: solver step too small at t = %g", name, options.tfail) ; return make_nan();}
 	}
 
 	if(ylen == 1) return make_real_vector(yout, nt);
@@ -302,6 +319,11 @@ static Value ode_native(NATIVE_PARAMS, const char *name, OdeKernel kernel, size_
 
 }
 
+static const char *const ODE_KWARGS[] = { 
+  "atol",
+  "rtol",
+  NULL 
+};
 static Value native_euler(NATIVE_PARAMS) {
 	return ode_native(a, e, script, argc, argv, kwargc, kwargs, silent, "euler", euler, 2);
 }
@@ -313,9 +335,9 @@ static Value native_rk45(NATIVE_PARAMS) {
 }
 
 static const NativeFn ode_natives[] = {
-	{ "euler", native_euler, 3, 3 },
-	{ "rk4",   native_rk4,   3, 3 },
-	{ "rk45",  native_rk45,  3, 3 },
+	{ "euler", native_euler, 3, 3},
+	{ "rk4",   native_rk4,   3, 3},
+	{ "rk45",  native_rk45,  3, 3, ODE_KWARGS},
 };
 
 const NativeModule ode_module = { "ode", ode_natives, LEN(ode_natives) };

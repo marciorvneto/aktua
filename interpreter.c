@@ -3817,6 +3817,20 @@ bool kwarg_string(Environment *e, const char *fn, size_t kwargc, const KwArg *kw
 	return true;
 }
 
+// Only returns false if there's an error. If the argument isn't there,
+// it returns true and doesn't write to out.
+bool kwarg_number(Environment *e, const char *fn, size_t kwargc, const KwArg *kwargs,
+		const char *name, double *out){
+	const Value *v = kwarg_get(kwargc, kwargs, name);
+	if(v == NULL) return true;
+	if(v->valueType != VALUE_NUMBER){
+		runtime_error(e, "%s: %s must be a number", fn, name);
+		return false;
+	}
+	*out = v->value.number;
+	return true;
+}
+
 bool kwarg_choice(Environment *e, const char *fn, size_t kwargc, const KwArg *kwargs,
                   const char *name, const char *const *choices, size_t def_idx, size_t *out){
   const char *given = NULL;
