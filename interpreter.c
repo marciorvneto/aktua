@@ -413,6 +413,7 @@ char *alloc_string(Arena *a, size_t len){
 	X(TOK_DOT,        "'.'")         \
 	X(TOK_EQ,         "'='")         \
 	X(TOK_DBL_EQ,     "'=='")        \
+	X(TOK_NEQ,     "'!='")           \
 	X(TOK_LT,         "'<'")         \
 	X(TOK_GT,         "'>'")         \
 	X(TOK_LEQ,        "'<='")        \
@@ -843,6 +844,11 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 		};
 		if(tokenizer_is_symbol(pos, "=") && tokenizer_lookahead(pos, "=")) {
 			Token tok = tokenizer_make_symbol(a, TOK_DBL_EQ, &tokenizer, 2);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if(tokenizer_is_symbol(pos, "!") && tokenizer_lookahead(pos, "=")) {
+			Token tok = tokenizer_make_symbol(a, TOK_NEQ, &tokenizer, 2);
 			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
@@ -1900,6 +1906,7 @@ AST *parse_comparison(Arena *pa, AST *parent, Parser *parser){
 	if(!left) return NULL;
 	while(!parser_done(parser) && (
 			parser_peek(parser)->type == TOK_DBL_EQ ||
+			parser_peek(parser)->type == TOK_NEQ    ||
 			parser_peek(parser)->type == TOK_LT     ||
 			parser_peek(parser)->type == TOK_GT     ||
 			parser_peek(parser)->type == TOK_LEQ    ||
@@ -1908,12 +1915,22 @@ AST *parse_comparison(Arena *pa, AST *parent, Parser *parser){
 	{
 		Token *op_tok         = parser_eat(parser_peek(parser)->type, parser);
 		if(!op_tok) return NULL;
-		AST   *binop          = ast_make_binop(pa, op_from_tok(op_tok->type));
+		OpType op_type        = op_tok->type == TOK_NEQ ? OP_DBL_EQ : op_from_tok(op_tok->type);
+		AST   *binop          = ast_make_binop(pa, op_type);
 		AST   *right          = parse_additive(pa, parent, parser);
 		if(!right)  return NULL;
 		binop->as.binop.left  = left;
 		binop->as.binop.right = right;
 		left = binop;
+
+		// Desugar !=
+
+		if(op_tok->type == TOK_NEQ){
+			AST *unop = ast_make_unop(pa, OP_NOT);
+			unop->as.unop.arg = binop;
+			left = unop;
+		}
+
 	}
 	return left;
 }
