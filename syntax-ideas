@@ -114,7 +114,7 @@ EXPO               = POSTFIX ^ UNARY
 POSTFIX            = PRIMARY POSTFIX_TAIL
 
 POSTFIX_TAIL       = "." id POSTFIX_TAIL
-                   | "[" ARGS_LIST "]" POSTFIX_TAIL
+                   | "[" INDEX_LIST "]" POSTFIX_TAIL
                    | eps
 
 PRIMARY            = number
@@ -150,9 +150,18 @@ ROW                = EXPRESSION ROW_TAIL
 ROW_TAIL           = "," EXPRESSION ROW_TAIL
                    | eps
 
-ARGS_LIST          = EXPRESSION ARGS_LIST_TAIL
+INDEX_LIST         = INDEX INDEX_LIST_TAIL
 
-ARGS_LIST_TAIL     = "," EXPRESSION ARGS_LIST_TAIL
+INDEX_LIST_TAIL    = "," INDEX INDEX_LIST_TAIL
+                   | eps
+
+INDEX              = EXPRESSION INDEX_TAIL        // i or a:b or a:
+                   | ":" SLICE_STOP               // or :b
+
+INDEX_TAIL         = ":" SLICE_STOP
+                   | eps
+
+SLICE_STOP         = EXPRESSION
                    | eps
 
 TUPLE              = "(" EXPRESSION "," TUPLE_TAIL ")"

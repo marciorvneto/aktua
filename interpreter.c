@@ -1001,6 +1001,7 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 	      X(AST_FN_CALL)        \
 	      X(AST_PARAM)          \
 	      X(AST_CALL)           \
+	      X(AST_SLICE)          \
 	      X(AST_KWARG)          \
 	      X(AST_ARGS_LIST)      \
 	      X(AST_NODE_TYPE_COUNT)
@@ -1195,6 +1196,11 @@ struct AST {
 			char   *name;
 			AST    *value;
 		} call_arg;
+
+		struct   {
+			AST *start;
+			AST *stop;
+		} slice;
 
 
 	} as;
@@ -1469,6 +1475,14 @@ AST *ast_make_kwarg(Arena *pa, const char *kwarg){
 	return call_arg;
 }
 
+AST *ast_make_slice(Arena *pa){
+	AST *slice = ast_alloc(pa, AST_SLICE);
+	slice->statement_type = STATEMENT_EXPR;
+	slice->as.slice.start = NULL;
+	slice->as.slice.stop  = NULL;
+	return slice;
+}
+
 bool count_call_args(AST *list, size_t *argc, size_t *kwargc){
 	bool has_seen_kwarg = false;
 	for(AST *arg = list; arg != NULL; arg = arg->next){
@@ -1563,7 +1577,7 @@ AST *parse_array(Arena *pa, AST *parent, Parser *parser){
 	return array;
 }
 
-AST *parse_args_list(Arena *pa, AST *parent, Parser *parser);
+AST *parse_index_list(Arena *pa, AST *parent, Parser *parser);
 AST *parse_call_args_list(Arena *pa, AST *parent, Parser *parser);
 AST *parse_fn_call(Arena *pa, AST *parent, Parser *parser){
     Token *name = parser_eat(TOK_ID, parser);
@@ -1619,16 +1633,63 @@ AST *parse_id(Arena *pa, AST *parent, Parser *parser) {
 		return id;
 }
 
+AST *parse_slice_stop(Arena *pa, AST *parent, Parser *parser){
+	size_t save = parser->next;
+	AST *expr = parse_expression(pa, parent, parser);
+	if(expr) return expr;
 
-AST *parse_args_list_tail(Arena *pa, AST *parent, Parser *parser){
-	if(!parser_eat(TOK_COMMA, parser)) return NULL;
-	return parse_args_list(pa, parent, parser);
+	parser->next = save;
+	return NULL;
 }
 
-AST *parse_args_list(Arena *pa, AST *parent, Parser *parser){
-	AST *first = parse_expression(pa, parent, parser);
+AST *parse_index_tail(Arena *pa, AST *parent, Parser *parser, AST *start){
+	// eps: no colon, just an expression
+	if(!parser_eat(TOK_COLON, parser)) return start;
+
+	// ":" SLICE_STOP
+	AST *slice            = ast_make_slice(pa);
+	slice->as.slice.start = start;
+	slice->as.slice.stop  = parse_slice_stop(pa, parent, parser);
+	return slice;
+}
+
+AST *parse_index_expr(Arena *pa, AST *parent, Parser *parser){
+	AST *expr = parse_expression(pa, parent, parser);
+	if(!expr) return NULL;
+	return parse_index_tail(pa, parent, parser, expr);
+}
+
+AST *parse_index_begin_slice(Arena *pa, AST *parent, Parser *parser){
+	if(!parser_eat(TOK_COLON, parser)) return NULL;
+	AST *slice = ast_make_slice(pa);
+	slice->as.slice.start = NULL;
+	slice->as.slice.stop  = parse_slice_stop(pa, parent, parser);
+	return slice;
+}
+
+AST *parse_index(Arena *pa, AST *parent, Parser *parser){
+	size_t save = parser->next;
+	AST *index = NULL;
+	if(
+			(parser->next = save, index = parse_index_expr(pa, parent, parser)) ||
+			(parser->next = save, index = parse_index_begin_slice(pa, parent, parser))
+		)
+	{
+		return index;
+	}
+	return NULL;
+}
+
+
+AST *parse_index_list_tail(Arena *pa, AST *parent, Parser *parser){
+	if(!parser_eat(TOK_COMMA, parser)) return NULL;
+	return parse_index_list(pa, parent, parser);
+}
+
+AST *parse_index_list(Arena *pa, AST *parent, Parser *parser){
+	AST *first = parse_index(pa, parent, parser);
 	if(first == NULL) return NULL;
-	AST *tail   = parse_args_list_tail(pa, parent, parser);
+	AST *tail   = parse_index_list_tail(pa, parent, parser);
 	first->next = tail;
 	return first;
 }
@@ -1832,7 +1893,7 @@ AST *parse_postfix_tail_dot(Arena *pa, AST *parent, Parser *parser, AST *target)
 }
 AST *parse_postfix_tail_lbrack(Arena *pa, AST *parent, Parser *parser, AST *target){
 	if(parser_eat(TOK_LBRACKET, parser) == NULL) return NULL;
-	AST *args_list = parse_args_list(pa, parent, parser);
+	AST *args_list = parse_index_list(pa, parent, parser);
 	if(!args_list) return NULL;
 	if(parser_eat(TOK_RBRACKET, parser) == NULL) return NULL;
 
@@ -2082,10 +2143,10 @@ int parse_lvalue(Arena *pa, AST *parent, Parser *parser, AST *stmt){
 		return 1;
 	}
 
-	AST *args_list = parse_args_list(pa, stmt, parser);
-	if(!args_list) return 0;
+	AST *index_list = parse_index_list(pa, stmt, parser);
+	if(!index_list) return 0;
 	if(parser_eat(TOK_RBRACKET, parser) == NULL) return 0;
-	stmt->as.statement.tensor_indices = args_list;
+	stmt->as.statement.tensor_indices = index_list;
 	return 1;
 }
 
@@ -2646,6 +2707,16 @@ void ast_print(AST *ast, int level){
 		case AST_ID:
 			{
         printf("%sID: %s\n", buf, ast->as.literal.value.id);
+				break;
+			}
+		case AST_SLICE:
+			{
+        printf("%sSLICE:\n", buf);
+				fill_indent(level + 1, buf);
+        printf("%sSTART:%s\n", buf, ast->as.slice.start ? "" : " (none)");
+				if(ast->as.slice.start) ast_print(ast->as.slice.start, level  + 2);
+        printf("%sSTOP:%s\n", buf, ast->as.slice.stop ? "" : " (none)");
+				if(ast->as.slice.stop) ast_print(ast->as.slice.stop, level  + 2);
 				break;
 			}
 		case AST_PARAM:
@@ -7178,6 +7249,12 @@ static bool resolve_index(Environment *e, const char *name, Value v, size_t axis
 	*out = (size_t)(raw < 0 ? raw + (double)size : raw);
 	return true;
 }
+
+typedef struct {
+	size_t start;
+	size_t len;
+	bool   kep; // Whether we keep the axis. Slices keep it, integers drop it
+} AxisRange;
 
 Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing, int *silent){
 
