@@ -19,7 +19,7 @@
 #include "core.h"
 #include "plot.h"
 
-#define AKTUA_VERSION "0.3.0"
+#define AKTUA_VERSION "0.4.0"
 #define DISPLAY_SIG 6
 
 #define POLY_CANCEL_TOL (64 * DBL_EPSILON)

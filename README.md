@@ -111,6 +111,8 @@ A few rules cover most of what you need:
 - `@` is the matrix product: `M @ a` gives `[14, 32]`, and `a @ a` gives the dot product, `14`.
 - `.T` transposes. A vector reads as a row, so `a.T` is a column, the same as `b`.
 - `.shape` gives the sizes: `M.shape` is `[2, 3]`.
+- `M[1]` is row 1 and `M[:, 0]` is column 0, `[1, 4]`. `a:b` runs from `a` up to, but not including, `b`, and negative numbers count from the end: `M[:, -2:]` is the last two columns. Slices are copies.
+- `==` compares whole values: `M[1] == [4, 5, 6]` is `true`.
 - Shapes that don't match are stretched where a size is 1 ([broadcasting](https://numpy.org/doc/stable/user/basics.broadcasting.html)). `M + a` adds `a` to every row, and `a.T * a` is the outer product, a 3x3 matrix.
 - Functions that expect a vector, like `poly`, `plot` and `step`, accept rows and columns alike.
 
@@ -165,6 +167,28 @@ Final level: 0.248759 m, steady state 0.25 m
 
 [`examples/ode.akt`](examples/ode.akt) compares forward Euler, backward Euler and RK4, and how their errors shrink with the step size.
 
+### Built-in solvers
+
+The `ode` module has solvers written in C: `euler`, `rk4`, and `rk45`, an adaptive Dormand-Prince method that takes `rtol` and `atol`. Each takes `f(t, y)`, a time grid and an initial state, and returns one row per time step:
+
+```rust
+import("ode")
+
+fn f(t, s) { [s[1], -s[0]] }    // x'' = -x, with s = [x, v]
+
+let t = linspace(0, 100, 201)
+let s = rk45(f, t, [1, 0], rtol=1e-8, atol=1e-10)
+print("Error at t = 100: " + abs(s[-1, 0] - cos(100)))
+```
+
+Output:
+
+```text
+Error at t = 100: 9.0316e-08
+```
+
+See [`examples/native_ode.akt`](examples/native_ode.akt).
+
 ## Status
 
 Aktua is under active development. Expect bugs, missing features, and breaking changes.
@@ -173,6 +197,7 @@ Aktua is under active development. Expect bugs, missing features, and breaking c
 
 Next:
 
+- Assigning to slices: `M[:, 0] = x`
 - Module scoping and dependency resolution
 - Records and closures
 - Linear algebra: solve, eigen, qr, etc.
@@ -180,7 +205,7 @@ Next:
 
 Later:
 
-- Native ODE solvers and optimization algorithms
+- Optimization algorithms
 - Automatic differentiation, towards neural networks and PINNs
 - An embeddable C API, so other applications can run Aktua scripts
 
