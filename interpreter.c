@@ -4546,6 +4546,23 @@ Value mul_tensor_tensor(Arena *a, Environment *e, Value *left, Value *right){
 	return make_tensor(out);
 }
 
+Value eq_tensor_tensor(Arena *a, Environment *e, Value *left, Value *right){
+	Tensor x = left->value.tensor;
+	Tensor y = right->value.tensor;
+
+	if(x.ndim != y.ndim) return make_boolean(false);
+	for(size_t k = 0; k < x.ndim; k++){ if(x.sizes[k] != y.sizes[k]) return make_boolean(false); }
+
+	size_t indices[MAX_DIMS];
+	for(size_t d = 0; d < x.count; d++){
+		tensor_unravel_index(&x, indices, d);
+		if(tensor_get_cx(&x, tensor_get_offset(&x, indices)) !=
+			 tensor_get_cx(&y, tensor_get_offset(&y, indices))){ return make_boolean(false); }
+	}
+	
+	return make_boolean(true);
+}
+
 
 
 //------------ Broadcasting --------------
@@ -5037,6 +5054,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 		},
 		[VALUE_TENSOR] = {
 			[VALUE_BOOLEAN] = op_with_nan,
+			[VALUE_TENSOR]  = eq_tensor_tensor,
 		},
 		[VALUE_POLYNOMIAL] = {
 			[VALUE_BOOLEAN] = op_with_nan,
