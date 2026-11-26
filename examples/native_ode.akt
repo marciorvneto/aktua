@@ -32,11 +32,11 @@ fn f2(t, s){
 	return [s[1], -s[0]]
 }
 
-let ts2 = linspace(0, 10, 201)
+let ts2 = linspace(0, 100, 201)
 
 // One row per time step: [x, v]
 let s_euler = euler(f2, ts2, [1, 0])
-let s_rk4   = rk4(f2, ts2, [1, 0])
+let s_rk4   = rk45(f2, ts2, [1, 0])
 
 // Position only, as in y = C x
 let C       = [1, 0]
@@ -45,4 +45,5 @@ let x_rk4   = s_rk4 @ C.T
 
 // Euler slowly pumps energy in, so its amplitude grows.
 // RK4 stays on top of the exact solution
-show(ts2, (x_euler, x_rk4, cos(ts2)), names=("Euler", "RK4", "Exact"))
+show(ts2, (x_rk4, cos(ts2)), names=("Dormand-Prince (RK45)", "Exact"))
+//show(ts2, (x_euler, x_rk4, cos(ts2)), names=("Euler", "Dormand-Prince (RK45)", "Exact"))
