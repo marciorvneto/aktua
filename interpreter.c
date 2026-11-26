@@ -411,6 +411,7 @@ char *alloc_string(Arena *a, size_t len){
 	X(TOK_RCURLY,     "'}'")         \
 	X(TOK_COMMA,      "','")         \
 	X(TOK_DOT,        "'.'")         \
+	X(TOK_COLON,        "':'")       \
 	X(TOK_EQ,         "'='")         \
 	X(TOK_DBL_EQ,     "'=='")        \
 	X(TOK_NEQ,     "'!='")           \
@@ -433,10 +434,6 @@ char *alloc_string(Arena *a, size_t len){
 	X(TOK_AT,         "'@'")         \
 	X(TOK_SEMI,       "';'")         \
 	X(TOK_TYPE_COUNT, " ")
-
-
-
-
 
 typedef enum {
 #define X(name, user) name,
@@ -955,6 +952,11 @@ int tokenize(Arena *a, const char *line, size_t n, Token *tokens , size_t *num_t
 		};
 		if((symbol_len = tokenizer_is_symbol(pos, "."))) {
 			Token tok = tokenizer_make_symbol(a, TOK_DOT, &tokenizer, symbol_len);
+			push_token(tokens, num_tokens, start, tokenizer.line, tok);
+			continue;
+		};
+		if((symbol_len = tokenizer_is_symbol(pos, ":"))) {
+			Token tok = tokenizer_make_symbol(a, TOK_COLON, &tokenizer, symbol_len);
 			push_token(tokens, num_tokens, start, tokenizer.line, tok);
 			continue;
 		};
