@@ -35,11 +35,11 @@
       <div class="download-buttons">
         <a class="button" data-os="windows" href="https://github.com/marciorvneto/aktua/releases/latest/download/aktua-windows-x86_64.zip">
           Download for Windows
-          <small>x86-64 · about 130 KB · Windows 10 or later</small>
+          <small>x86-64 · about 135 KB · Windows 10 or later</small>
         </a>
         <a class="button" data-os="linux" href="https://github.com/marciorvneto/aktua/releases/latest/download/aktua-linux-x86_64.tar.gz">
           Download for Linux
-          <small>x86-64 · about 155 KB · no dependencies</small>
+          <small>x86-64 · about 165 KB · no dependencies</small>
         </a>
       </div>
       <ol class="get-started">
@@ -159,6 +159,16 @@ aktua&gt; a.T * a
  [2, 4, 6],
  [3, 6, 9]]</samp></pre>
 
+      <p>Slices take rows, columns and ranges. Stops are exclusive, and negative numbers count from the end:</p>
+
+<pre class="output"><samp>aktua&gt; M[:, 0]
+
+[1, 4]
+
+aktua&gt; M[1, -2:]
+
+[5, 6]</samp></pre>
+
       <p>Transfer functions can be evaluated on whole vectors, so a frequency response is one line:</p>
 
 <pre class="output"><samp>aktua&gt; let s = poly([0, 1])
@@ -219,6 +229,22 @@ plot(t, h)</code></pre>
 0.0 ┤⡎⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
     └┬───────────┬───────────┬──────────┬───────────┬───────────┬
      0          100         200        300         400         500</samp></pre>
+
+      <p>
+        The <code>ode</code> module has the same idea built in, written in C:
+        <code>euler</code>, <code>rk4</code>, and <code>rk45</code>, an adaptive
+        Dormand-Prince method. Each returns one row per time step:
+      </p>
+
+<pre class="code"><code>import("ode")
+
+fn f(t, s) { [s[1], -s[0]] }    // x'' = -x, with s = [x, v]
+
+let t = linspace(0, 100, 201)
+let s = rk45(f, t, [1, 0], rtol=1e-8, atol=1e-10)
+print("Error at t = 100: " + abs(s[-1, 0] - cos(100)))</code></pre>
+
+<pre class="output"><samp>Error at t = 100: 9.0316e-08</samp></pre>
     </section>
 
     <section>
@@ -228,9 +254,10 @@ plot(t, h)</code></pre>
         <li>Poles, and impulse and step responses of LTI systems</li>
         <li>Discrete-time transfer functions, in <code>z</code></li>
         <li>Real and complex numbers, with the usual math functions</li>
-        <li>Vectors and matrices, with broadcasting, transposes and a matrix product</li>
+        <li>Vectors and matrices, with broadcasting, slicing, transposes and a matrix product</li>
         <li>Functions with default arguments, loops, conditionals, tuple unpacking and imports,
             enough to write your own ODE solvers</li>
+        <li>Built-in ODE solvers: Euler, RK4 and adaptive Dormand-Prince (RK45)</li>
         <li>Line plots, with linear or log axes, drawn in the terminal with braille
             characters or saved as SVG files</li>
         <li>An interactive REPL, or scripts run from the command line</li>
