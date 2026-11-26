@@ -1,0 +1,41 @@
+import("test.akt")
+import("ode")
+
+fn decay(t, y) { -y }
+fn osc(t, s) { [s[1], -s[0]] }
+
+let t = linspace(0, 1, 51)
+
+// dy/dt = -y, y(1) = exp(-1)
+assert_close(euler(decay, t, 1)[-1], exp(-1), 1e-2)
+assert_close(rk4(decay, t, 1)[-1],   exp(-1), 1e-9)
+assert_close(rk45(decay, t, 1)[-1],  exp(-1), 1e-9)
+
+// Shapes: a vector for one state, one row per time step otherwise
+assert_eq(len(rk4(decay, t, 1)), 51)
+let shape = rk4(osc, t, [1, 0]).shape
+assert_eq(shape[0], 51)
+assert_eq(shape[1], 2)
+
+// y0 is left alone
+let y0 = [1, 0]
+let s  = rk4(osc, t, y0)
+assert_eq(y0[0], 1)
+
+// RK4 is 4th order: halving h cuts the error ~16x
+let e1 = abs(exp(-1) - rk4(decay, linspace(0, 1, 11), 1)[-1])
+let e2 = abs(exp(-1) - rk4(decay, linspace(0, 1, 21), 1)[-1])
+assert_close(e1 / e2, 16, 1)
+
+// Grids don't have to start at 0. y = t - t^2/2, y(2) = 0
+fn ramp(t, y) { 1 - t }
+assert_close(rk45(ramp, linspace(2, 4, 5), 0)[-1], -4, 1e-12)
+
+// rk45 steps inside a coarse grid. rk4 with h = 10 blows up here
+let tc = linspace(0, 100, 11)
+assert_close(rk45(osc, tc, [1, 0], rtol=1e-8, atol=1e-10)[-1, 0], cos(100), 1e-5)
+
+// Tighter tolerances, smaller error
+let loose = abs(exp(-10) - rk45(decay, [0, 10], 1)[-1])
+let tight = abs(exp(-10) - rk45(decay, [0, 10], 1, rtol=1e-8, atol=1e-12)[-1])
+assert_true(tight < loose / 100, "tight tolerances should be more accurate")
