@@ -26,11 +26,11 @@ assert_eq(x, 32)
 
 let h = [1, 2, 3]
 h[0] += 10
-assert_eq(h[0], 11)
+assert_eq(h, [11, 2, 3])
 
 let h = [1, 2, 3]
 h[-1] = 9
-assert_eq(h[2], 9)
+assert_eq(h, [1, 2, 9])
 h[-1] *= 2
-assert_eq(h[2], 18)
+assert_eq(h, [1, 2, 18])
 

@@ -11,6 +11,13 @@
 #define MAX(x,y) ((x) > (y) ? (x) : (y))
 #define MIN(x,y) ((x) < (y) ? (x) : (y))
 
+#ifdef __MINGW_PRINTF_FORMAT
+#define AKTUA_PRINTF __MINGW_PRINTF_FORMAT
+#else
+#define AKTUA_PRINTF printf
+#endif
+
+
 //============================== 
 //
 //    Arena
@@ -185,6 +192,25 @@ Value make_tuple(Tuple tuple);
 
 //============================== 
 //
+//    Printing
+//
+//============================== 
+
+// A common interface for printing
+typedef struct {
+	FILE   *file;
+	Arena  *a;
+	char   *buf;
+	size_t  len;
+	size_t  cap;
+} Out;
+
+void out_putc(Out *o, char c);
+void out_puts(Out *o, const char *s);
+void out_printf(Out *o, const char *fmt, ...) __attribute__((format(AKTUA_PRINTF, 2, 3)));
+
+//============================== 
+//
 //    Runtime
 //
 //============================== 
@@ -212,12 +238,6 @@ struct Environment {
 	RunStats    *run_stats;
 	char        *exe_path;
 };
-
-#ifdef __MINGW_PRINTF_FORMAT
-#define AKTUA_PRINTF __MINGW_PRINTF_FORMAT
-#else
-#define AKTUA_PRINTF printf
-#endif
 
 void runtime_error(Environment *e, const char *fmt, ...)
 	__attribute__((format(AKTUA_PRINTF, 2, 3)));

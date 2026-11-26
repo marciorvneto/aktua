@@ -3190,6 +3190,21 @@ char *cat_strings(Arena *a, char *str1, char *str2){
   return new_str;
 }
 
+static void write_value(Out *out, Arena *ta, Environment *e, Value *value, int indent, bool quote_strings);
+
+static char *string_from_value(Arena *a, Environment *e, Value *v){
+	Out out = {.a = a };
+	write_value(&out, a, e, v, 0, false);
+	return out.buf ? out.buf : cstr_clone(a, "");
+}
+
+Value cat_string_value(Arena *a, Environment *e, Value *str, Value *v){
+	return make_string(cat_strings(a, str->value.str, string_from_value(a, e, v)));
+}
+Value cat_value_string(Arena *a, Environment *e, Value *v, Value *str){
+	return make_string(cat_strings(a, string_from_value(a, e, v), str->value.str));
+}
+
 char *string_from_num(Arena *a, double num){
   char *num_str = arena_alloc(a, 32);
   format_number(num_str, 32, num, DISPLAY_SIG);
@@ -4767,7 +4782,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_TENSOR]            = broadcast_add,
 			[VALUE_POLYNOMIAL]        = add_num_poly,
 			[VALUE_TRANSFER_FUNCTION] = add_num_tf,
-			[VALUE_STRING]            = cat_num_str,
+			[VALUE_STRING]            = cat_value_string,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_COMPLEX]              = {
@@ -4777,7 +4792,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_TENSOR]            = broadcast_add,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
-			[VALUE_STRING]            = op_with_nan,
+			[VALUE_STRING]            = cat_value_string,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_TENSOR] = {
@@ -4787,6 +4802,7 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_TENSOR]            = broadcast_add,
 			[VALUE_POLYNOMIAL]        = op_with_nan,
 			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
+			[VALUE_STRING]            = cat_value_string,
 			[VALUE_NAN]               = op_with_nan,
 		},
 		[VALUE_POLYNOMIAL] = {
@@ -4794,22 +4810,33 @@ static const BinaryFn binop_dispatch[OP_TYPE_LIST_COUNT][VALUE_TYPE_COUNT][VALUE
 			[VALUE_TENSOR]            = op_with_nan,
 			[VALUE_POLYNOMIAL]        = add_poly_poly,
 			[VALUE_TRANSFER_FUNCTION] = add_tf_poly,
+			[VALUE_STRING]            = cat_value_string,
 			[VALUE_NAN]               = op_with_nan,
 		},
     [VALUE_TRANSFER_FUNCTION] = {
 			[VALUE_NUMBER]            = add_num_tf,
-			[VALUE_TENSOR]             = op_with_nan,
+			[VALUE_TENSOR]            = op_with_nan,
 			[VALUE_POLYNOMIAL]        = add_tf_poly,
 			[VALUE_TRANSFER_FUNCTION] = add_tf_tf,
+			[VALUE_STRING]            = cat_value_string,
 			[VALUE_NAN]               = op_with_nan,
     },
 		[VALUE_STRING] = {
-			[VALUE_NUMBER]            = cat_str_num,
-			[VALUE_TENSOR]             = op_with_nan,
-			[VALUE_POLYNOMIAL]        = op_with_nan,
-			[VALUE_TRANSFER_FUNCTION] = op_with_nan,
-			[VALUE_STRING]            = cat_str_str,    
+			[VALUE_NUMBER]            = cat_string_value,
+			[VALUE_COMPLEX]           = cat_string_value,
+			[VALUE_TENSOR]            = cat_string_value,
+			[VALUE_POLYNOMIAL]        = cat_string_value,
+			[VALUE_TRANSFER_FUNCTION] = cat_string_value,
+			[VALUE_BOOLEAN]           = cat_string_value,
+			[VALUE_TUPLE]             = cat_string_value,
+			[VALUE_STRING]            = cat_string_value,    
 			[VALUE_NAN]               = op_with_nan,
+		},
+		[VALUE_TUPLE] = {
+			[VALUE_STRING]            = cat_value_string,    
+		},
+		[VALUE_BOOLEAN] = {
+			[VALUE_STRING]            = cat_value_string,    
 		},
 		[VALUE_NAN] = {
 			[VALUE_NUMBER]            = op_with_nan,
@@ -6319,13 +6346,15 @@ Value eval_binop(Arena *a, Environment *e, AST *op, Value *raw_left, Value *raw_
 
 	Value tmp_l, tmp_r;
 	if(op_is_arithmetic(op->as.binop.op)){
-		if(left->valueType == VALUE_BOOLEAN){
-			tmp_l = promote_bool_to_number(left);
-			left = &tmp_l;
-		}
-		if(right->valueType == VALUE_BOOLEAN){
-			tmp_r = promote_bool_to_number(right);
-			right = &tmp_r;
+		if(left->valueType != VALUE_STRING && right->valueType != VALUE_STRING){ // Keeps printing nice
+			if(left->valueType == VALUE_BOOLEAN){
+				tmp_l = promote_bool_to_number(left);
+				left = &tmp_l;
+			}
+			if(right->valueType == VALUE_BOOLEAN){
+				tmp_r = promote_bool_to_number(right);
+				right = &tmp_r;
+			}
 		}
 	}
 	BinaryFn fn = binop_dispatch[op->as.binop.op][left->valueType][right->valueType];
@@ -6517,6 +6546,63 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 //
 //============================== 
 
+// This helper always makes sure we have enough space
+// in the buffer for writing
+static void out_reserve(Out *o, size_t amount){
+	size_t need = o->len + amount + 1;
+	if(need <= o->cap) return;
+	size_t new_cap = o->cap ? o->cap : 64;
+	while(new_cap < need) new_cap *= 2;
+	char *new_buf = arena_alloc(o->a, new_cap);
+	if(o->len) memcpy(new_buf, o->buf, o->len);
+	o->buf = new_buf;
+	o->cap = new_cap;
+}
+
+void out_putc(Out *o, char c){
+	if(o->file) { fputc(c, o->file); return; }
+	out_reserve(o, 1);
+	o->buf[o->len++] = c;
+	o->buf[o->len] = '\0';
+}
+
+void out_puts(Out *o, const char *s){
+	if(o->file) { fputs(s, o->file); return; }
+	size_t n = strlen(s);
+	out_reserve(o, n);
+	memcpy(o->buf + o->len, s, n);
+	o->len         += n;
+	o->buf[o->len]  = '\0';
+}
+
+void out_printf(Out *o, const char *fmt, ...) __attribute__((format(AKTUA_PRINTF, 2, 3)));
+void out_printf(Out *o, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	
+	if(o->file){
+		vfprintf(o->file, fmt, args);
+		va_end(args);
+		return;
+	}
+
+	// The well-known measure-then-write pattern:
+	// first we measure
+	va_list copy;
+	va_copy(copy, args);
+	int n = vsnprintf(NULL, 0, fmt, copy);
+	va_end(copy);
+
+	// Then we write
+	if(n > 0) {
+		out_reserve(o, (size_t)n);
+		vsnprintf(o->buf + o->len, (size_t)n + 1, fmt, args);
+		o->len += (size_t)n;
+	}
+	va_end(args);
+}
+
+
 int format_complex(char *buf, size_t n, double complex z, int sig, bool compact){
   char re_buf[32], im_buf[32];
   double im = cimag(z);
@@ -6543,30 +6629,30 @@ int tensor_max_width(Tensor *t){
   return width;
 }
 
-void write_tensor_element(FILE *out, const Tensor *t, size_t off, int width){
+void write_tensor_element(Out *out, const Tensor *t, size_t off, int width){
   char buf[80];
   format_tensor_element(buf, sizeof(buf), t, off);
-  fprintf(out, "%*s", width, buf);
+  out_printf(out, "%*s", width, buf);
 }
 
-void write_tensor_rec(FILE *out, Tensor *t, size_t dim, size_t offset, int width, int indent){
-  fputc('[', out);
+void write_tensor_rec(Out *out, Tensor *t, size_t dim, size_t offset, int width, int indent){
+  out_putc(out, '[');
   for(size_t i = 0; i < t->sizes[dim]; i++){
     size_t off = offset + i * t->strides[dim];
     if(dim == t->ndim - 1) write_tensor_element(out, t, off, width);
     else                   write_tensor_rec(out, t, dim + 1, off, width, indent);
 
     if(i + 1 == t->sizes[dim]) continue;                       // nothing after the last 
-    if(dim == t->ndim - 1){ fputs(", ", out); continue; }      // between numbers in a row
+    if(dim == t->ndim - 1){ out_puts(out, ", "); continue; }      // between numbers in a row
 
-    fputc(',', out);
-    for(size_t k = 0; k < t->ndim - dim - 1; k++) fputc('\n', out);  // newline, plus a 
-    fprintf(out, "%*s", indent + (int)dim + 1, "");               // line up under the 
+    out_putc(out, ',');
+    for(size_t k = 0; k < t->ndim - dim - 1; k++) out_putc(out, '\n');  // newline, plus a 
+    out_printf(out, "%*s", indent + (int)dim + 1, "");               // line up under the 
   }
-  fputc(']', out);
+  out_putc(out, ']');
 }
           
-void write_tensor(FILE *out, Tensor *t, int indent){
+void write_tensor(Out *out, Tensor *t, int indent){
   write_tensor_rec(out, t, 0, 0, tensor_max_width(t), indent);
 }
 
@@ -6580,14 +6666,13 @@ bool is_scalar(Value *v){
 	return true;
 }
 
-static void write_indented(FILE *out, const char *s, int indent){
+static void write_indented(Out *out, const char *s, int indent){
 	for(; *s != '\0'; s++){
-		fputc(*s, out);
-		if(*s == '\n') fprintf(out, "%*s", indent, "");
+		out_putc(out, *s);
+		if(*s == '\n') out_printf(out, "%*s", indent, "");
 	}
 }
 
-static void write_value(FILE *out, Arena *ta, Environment *e, Value *value, int indent, bool quote_strings);
 
 static bool tuple_fits_inline(Tuple *t){
 	for(size_t i = 0; i < t->size; i++){
@@ -6607,33 +6692,33 @@ static bool tuple_fits_inline(Tuple *t){
 //   [1, 2, 3],
 //   [4, 5, 6],
 // )
-static void write_tuple(FILE *out, Arena *ta, Environment *e, Tuple *t, int indent){
+static void write_tuple(Out *out, Arena *ta, Environment *e, Tuple *t, int indent){
 	if(tuple_fits_inline(t)){
-		fputc('(', out);
+		out_putc(out, '(');
 		for(size_t i = 0; i < t->size; i++){
 			write_value(out, ta, e, &t->items[i], indent, true);
-			if(i + 1 < t->size) fputs(", ", out);
+			if(i + 1 < t->size) out_puts(out, ", ");
 		}
-		fputc(')', out);
+		out_putc(out, ')');
 		return;
 	}
 
-	fputs("(\n", out);
+	out_puts(out, "(\n");
 	for(size_t i = 0; i < t->size; i++){
-		fprintf(out, "%*s", indent + 2, "");
+		out_printf(out, "%*s", indent + 2, "");
 		write_value(out, ta, e, &t->items[i], indent + 2, true);
-		fputs(",\n", out);
+		out_puts(out, ",\n");
 	}
-	fprintf(out, "%*s)", indent, "");
+	out_printf(out, "%*s)", indent, "");
 }
 
-static void write_value(FILE *out, Arena *ta, Environment *e, Value *value, int indent, bool quote_strings){
+static void write_value(Out *out, Arena *ta, Environment *e, Value *value, int indent, bool quote_strings){
 	switch(value->valueType){
 		case VALUE_ID:
 			{
 				Value resolved = resolve_variable(ta, e, value);
 				if(resolved.valueType == VALUE_NAN){
-					fputs(value->value.id, out);
+					out_puts(out, value->value.id);
 				}else{
 					write_value(out, ta, e, &resolved, indent, quote_strings);
 				}
@@ -6641,19 +6726,19 @@ static void write_value(FILE *out, Arena *ta, Environment *e, Value *value, int 
 			}
 		case VALUE_NAN:
 			{
-				fputs("nan", out);
+				out_puts(out, "nan");
 				break;
 			}
 		case VALUE_NUMBER:
 			{
         char buf[32];
         format_number(buf, 32, value->value.number, DISPLAY_SIG);
-				fputs(buf, out);
+				out_puts(out, buf);
 				break;
 			}
 		case VALUE_BOOLEAN:
 			{
-				fputs(value->value.boolean ? "true" : "false", out);
+				out_puts(out, value->value.boolean ? "true" : "false");
 				break;
 			}
 		case VALUE_COMPLEX: 
@@ -6664,13 +6749,13 @@ static void write_value(FILE *out, Arena *ta, Environment *e, Value *value, int 
             DISPLAY_SIG, false);
         else                                                  format_number(buf, sizeof(buf),
             creal(z), DISPLAY_SIG);
-        fputs(buf, out);
+        out_puts(out, buf);
         break;
       }
 		case VALUE_STRING:
 			{
-        if(quote_strings) fprintf(out, "\"%s\"", value->value.str);
-        else              fputs(value->value.str, out);
+        if(quote_strings) out_printf(out, "\"%s\"", value->value.str);
+        else              out_puts(out, value->value.str);
 				break;
 			}
 		case VALUE_TENSOR:
@@ -6710,7 +6795,7 @@ static void write_value(FILE *out, Arena *ta, Environment *e, Value *value, int 
               buf
           );
         }
-        fprintf(out, "%s%s", value->value.fun.kind == FN_NATIVE ? "native " : "", buf);
+        out_printf(out, "%s%s", value->value.fun.kind == FN_NATIVE ? "native " : "", buf);
 				break;
 			}
 		case VALUE_TRANSFER_FUNCTION:
@@ -6730,7 +6815,8 @@ static void write_value(FILE *out, Arena *ta, Environment *e, Value *value, int 
 // Prints a single value followed by one newline, without the blank lines
 // that print_value puts around top-level results.
 static void print_value_bare(Arena *ta, Environment *e, Value *value){
-	write_value(stdout, ta, e, value, 0, false);
+	Out out = { .file = stdout };
+	write_value(&out, ta, e, value, 0, false);
 	putchar('\n');
 }
 

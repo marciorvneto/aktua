@@ -13,14 +13,12 @@ assert_close(rk45(decay, t, 1)[-1],  exp(-1), 1e-9)
 
 // Shapes: a vector for one state, one row per time step otherwise
 assert_eq(len(rk4(decay, t, 1)), 51)
-let shape = rk4(osc, t, [1, 0]).shape
-assert_eq(shape[0], 51)
-assert_eq(shape[1], 2)
+assert_eq(rk4(osc, t, [1, 0]).shape, [51, 2])
 
 // y0 is left alone
 let y0 = [1, 0]
 let s  = rk4(osc, t, y0)
-assert_eq(y0[0], 1)
+assert_eq(y0, [1, 0])
 
 // RK4 is 4th order: halving h cuts the error ~16x
 let e1 = abs(exp(-1) - rk4(decay, linspace(0, 1, 11), 1)[-1])
