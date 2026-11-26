@@ -7253,8 +7253,51 @@ static bool resolve_index(Environment *e, const char *name, Value v, size_t axis
 typedef struct {
 	size_t start;
 	size_t len;
-	bool   kep; // Whether we keep the axis. Slices keep it, integers drop it
+	bool   keep; // Whether we keep the axis. Slices keep it, integers drop it
 } AxisRange;
+
+static bool resolve_slice(Arena *ta, Environment *e, char *script_path, int *silent,
+													const char *name, AST *slice, size_t axis, size_t size,
+													AxisRange *out)
+{
+	double raw_start = 0;
+	if(slice->as.slice.start){
+		Value v = eval_expr(ta, e, script_path, slice->as.slice.start, silent);
+		if(v.valueType != VALUE_NUMBER) { 
+			runtime_error(e, "%s: slice indices must be numbers", name);
+			return false;
+		}
+		if(v.value.number != round(v.value.number)){
+			runtime_error(e, "%s: slice indices must be integers", name);
+			return false;
+		}
+		raw_start = v.value.number;
+		if(v.value.number < 0) raw_start += size;
+	}
+
+	double raw_stop = size;
+	if(slice->as.slice.stop){
+		Value v = eval_expr(ta, e, script_path, slice->as.slice.stop, silent);
+		if(v.valueType != VALUE_NUMBER) { 
+			runtime_error(e, "%s: slice indices must be numbers", name);
+			return false;
+		}
+		if(v.value.number != round(v.value.number)){
+			runtime_error(e, "%s: slice indices must be integers", name);
+			return false;
+		}
+		raw_stop = v.value.number;
+		if(raw_stop < 0) raw_stop += size;
+	}
+	if(!(0 <= raw_start && raw_start <= raw_stop && raw_stop <= size)){
+		runtime_error(e, "%s: indices out of order: expected 0 <= %g <= %g <= %zu", name, raw_start, raw_stop, size);
+		return false;
+	}
+	size_t start = (size_t) raw_start;
+	size_t stop  = (size_t) raw_stop;
+	*out = (AxisRange) {start, stop - start, true};
+	return true;
+}
 
 Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing, int *silent){
 
@@ -7265,45 +7308,81 @@ Value eval_indexing(Arena *ta, Environment *e, char *script_path, AST *indexing,
 	Value target_value = eval_expr(ta, e, script_path, target, silent);
 	if(e->run_stats->runtime_errors != errors) return make_nan();
 
-	size_t n = 0;
-	Value idx[MAX_DIMS];
-	for(AST *node = indexing->as.indexing.first; node != NULL; node = node->next){
-		if(n == MAX_DIMS){
+	if(target_value.valueType == VALUE_TUPLE){
+		AST *node = indexing->as.indexing.first;
+		if(node->next != NULL){
+			runtime_error(e, "Tuples take a single index: %s", name);
+			return make_nan();
+		}
+		Value v = eval_expr(ta, e, script_path, node, silent);
+		if(e->run_stats->runtime_errors != errors) return make_nan();
+		size_t i;
+		if(!resolve_index(e, name, v, 0, target_value.value.tuple.size, &i)) return make_nan();
+		return target_value.value.tuple.items[i];
+	}
+
+	if(target_value.valueType != VALUE_TENSOR) { 
+		runtime_error(e, "Can't index from variable %s", name);
+		return make_nan();
+	}
+
+
+	AxisRange ar[MAX_DIMS];
+	size_t k  = 0;
+	Tensor *t = &target_value.value.tensor;
+	for(AST *node = indexing->as.indexing.first; node != NULL; node = node->next, k++){
+		if(k == t->ndim){
 			runtime_error(e, "Too many indices");
 			return make_nan();
 		}
-		idx[n++] = eval_expr(ta, e, script_path, node, silent);
+
+		if(node->type == AST_SLICE){
+			if(!resolve_slice(ta, e, script_path, silent, name, node, k, t->sizes[k], &ar[k])) return make_nan();
+		}else{
+			Value v = eval_expr(ta, e, script_path, node, silent);
+			if(e->run_stats->runtime_errors != errors) return make_nan();
+			size_t i;
+			if(!resolve_index(e, name, v, k, t->sizes[k], &i)) return make_nan();
+			ar[k] = (AxisRange) { i, 1, false};
+		}
 		if(e->run_stats->runtime_errors != errors) return make_nan();
 	}
 
-	if(target_value.valueType == VALUE_TENSOR){
-		Tensor *t = &target_value.value.tensor;
-		if(n != t->ndim){
-			runtime_error(e, "%s has %zu dimensions, got %zu indices", name, t->ndim, n);
-			return make_nan();
-		}
+	// This is for supporting shortcuts like: M[1] = M[1,:,:,:]
+	for(; k < t->ndim; k++) ar[k] = (AxisRange){ 0, t->sizes[k], true };
+	size_t out_sizes[MAX_DIMS];
+	size_t out_ndim = 0;
+	for(size_t j = 0; j < t->ndim; j++) if(ar[j].keep) out_sizes[out_ndim++] = ar[j].len;
+
+	if(out_ndim == 0) { // Every index was an integer (no slices)
 		size_t off = 0;
-		for(size_t k = 0; k < n; k++){
-			size_t i;
-			if(!resolve_index(e, name, idx[k], k, t->sizes[k], &i)) return make_nan();
-			off += i * t->strides[k];
-		}
+		for(size_t j = 0; j < t->ndim; j++) off += ar[j].start * t->strides[j];
 		if(t->dtype == DTYPE_COMPLEX) return make_complex(t->data.cx[off]);
 		return make_num(t->data.re[off]);
 	}
 
-	if(target_value.valueType == VALUE_TUPLE){
-		if(n != 1){
-			runtime_error(e, "Tuples take a single index: %s", name);
-			return make_nan();
-		}
-		size_t i;
-		if(!resolve_index(e, name, idx[0], 0, target_value.value.tuple.size, &i)) return make_nan();
-		return target_value.value.tuple.items[i];
-	}
+	// Gathering the output tensor
+	Tensor out;
+	if(tensor_init(ta, &out, out_ndim, out_sizes, t->dtype) != 0) return make_nan();
 
-	runtime_error(e, "Can't index from variable %s", name);
-	return make_nan();
+	size_t out_idx[MAX_DIMS];
+	size_t src[MAX_DIMS];
+	for(size_t j = 0; j < out.count; j++){
+		// Which output element is this?
+		tensor_unravel_index(&out, out_idx, j);
+
+		// Where did it come from? Dropped axes stay at start,
+		// kept axes advance with the next output coordinate
+		size_t p = 0;
+		for(size_t d = 0; d < t->ndim; d++)
+			src[d] = ar[d].start + (ar[d].keep ? out_idx[p++] : 0);
+
+		size_t to   = tensor_get_offset(&out, out_idx);
+		size_t from = tensor_get_offset(t, src);
+		if(t->dtype == DTYPE_COMPLEX) out.data.cx[to] = t->data.cx[from];
+		else                          out.data.re[to] = t->data.re[from];
+	}
+	return make_tensor(out);
 }
 
 Value eval_array(Arena *ta, Environment *e, char *script_path, AST *array, int *silent){
@@ -7558,6 +7637,10 @@ int eval_tensor_assignment(Arena *ta, Environment *e, char *script_path, AST *st
 	{
 		if(index_count >= ndim){
 			runtime_error(e, "%s has %zu dimensions, got more indices", dst, ndim);
+			return 1;
+		}
+		if(index->type == AST_SLICE){
+			runtime_error(e, "%s: assigning to slices coming soon :)", dst);
 			return 1;
 		}
 		Value idx_value = eval_expr(ta, e, script_path, index, silent);
