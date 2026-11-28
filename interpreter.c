@@ -58,7 +58,12 @@ void arena_destroy(Arena *a){
 void *arena_alloc(Arena *a, size_t size){
 	size_t aligned_offset = ALIGN_ALLOC(a->offset, ALIGNMENT);
 	if(aligned_offset + size > a->capacity){
-		fprintf(stderr, "Arena capacity exceeded. Currently at %zu, requested %zu\n", a->offset, size);
+		fprintf(stderr,
+				"Out of memory: the %zu MB arena is full.\n"
+				"Memory is released when a function returns, so a loop that keeps\n"
+				"building new values grows until then. Preallocate with zeros() and\n"
+				"assign elements, or move the loop body into a function.\n",
+				a->capacity / (1024 * 1024));
 		exit(1);
 	}
 	a->offset = aligned_offset + size;
