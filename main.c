@@ -13,9 +13,9 @@ int main(int argc, char **argv){
 
 	char *exe_path_owned = platform_exe_path();
 	char *exe_path       = exe_path_owned ? exe_path_owned : argv[0];
-	Arena ta             = arena_create(32 * 1024 * 1024); // 32 MB for now
-	Arena pa             = arena_create(32 * 1024 * 1024); // 32 MB for now
-	Arena fa             = arena_create(32 * 1024 * 1024);  // Frame arena
+	Arena ta             = arena_create(64 * 1024 * 1024);  // 64 MB for now
+	Arena pa             = arena_create(64 * 1024 * 1024);  // 64 MB for now
+	Arena fa             = arena_create(64 * 1024 * 1024);  // Frame arena
 	Environment e        = env_create(&pa, &fa, &run_stats, exe_path);
 
 	if(argc < 2){
