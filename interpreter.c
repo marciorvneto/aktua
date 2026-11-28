@@ -6610,6 +6610,7 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 	// Push a new environment for the function scope
 
   size_t scratch = arena_save(e->frame);
+	size_t t_mark  = arena_save(ta);
 	Environment *new_env = push_env(e);
 
 	// Set its argument values to those evaluated before
@@ -6626,6 +6627,7 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
   }
   if(errors != e->run_stats->runtime_errors){
     arena_restore(e->frame, scratch);
+    arena_restore(ta, t_mark);
     return make_nan();
   }
 
@@ -6635,16 +6637,22 @@ Value call_function(Arena *ta, Environment *e, char *script_path, const char *na
 
   if(out == EXEC_ERROR){
     arena_restore(e->frame, scratch);
+		arena_restore(ta, t_mark);
     return make_nan();
   }
 
   if(out == EXEC_BREAK || out == EXEC_CONTINUE){
     runtime_error(e, "%s outside a loop", out == EXEC_BREAK ? "break" : "continue");
     arena_restore(e->frame, scratch);
+    arena_restore(ta, t_mark);
     return make_nan();
   }
 
   Value escaped = value_clone(ta, &result);
+  arena_restore(e->frame, scratch);
+	Value parked  = value_clone(e->frame, &escaped);
+	arena_restore(ta, t_mark);
+	escaped       = value_clone(ta, &parked);
   arena_restore(e->frame, scratch);
 	return escaped;
 }
