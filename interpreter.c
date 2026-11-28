@@ -5568,23 +5568,37 @@ Value native_len(NATIVE_PARAMS){
 }
 
 Value native_push(NATIVE_PARAMS){ 
-  Value tens = argv[0];
+  Value cont = argv[0];
   Value val  = argv[1];
+
+	if(cont.valueType == VALUE_TUPLE){
+		Tuple *tuple = &cont.value.tuple;
+		size_t len   = tuple->size + 1;
+		Value *items = arena_alloc(a, len * sizeof(Value));
+		for(size_t i = 0; i < tuple->size; i++) items[i] = tuple->items[i];
+		items[tuple->size] = val;
+		Tuple new_tuple = {
+			.items = items,
+			.size  = len
+		};
+		return make_tuple(new_tuple);
+	}
+
   if(
-      tens.valueType != VALUE_TENSOR ||
+      cont.valueType != VALUE_TENSOR ||
       (val.valueType != VALUE_NUMBER && val.valueType != VALUE_COMPLEX)
     )
   {
-    runtime_error(e, "push: expected an array and a number");
+    runtime_error(e, "push: expected an array or a tuple");
     return make_nan();
   }
-	if(tens.value.tensor.ndim != 1){
+	if(cont.value.tensor.ndim != 1){
     runtime_error(e, "push: expected a 1D array");
     return make_nan();
 	}
 
 	Tensor new_t;
-	Tensor old_t           = tens.value.tensor;
+	Tensor old_t           = cont.value.tensor;
 	size_t sizes[MAX_DIMS] = {0};
 	size_t len             = old_t.count + 1;
 	sizes[0]               = len;
